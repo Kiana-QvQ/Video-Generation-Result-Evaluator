@@ -308,9 +308,11 @@ def _compute_lpips(
 
 
 def _mean(values: list[float | None]) -> float | None:
-    valid = [value for value in values if value is not None and math.isfinite(value)]
-    if any(value == float("inf") for value in values if value is not None):
-        return float("inf")
+    valid = [
+        float(value)
+        for value in values
+        if value is not None and math.isfinite(float(value))
+    ]
     return float(np.mean(valid)) if valid else None
 
 

@@ -7,7 +7,7 @@ from .runtime import PROJECT_ROOT
 
 
 DEFAULT_JUDGE_ID = "qwen2_vl_2b_awq"
-PROFILE_PATH = PROJECT_ROOT / "model_profile_compact_9p6g.json"
+PROFILE_PATH = PROJECT_ROOT / "config" / "model_profile.json"
 
 MODEL_PROFILES: dict[str, dict[str, Any]] = {
     "qwen2_vl_2b_awq": {

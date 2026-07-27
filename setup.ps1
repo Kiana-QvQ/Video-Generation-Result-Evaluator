@@ -42,11 +42,11 @@ if ($Cuda) {
 & $python -m pip install -r (Join-Path $root "requirements.txt")
 if ($Optional) {
     Write-Host "Installing optional exact evaluator backends..."
-    & $python -m pip install -r (Join-Path $root "requirements-optional.txt")
+    & $python -m pip install -r (Join-Path $root "requirements\optional.txt")
 }
 if ($VBench) {
     Write-Host "Installing the optional VBench backend..."
-    & $python -m pip install -r (Join-Path $root "requirements-vbench.txt")
+    & $python -m pip install -r (Join-Path $root "requirements\vbench.txt")
 }
 
 Write-Host ""
@@ -54,9 +54,10 @@ Write-Host "Project environment is ready."
 Write-Host "Start with: .\run.ps1"
 if ($Optional) {
     Write-Host "Optional evaluator packages are ready."
+    Write-Host "Download weights with: .\scripts\download-optional-assets.ps1 -SkipPythonPackages"
 }
 if ($VBench) {
-    Write-Host "VBench package is ready. Download its assets with: .\download-vbench-models.ps1"
+    Write-Host "VBench package is ready. Download its assets with: .\scripts\download-vbench-models.ps1"
 }
 if ($Cuda) {
     Write-Host "CUDA mode requested. Verify with: .\.venv\Scripts\python.exe -c `"import torch; print(torch.version.cuda, torch.cuda.is_available())`""

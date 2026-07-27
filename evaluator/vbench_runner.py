@@ -266,7 +266,7 @@ def run_vbench(
             "available": False,
             "status": "not_installed",
             "installation": (
-                "未检测到 VBench。请先安装 requirements-vbench.txt，或设置 "
+                "未检测到 VBench。请先安装 requirements/vbench.txt，或设置 "
                 "VBENCH_ROOT 指向 VBench 源码目录。"
             ),
             "dimensions": dimensions,

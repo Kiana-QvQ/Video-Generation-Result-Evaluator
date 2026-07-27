@@ -24,16 +24,46 @@ GT 视频、参考图、参考动作视频和文本 Prompt，系统会选择适�
 .\run.ps1
 ```
 
-打开 `http://127.0.0.1:7860`。当前唯一的实际服务入口是
-`web_app.py`；`run-web.ps1` 和 `run-web.cmd` 仅作为旧命令和双击启动的
-兼容包装器。
+打开 `http://127.0.0.1:7860`。服务入口是根目录的 `web_app.py`。
 
-如果 PowerShell 的执行策略阻止脚本运行，可以使用：
+如果 PowerShell 禁止运行脚本，任选其一：
 
 ```powershell
-Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.\run.cmd
+# 或
+powershell -ExecutionPolicy Bypass -File .\run.ps1
+```
+
+## 多用户队列
+
+网页任务按客户端 IP 隔离。每个 IP 内部按提交顺序 FIFO 排队，不同 IP
+之间使用轮转调度，任务详情、操作接口和结果下载也会校验来源 IP。
+评估本身仍使用单 worker，避免多个用户同时占用同一组 GPU 模型。
+
+如果服务部署在可信反向代理后，并且代理会正确设置
+`X-Forwarded-For`，可启用：
+
+```powershell
+$env:FRAME_AUDIT_TRUST_PROXY_HEADERS = "true"
 .\run.ps1
 ```
+
+不要在没有可信代理的情况下开启该选项，否则客户端可以伪造来源 IP。
+
+## 目录结构
+
+| 路径 | 说明 |
+| --- | --- |
+| `web_app.py` / `run.ps1` / `setup.ps1` | 核心入口 |
+| `requirements.txt` | 基础依赖 |
+| `requirements/` | 可选依赖（exact backends、VBench） |
+| `evaluator/` | 评估逻辑 |
+| `web/` | 前端静态资源 |
+| `config/` | 模型档位配置 |
+| `scripts/` | 资源下载与可选服务启动 |
+| `docker/` | VBench 镜像构建 |
+| `tools/` | 辅助下载与离线兼容代码 |
+| `docs/` | 文档与评估准则 |
 
 ## 可选后端
 
@@ -41,7 +71,7 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 
 ```powershell
 .\setup.ps1 -Optional
-.\download-optional-assets.ps1 -SkipPythonPackages
+.\scripts\download-optional-assets.ps1 -SkipPythonPackages
 ```
 
 显存和模型选择、VLM Judge、ViCLIP 与 VBench 的完整说明见
@@ -52,12 +82,12 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 ```powershell
 # VBench
 .\setup.ps1 -VBench
-.\download-vbench-models.ps1 -SkipDinoRepository
-.\build-vbench-docker.ps1
+.\scripts\download-vbench-models.ps1 -SkipDinoRepository
+.\docker\build-vbench.ps1
 
 # 8GB 默认 VLM Judge
-.\download-compact-models.ps1
-.\run-vlm-judge-docker.ps1
+.\scripts\download-vlm-judge.ps1
+.\scripts\run-vlm-judge-docker.ps1
 ```
 
 VBench 和 VLM Judge 都是可选能力，不会自动启动，也不影响基础五类评估。

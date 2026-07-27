@@ -5,7 +5,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$root = Split-Path -Parent $MyInvocation.MyCommand.Path
+$root = (Resolve-Path (Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) "..")).Path
 $env:DOCKER_CONFIG = Join-Path $root ".docker"
 New-Item -ItemType Directory -Force -Path $env:DOCKER_CONFIG | Out-Null
 
@@ -21,7 +21,7 @@ $modelSpec = @{
 }[$JudgeModel]
 $modelPath = Join-Path $root "model_cache\vlm_judge\$($modelSpec.Name)"
 if (-not (Test-Path (Join-Path $modelPath "model.safetensors"))) {
-    throw "$($modelSpec.Name) is missing. Run .\download-compact-models.ps1 -JudgeModel $JudgeModel first."
+    throw "$($modelSpec.Name) is missing. Run .\scripts\download-vlm-judge.ps1 -JudgeModel $JudgeModel first."
 }
 
 docker run --rm --gpus all `

@@ -1,5 +1,6 @@
 const form = document.querySelector("#evaluation-form");
 const evaluateButton = document.querySelector("#evaluate-button");
+const newEvaluationButton = document.querySelector("#new-evaluation");
 const formNote = document.querySelector("#form-note");
 const modelList = document.querySelector("#model-list");
 const modelTime = document.querySelector("#model-time");
@@ -23,6 +24,7 @@ const queueActive = document.querySelector("#queue-active");
 const activeJobName = document.querySelector("#active-job-name");
 const activeJobStage = document.querySelector("#active-job-stage");
 const activeJobStatus = document.querySelector("#active-job-status");
+const activeJobCancel = document.querySelector("#active-job-cancel");
 const activeJobProgress = document.querySelector("#active-job-progress");
 const queueList = document.querySelector("#queue-list");
 const queueEmpty = document.querySelector("#queue-empty");
@@ -77,6 +79,18 @@ function normalizeScore(value) {
   return Number.isFinite(number) ? Math.max(0, Math.min(1, number)) : null;
 }
 
+function categoryScore(key, category) {
+  const metrics = category?.metrics ?? {};
+  const valueByCategory = {
+    identity: metrics.score_0_1,
+    texture: metrics.score_0_1,
+    expression: category?.score_0_1 ?? metrics.score_0_1,
+    temporal: metrics.stability_score_0_1 ?? metrics.score_0_1,
+    aesthetics: metrics.manual_score_0_to_1 ?? category?.score_0_1,
+  };
+  return normalizeScore(category?.score_0_1 ?? valueByCategory[key]);
+}
+
 function radarPoints(values, centerX, centerY, radius) {
   return values
     .map((value, index) => {
@@ -91,9 +105,9 @@ function radarPoints(values, centerX, centerY, radius) {
 
 function renderRadar(result) {
   const values = categoryOrder.map(([key]) =>
-    normalizeScore(result.categories?.[key]?.metrics?.score_0_1),
+    categoryScore(key, result.categories?.[key]),
   );
-  const labels = ["IDENTITY", "TEXTURE", "EXPRESSION", "TEMPORAL", "AESTHETICS"];
+  const labels = ["身份一致性", "质感细节", "表情准确", "时间稳定", "美学质量"];
   const width = 350;
   const height = 190;
   const centerX = 175;
@@ -135,7 +149,7 @@ function renderRadar(result) {
     })
     .join("");
   document.querySelector("#radar-chart").innerHTML = `
-    <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="五类评分雷达图">
+    <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="五维评分雷达图">
       ${grid}
       ${axes}
       <polygon class="radar-area" points="${area}" />
@@ -270,8 +284,8 @@ function renderCategories(result) {
   categoryList.innerHTML = categoryOrder
     .map(([key, label, weight]) => {
       const category = result.categories?.[key] ?? {};
-      const score = normalizeScore(category.metrics?.score_0_1);
-      const scoreText = score === null ? "—" : `${Math.round(score * 100)}`;
+      const score = categoryScore(key, category);
+      const scoreText = score === null ? "—" : (score * 100).toFixed(2);
       const status = statusLabel(category.status ?? "unavailable");
       return `
         <div class="category-row">
@@ -300,22 +314,34 @@ function renderEvidence(result) {
   const aesthetics = categories.aesthetics?.metrics ?? {};
   const fullReference = categories.texture?.mode === "full_reference";
   const evidence = [
-    ["IDENTITY / MEAN", formatNumber(identity.mean_similarity), "ArcFace / proxy"],
-    [fullReference ? "PSNR / dB" : "TEXTURE / SCORE", fullReference ? formatNumber(texture.psnr_db, 2) : formatNumber(texture.score_0_1), fullReference ? "GT reference" : "no GT"],
-    [fullReference ? "SSIM" : "MANIQA", fullReference ? formatNumber(texture.ssim, 4) : formatNumber(texture.maniqa), fullReference ? "GT reference" : "optional IQA"],
-    [fullReference ? "LPIPS" : "MUSIQ", fullReference ? formatNumber(texture.lpips, 4) : formatNumber(texture.musiq), fullReference ? "lower is better" : "optional IQA"],
-    ["TEXT / VIDEO", formatNumber(expression.text_video_alignment), "CLIP baseline"],
-    ["TEMPORAL / STABILITY", formatNumber(temporal.stability_score_0_1), "flow + jitter"],
+    ["IDENTITY / MEAN", "身份一致性 / 均值", formatNumber(identity.mean_similarity), "ArcFace / 代理指标", "higher"],
+    [fullReference ? "PSNR / dB" : "TEXTURE / SCORE", fullReference ? "峰值信噪比" : "纹理质量 / 分数", fullReference ? formatNumber(texture.psnr_db, 2) : formatNumber(texture.score_0_1), fullReference ? "GT 参考" : "无 GT", "higher"],
+    [fullReference ? "SSIM" : "MANIQA", fullReference ? "结构相似性" : "图像质量评分", fullReference ? formatNumber(texture.ssim, 4) : formatNumber(texture.maniqa), fullReference ? "GT 参考" : "可选图像质量指标", "higher"],
+    [fullReference ? "LPIPS" : "MUSIQ", fullReference ? "感知距离" : "无参考质量评分", fullReference ? formatNumber(texture.lpips, 4) : formatNumber(texture.musiq), fullReference ? "GT 参考" : "可选图像质量指标", fullReference ? "lower" : "higher"],
+    ["TEXT / VIDEO", "文本 / 视频一致性", formatNumber(expression.text_video_alignment), "CLIP 基线", "higher"],
+    ["TEMPORAL / STABILITY", "时间稳定性", formatNumber(temporal.stability_score_0_1), "光流 + 抖动", "higher"],
   ];
   evidenceGrid.innerHTML = evidence
     .map(
-      ([label, value, detail]) => `
+      ([label, chineseLabel, value, detail, direction]) => {
+        const isHigherBetter = direction === "higher";
+        const directionArrow = isHigherBetter ? "↑" : "↓";
+        const directionText = isHigherBetter ? "越高越好" : "越低越好";
+        return `
         <div class="evidence-card">
-          <span>${escapeHtml(label)}</span>
-          <strong>${escapeHtml(value)}</strong>
+          <div class="evidence-card-label">
+            <span>${escapeHtml(label)}</span>
+            <small>${escapeHtml(chineseLabel)}</small>
+          </div>
+          <div class="evidence-value">
+            <strong>${escapeHtml(value)}</strong>
+            <span class="metric-direction ${isHigherBetter ? "is-higher" : "is-lower"}" title="${directionText}" aria-label="${directionText}">${directionArrow}</span>
+          </div>
+          <span class="evidence-direction">${directionText}</span>
           <span>${escapeHtml(detail)}</span>
         </div>
-      `,
+        `;
+      },
     )
     .join("");
 }
@@ -346,7 +372,13 @@ function renderResult(payload) {
   reportMode.classList.add("success");
   overallScore.textContent = Number.isFinite(score) ? score.toFixed(1) : "—";
   coverageValue.textContent = coverage;
-  scoreCaption.textContent = `${result.weighted_score_weight_coverage ?? 0}% weight covered · ${result.status}`;
+  const scoreStatusLabels = {
+    complete: "完整评估",
+    partial: "部分评估",
+  };
+  const coveragePercent = result.weighted_score_weight_coverage ?? 0;
+  const scoreStatus = scoreStatusLabels[result.status] ?? result.status ?? "待确认";
+  scoreCaption.textContent = `权重覆盖 ${coveragePercent}% · ${scoreStatus}`;
   const covered = Number.parseInt(coverage, 10) || 0;
   coverageRing.style.setProperty("--coverage", `${(covered / 5) * 100}%`);
   renderRadar(result);
@@ -463,6 +495,7 @@ const queueStageLabels = {
   completed: ["report", "评估完成"],
   failed: ["report", "评估失败"],
   canceled: ["upload", "任务已取消"],
+  canceling: ["upload", "正在中断任务"],
 };
 const queueStatusLabels = {
   queued: "排队中",
@@ -470,17 +503,45 @@ const queueStatusLabels = {
   completed: "已完成",
   failed: "失败",
   canceled: "已取消",
+  canceling: "中断中",
 };
 const queueTerminalStatuses = new Set(["completed", "failed", "canceled"]);
+const formLockedStatuses = new Set([
+  "queued",
+  "running",
+  "canceling",
+  "completed",
+  "failed",
+]);
 const queueKnownStatuses = new Map();
 let selectedJobId = null;
+let selectedJob = null;
+let formLocked = false;
+let formBusy = false;
 let queueRefreshInFlight = false;
 
 function setQueueBusy(isBusy) {
+  formBusy = isBusy;
   evaluateButton.disabled = isBusy;
+  newEvaluationButton.disabled = isBusy;
   evaluateButton.querySelector("span:first-child").textContent = isBusy
     ? "上传中..."
     : "加入队列";
+}
+
+function setFormEditState(job) {
+  formLocked = Boolean(job && formLockedStatuses.has(job.status));
+  form.classList.toggle("is-readonly", formLocked);
+  newEvaluationButton.disabled = formBusy;
+  form.querySelectorAll("input, textarea, select").forEach((field) => {
+    field.disabled = formLocked;
+  });
+  evaluateButton.disabled = formBusy || formLocked;
+  if (!formBusy) {
+    evaluateButton.querySelector("span:first-child").textContent = formLocked
+      ? "请先中断任务"
+      : "加入队列";
+  }
 }
 
 function updateQueueProgressPanel(job) {
@@ -537,10 +598,19 @@ function renderQueue(payload) {
       queueStageLabels[active.stage]?.[1] ?? active.stage;
     activeJobStatus.textContent = queueStatusText(active.status);
     activeJobStatus.className = `queue-status ${escapeHtml(active.status)}`;
+    activeJobCancel.dataset.jobId = active.job_id;
+    activeJobCancel.disabled = false;
+    queueActive.dataset.jobId = active.job_id;
+    queueActive.classList.add("is-selectable");
     activeJobProgress.style.width = `${Math.max(
       0,
       Math.min(100, Number(active.progress ?? 0) * 100),
     )}%`;
+  } else {
+    activeJobCancel.dataset.jobId = "";
+    activeJobCancel.disabled = true;
+    queueActive.dataset.jobId = "";
+    queueActive.classList.remove("is-selectable");
   }
 
   const visibleJobs = jobs
@@ -556,7 +626,7 @@ function renderQueue(payload) {
       if (job.status === "failed" || job.status === "canceled") {
         actions.push(["retry", "重试"]);
       }
-      if (job.status !== "running") {
+      if (job.status !== "running" && job.status !== "canceling") {
         actions.push(["delete", "删除"]);
       }
       const actionMarkup = actions
@@ -593,6 +663,149 @@ function renderQueue(payload) {
   });
 }
 
+function setStoredUpload(inputId, filename, url) {
+  const input = document.querySelector(`#${inputId}`);
+  const zone = input?.closest("label");
+  const name = document.querySelector(`[data-file-name="${inputId}"]`);
+  const preview = document.querySelector(`[data-preview="${inputId}"]`);
+  const fallback = document.querySelector(`[data-preview-fallback="${inputId}"]`);
+  const imageList = document.querySelector(`[data-image-list="${inputId}"]`);
+  if (!input || !zone || !name) return;
+
+  input.value = "";
+  if (!filename) {
+    zone.classList.remove("is-loaded", "video-preview-failed");
+    name.textContent = "未提供";
+    if (imageList) imageList.innerHTML = "";
+    if (preview) preview.removeAttribute("src");
+    return;
+  }
+
+  zone.classList.add("is-loaded");
+  zone.classList.remove("video-preview-failed");
+  if (fallback) fallback.classList.remove("is-visible");
+  name.textContent = `已保存：${filename}`;
+
+  if (preview && url) {
+    preview.src = url;
+    preview.load();
+  }
+  if (imageList) {
+    imageList.innerHTML = "";
+    const urls = Array.isArray(url) ? url : url ? [url] : [];
+    urls.forEach((imageUrl, index) => {
+      const image = document.createElement("img");
+      image.src = imageUrl;
+      image.alt = Array.isArray(filename) ? filename[index] ?? "" : filename;
+      imageList.appendChild(image);
+    });
+  }
+}
+
+function clearUploadState(inputId, defaultName) {
+  const input = document.querySelector(`#${inputId}`);
+  const zone = input?.closest("label");
+  const name = document.querySelector(`[data-file-name="${inputId}"]`);
+  const preview = document.querySelector(`[data-preview="${inputId}"]`);
+  const imageList = document.querySelector(`[data-image-list="${inputId}"]`);
+  if (!input || !zone || !name) return;
+
+  for (const [key, url] of previewUrls.entries()) {
+    if (key === inputId || key.startsWith(`${inputId}:`)) {
+      URL.revokeObjectURL(url);
+      previewUrls.delete(key);
+    }
+  }
+  input.value = "";
+  zone.classList.remove("is-loaded", "video-preview-failed");
+  name.textContent = defaultName;
+  if (imageList) imageList.innerHTML = "";
+  if (preview) {
+    preview.pause();
+    preview.removeAttribute("src");
+    preview.load();
+  }
+}
+
+function startNewEvaluation() {
+  if (newEvaluationButton.disabled) return;
+  selectedJobId = null;
+  selectedJob = null;
+  setFormEditState(null);
+  form.reset();
+  clearUploadState("result-video", "Drop video or browse");
+  clearUploadState("gt-video", "Optional reference");
+  clearUploadState("reference-images", "optional");
+  clearUploadState("reference-video", "optional");
+  updateQueueProgressPanel(null);
+  progressBar.classList.remove("is-complete");
+  progressBar.style.width = "0%";
+  emptyReport.classList.remove("is-hidden");
+  reportContent.classList.add("is-hidden");
+  reportMode.textContent = "WAITING";
+  reportMode.classList.remove("success");
+  setQueueBusy(false);
+  setFormNote("已清空当前表单，可以开始新的评估。", "success");
+  document.querySelector(".intake-panel").scrollIntoView({
+    behavior: "smooth",
+    block: "start",
+  });
+}
+
+function syncFormWithJob(job) {
+  const parameters = job.parameters ?? {};
+  const originalFiles = job.original_files ?? {};
+  const uploadedFiles = job.uploaded_files ?? {};
+  const fileNameFromUrl = (url) =>
+    String(url ?? "").split("/").pop() || "";
+  const referenceImageNames =
+    originalFiles.reference_images?.join("、") ||
+    (Array.isArray(uploadedFiles.reference_images)
+      ? uploadedFiles.reference_images.map(fileNameFromUrl).join("、")
+      : "");
+  const setValue = (selector, value) => {
+    const field = document.querySelector(selector);
+    if (field && value !== null && value !== undefined) {
+      field.value = value;
+    }
+  };
+
+  setValue("#prompt-text", parameters.prompt_text ?? "");
+  setValue('[name="max_frames"]', parameters.max_frames ?? 64);
+  setValue('[name="device"]', parameters.device ?? "cpu");
+  setValue(
+    '[name="manual_expression_score"]',
+    parameters.manual_expression_score ?? "",
+  );
+  setValue(
+    '[name="manual_aesthetic_score"]',
+    parameters.manual_aesthetic_score ?? "",
+  );
+  const lpips = document.querySelector('[name="calculate_lpips"]');
+  if (lpips) lpips.checked = parameters.calculate_lpips !== false;
+
+  setStoredUpload(
+    "result-video",
+    originalFiles.result_video ?? job.name,
+    uploadedFiles.result_video,
+  );
+  setStoredUpload(
+    "gt-video",
+    originalFiles.gt_video,
+    uploadedFiles.gt_video,
+  );
+  setStoredUpload(
+    "reference-images",
+    referenceImageNames,
+    uploadedFiles.reference_images,
+  );
+  setStoredUpload(
+    "reference-video",
+    originalFiles.reference_video,
+    uploadedFiles.reference_video,
+  );
+}
+
 async function getQueueJob(jobId, shouldScroll = false) {
   if (!jobId) return null;
   const response = await fetch(`/api/jobs/${encodeURIComponent(jobId)}`);
@@ -601,6 +814,9 @@ async function getQueueJob(jobId, shouldScroll = false) {
     throw new Error(describeApiError(payload.detail, response.status));
   }
   selectedJobId = payload.job_id;
+  selectedJob = payload;
+  syncFormWithJob(payload);
+  setFormEditState(payload);
   updateQueueProgressPanel(payload);
   if (payload.result) {
     renderResult(payload);
@@ -617,7 +833,13 @@ async function getQueueJob(jobId, shouldScroll = false) {
 async function selectQueueJob(jobId) {
   try {
     const payload = await getQueueJob(jobId, true);
-    if (payload?.status === "completed") {
+    if (payload?.status === "running") {
+      setFormNote("已加载运行中任务，当前仅可查看；请先中断后修改。");
+    } else if (payload?.status === "canceling") {
+      setFormNote("任务正在中断，暂时无法修改。");
+    } else if (payload?.status === "canceled") {
+      setFormNote("任务已中断，可以修改左侧参数后重新选择文件提交。", "success");
+    } else if (payload?.status === "completed") {
       setFormNote(`已加载报告 / ${payload.name}`, "success");
     } else if (payload?.error) {
       setFormNote(payload.error, "error");
@@ -631,6 +853,12 @@ async function selectQueueJob(jobId) {
 
 async function mutateQueueJob(jobId, action) {
   if (!jobId) return;
+  if (
+    action === "cancel" &&
+    !window.confirm("确定中断这个评估任务吗？已完成的部分不会生成报告。")
+  ) {
+    return;
+  }
   if (
     action === "delete" &&
     !window.confirm("确定删除这个任务及其已保存的文件吗？")
@@ -654,7 +882,14 @@ async function mutateQueueJob(jobId, action) {
     }
     if (selectedJobId === jobId && action === "delete") {
       selectedJobId = null;
+      selectedJob = null;
+      setFormEditState(null);
       processProgress.classList.add("is-hidden");
+    }
+    if (selectedJobId === jobId && action === "cancel") {
+      selectedJob = payload;
+      syncFormWithJob(payload);
+      setFormEditState(payload);
     }
     await refreshQueue();
   } catch (error) {
@@ -676,6 +911,8 @@ async function refreshQueue() {
       (job) => job.job_id === selectedJobId,
     );
     if (selected) {
+      selectedJob = selected;
+      setFormEditState(selected);
       updateQueueProgressPanel(selected);
       const previousStatus = queueKnownStatuses.get(selected.job_id);
       if (
@@ -700,9 +937,23 @@ async function refreshQueue() {
 }
 
 refreshQueueButton.addEventListener("click", refreshQueue);
+newEvaluationButton.addEventListener("click", startNewEvaluation);
+queueActive.addEventListener("click", (event) => {
+  if (event.target.closest("#active-job-cancel")) return;
+  if (queueActive.dataset.jobId) {
+    selectQueueJob(queueActive.dataset.jobId);
+  }
+});
+activeJobCancel.addEventListener("click", () => {
+  mutateQueueJob(activeJobCancel.dataset.jobId, "cancel");
+});
 
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
+  if (formLocked) {
+    setFormNote("当前任务仅供查看，请先中断任务后再修改。");
+    return;
+  }
   setQueueBusy(true);
   setFormNote("正在上传文件并加入处理队列...");
   try {

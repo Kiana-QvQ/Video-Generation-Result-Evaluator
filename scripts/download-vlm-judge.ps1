@@ -5,7 +5,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$root = Split-Path -Parent $MyInvocation.MyCommand.Path
+$root = (Resolve-Path (Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) "..")).Path
 $python = Join-Path $root ".venv\Scripts\python.exe"
 $modelSpec = @{
     "2b" = @{
@@ -31,4 +31,4 @@ $env:TRANSFORMERS_CACHE = Join-Path $root "model_cache\huggingface\transformers"
     $modelSpec.Repo `
     $target
 
-Write-Host "Compact VLM Judge ($JudgeModel) is stored under: $target"
+Write-Host "VLM Judge ($JudgeModel) is stored under: $target"

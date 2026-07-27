@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 import unittest
 from unittest.mock import patch
+from uuid import uuid4
 
 import numpy as np
 from fastapi.testclient import TestClient
 
+import web_app
 from web_app import _json_safe, app
 
 
@@ -24,6 +27,13 @@ class WebAppTests(unittest.TestCase):
         self.assertIn("评分原理与准则", response.text)
         self.assertIn("preflight-list", response.text)
         self.assertIn("process-queue", response.text)
+        self.assertIn("new-evaluation", response.text)
+        self.assertIn("KEY EVIDENCE", response.text)
+        self.assertIn("关键证据", response.text)
+        self.assertIn("加权总分", response.text)
+        self.assertIn("五维评分雷达图", response.text)
+        self.assertIn("已覆盖", response.text)
+        self.assertIn("中断任务", response.text)
         self.assertIn("处理队列", response.text)
         self.assertIn("看清视频，", response.text)
         self.assertIn("上传视频后开始评分。", response.text)
@@ -108,6 +118,7 @@ class WebAppTests(unittest.TestCase):
             job = create_response.json()
             job_id = job["job_id"]
             job_dir = Path("outputs/web_runs") / job_id
+            self.assertEqual(job["original_files"]["result_video"], "result.mp4")
             self.assertTrue((job_dir / "status.json").is_file())
             self.assertTrue((job_dir / "params.json").is_file())
 
@@ -149,6 +160,191 @@ class WebAppTests(unittest.TestCase):
                 self.client.get(f"/api/jobs/{job_id}").status_code,
                 404,
             )
+
+    def test_jobs_are_isolated_by_client_ip(self) -> None:
+        video_path = Path("outputs/test_result.mp4")
+        with patch("web_app._ensure_queue_worker"), patch(
+            "web_app._client_ip",
+            return_value="192.0.2.10",
+        ):
+            with video_path.open("rb") as video:
+                create_response = self.client.post(
+                    "/api/jobs",
+                    files={"result_video": ("result.mp4", video, "video/mp4")},
+                    data={
+                        "calculate_lpips": "false",
+                        "max_frames": "2",
+                        "device": "cpu",
+                    },
+                )
+            self.assertEqual(create_response.status_code, 202)
+            job_id = create_response.json()["job_id"]
+            status = web_app._read_job(job_id)
+            self.assertEqual(status["client_ip"], "192.0.2.10")
+
+            with patch("web_app._client_ip", return_value="192.0.2.11"):
+                self.assertEqual(
+                    self.client.get("/api/jobs").json()["jobs"],
+                    [],
+                )
+                self.assertEqual(
+                    self.client.get(f"/api/jobs/{job_id}").status_code,
+                    404,
+                )
+                self.assertEqual(
+                    self.client.patch(
+                        f"/api/jobs/{job_id}",
+                        json={"action": "cancel"},
+                    ).status_code,
+                    404,
+                )
+                self.assertEqual(
+                    self.client.delete(f"/api/jobs/{job_id}").status_code,
+                    404,
+                )
+                self.assertEqual(
+                    self.client.get(
+                        f"/api/runs/{job_id}/result.mp4"
+                    ).status_code,
+                    404,
+                )
+
+            with patch("web_app._client_ip", return_value="192.0.2.10"):
+                self.assertEqual(
+                    self.client.get(
+                        f"/api/runs/{job_id}/result.mp4"
+                    ).status_code,
+                    200,
+                )
+            self.client.delete(f"/api/jobs/{job_id}")
+
+    def test_ip_scheduler_is_fifo_and_round_robin(self) -> None:
+        with web_app.JOB_LOCK:
+            while True:
+                try:
+                    web_app.JOB_DISPATCH_QUEUE.get_nowait()
+                    web_app.JOB_DISPATCH_QUEUE.task_done()
+                except Exception:
+                    break
+            web_app.JOB_QUEUES_BY_IP.clear()
+            web_app.JOB_SCHEDULED_IPS.clear()
+
+        try:
+            web_app._enqueue_job("ip-a-job-1", "192.0.2.10")
+            web_app._enqueue_job("ip-a-job-2", "192.0.2.10")
+            web_app._enqueue_job("ip-b-job-1", "192.0.2.11")
+
+            first_ip = web_app.JOB_DISPATCH_QUEUE.get_nowait()
+            first_job = web_app._take_next_job(first_ip)
+            web_app._reschedule_ip(first_ip)
+            web_app.JOB_DISPATCH_QUEUE.task_done()
+
+            second_ip = web_app.JOB_DISPATCH_QUEUE.get_nowait()
+            second_job = web_app._take_next_job(second_ip)
+            web_app._reschedule_ip(second_ip)
+            web_app.JOB_DISPATCH_QUEUE.task_done()
+
+            third_ip = web_app.JOB_DISPATCH_QUEUE.get_nowait()
+            third_job = web_app._take_next_job(third_ip)
+            web_app._reschedule_ip(third_ip)
+            web_app.JOB_DISPATCH_QUEUE.task_done()
+
+            self.assertEqual((first_ip, first_job), ("192.0.2.10", "ip-a-job-1"))
+            self.assertEqual((second_ip, second_job), ("192.0.2.11", "ip-b-job-1"))
+            self.assertEqual((third_ip, third_job), ("192.0.2.10", "ip-a-job-2"))
+        finally:
+            with web_app.JOB_LOCK:
+                while True:
+                    try:
+                        web_app.JOB_DISPATCH_QUEUE.get_nowait()
+                        web_app.JOB_DISPATCH_QUEUE.task_done()
+                    except Exception:
+                        break
+                web_app.JOB_QUEUES_BY_IP.clear()
+                web_app.JOB_SCHEDULED_IPS.clear()
+
+    def test_running_job_can_be_interrupted(self) -> None:
+        class FakeProcess:
+            def __init__(self) -> None:
+                self.terminated = False
+
+            def is_alive(self) -> bool:
+                return not self.terminated
+
+            def terminate(self) -> None:
+                self.terminated = True
+
+            def join(self, timeout: int | None = None) -> None:
+                return None
+
+            def kill(self) -> None:
+                self.terminated = True
+
+        video_path = Path("outputs/test_result.mp4")
+        with patch("web_app._ensure_queue_worker"):
+            with video_path.open("rb") as video:
+                create_response = self.client.post(
+                    "/api/jobs",
+                    files={"result_video": ("result.mp4", video, "video/mp4")},
+                    data={
+                        "prompt_text": "保持镜头稳定",
+                        "calculate_lpips": "false",
+                        "max_frames": "2",
+                        "device": "cpu",
+                    },
+                )
+            self.assertEqual(create_response.status_code, 202)
+            job_id = create_response.json()["job_id"]
+            web_app._update_job_state(
+                job_id,
+                status="running",
+                stage="models",
+                progress=0.55,
+                started_at="2026-07-27T12:00:00+08:00",
+            )
+            fake_process = FakeProcess()
+            web_app.JOB_PROCESSES[job_id] = fake_process
+            try:
+                cancel_response = self.client.patch(
+                    f"/api/jobs/{job_id}",
+                    json={"action": "cancel"},
+                )
+                self.assertEqual(cancel_response.status_code, 200)
+                self.assertEqual(cancel_response.json()["status"], "canceled")
+                self.assertTrue(fake_process.terminated)
+            finally:
+                web_app.JOB_PROCESSES.pop(job_id, None)
+                self.client.delete(f"/api/jobs/{job_id}")
+
+    def test_job_worker_marks_missing_input_as_failed(self) -> None:
+        job_id = f"worker-smoke-{uuid4().hex}"
+        job_dir = Path("outputs/web_runs") / job_id
+        created_at = "2026-07-27T12:00:00+08:00"
+        job = {
+            "job_id": job_id,
+            "name": "missing.mp4",
+            "status": "queued",
+            "stage": "queued",
+            "progress": 0.0,
+            "created_at": created_at,
+            "queued_at": created_at,
+            "started_at": None,
+            "finished_at": None,
+            "updated_at": created_at,
+            "error": None,
+            "files": {"result_video": None},
+            "original_files": {"result_video": "missing.mp4"},
+            "parameters": {"device": "cpu", "max_frames": 2},
+        }
+        web_app._write_job(job)
+        try:
+            web_app._process_job(job_id)
+            failed_job = web_app._read_job(job_id)
+            self.assertIsNotNone(failed_job)
+            self.assertEqual(failed_job["status"], "failed")
+            self.assertIn("missing", failed_job["error"])
+        finally:
+            shutil.rmtree(job_dir, ignore_errors=True)
 
     def test_readable_mp4_is_not_reencoded_when_queued(self) -> None:
         video_path = Path("outputs/test_result.mp4")

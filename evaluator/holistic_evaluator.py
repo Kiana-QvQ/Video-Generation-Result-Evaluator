@@ -6,7 +6,7 @@ import os
 import shutil
 import tempfile
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
 import cv2
 import numpy as np
@@ -206,9 +206,23 @@ def _clamp(value: float, lower: float = 0.0, upper: float = 1.0) -> float:
     return float(max(lower, min(upper, value)))
 
 
-def _safe_mean(values: list[float]) -> float | None:
-    valid = [float(value) for value in values if math.isfinite(float(value))]
+def _safe_mean(values: Iterable[float | int | None]) -> float | None:
+    valid: list[float] = []
+    for value in values:
+        if value is None:
+            continue
+        parsed = float(value)
+        if math.isfinite(parsed):
+            valid.append(parsed)
     return float(np.mean(valid)) if valid else None
+
+
+def _lower_tail(values: Iterable[float], fraction: float = 0.1) -> list[float]:
+    ordered = sorted(float(value) for value in values)
+    if not ordered:
+        return []
+    count = max(1, int(math.ceil(len(ordered) * fraction)))
+    return ordered[:count]
 
 
 def _normalize(vector: np.ndarray) -> np.ndarray:
@@ -391,6 +405,9 @@ class _IdentityBackend:
                     return _normalize(np.asarray(face.embedding)), bbox, "arcface"  # type: ignore[arg-type]
             except Exception:
                 pass
+            # Keep ArcFace and the pixel proxy separate. Mixing their vector
+            # dimensions makes a partial run impossible to compare safely.
+            return None, None, "arcface"
         bbox = self.detector.detect(frame)
         return self._proxy_embedding(frame, bbox), bbox, "face_crop_proxy"
 
@@ -572,8 +589,8 @@ def evaluate_identity(
         else 0.0
         for record in records
     ]
-    tail_count = max(1, int(math.ceil(len(scoring_values) * 0.1)))
-    tail_values = scoring_values[-tail_count:]
+    # "Tail 10%" means the lower tail, not the last timestamps in the clip.
+    tail_values = _lower_tail(scoring_values)
     valid_frame_ratio = float(len(similarities) / max(len(records), 1))
     return {
         "status": (
@@ -685,14 +702,23 @@ def evaluate_texture(
     result_boxes = [detector.detect(frame) for frame in result_frames]
     warnings: list[str] = []
 
+    full_reference: dict[str, Any] | None = None
     if ground_truth:
-        full_reference = evaluate_full_reference(
-            result_path=result_path,
-            ground_truth_path=ground_truth,
-            max_frames=max_frames,
-            calculate_lpips=calculate_lpips,
-            device=device,
-        )
+        try:
+            full_reference = evaluate_full_reference(
+                result_path=result_path,
+                ground_truth_path=ground_truth,
+                max_frames=max_frames,
+                calculate_lpips=calculate_lpips,
+                device=device,
+            )
+        except (FileNotFoundError, ValueError) as exc:
+            warnings.append(
+                f"GT 全参考指标不可用，已降级到无 GT 纹理评估：{exc}"
+            )
+            ground_truth = None
+
+    if ground_truth and full_reference is not None:
         result_eval_indices = [
             int(record["result_frame"]) for record in full_reference["records"]
         ]
@@ -749,8 +775,9 @@ def evaluate_texture(
             )
         else:
             psnr_score = None
+        ssim_value = full_reference["metrics"]["ssim"]
         texture_scores = [
-            full_reference["metrics"]["ssim"],
+            _clamp(float(ssim_value)) if ssim_value is not None else None,
             psnr_score,
             (
                 math.exp(-float(lpips_value) / 0.2)
@@ -838,8 +865,9 @@ def evaluate_texture(
         else None
     )
     texture_scores = [
-        value for value in (maniqa, musiq, high_frequency_score)
-        if value is not None
+        _clamp(float(value))
+        for value in (maniqa, musiq, high_frequency_score)
+        if value is not None and math.isfinite(float(value))
     ]
     records = [
         {
@@ -964,7 +992,7 @@ def evaluate_text_alignment(
             "status": "unavailable",
             "backend": "openai_clip_framewise",
             "reason": f"CLIP 权重不存在：{weight_path}",
-            "note": "请先运行 download-optional-assets.ps1 下载 ViT-B/32。",
+            "note": "请先运行 scripts/download-optional-assets.ps1 下载 ViT-B/32。",
             "metrics": {},
             "frame_records": [],
             "warnings": (
@@ -1064,23 +1092,44 @@ def evaluate_text_alignment(
         }
 
 
+EXPRESSION_LANDMARK_INDICES = np.array(
+    [13, 14, 61, 291, 159, 145, 386, 374, 70, 300],
+    dtype=np.int64,
+)
+
+
 def _expression_descriptors(
     frames: list[np.ndarray],
     detector: _FaceDetector,
     landmark_tracker: _LandmarkTracker,
 ) -> tuple[np.ndarray, str]:
+    if landmark_tracker.available and frames:
+        landmark_descriptors: list[np.ndarray] = []
+        for frame in frames:
+            landmarks = landmark_tracker.extract(frame)
+            if (
+                landmarks is None
+                or landmarks.ndim != 2
+                or landmarks.shape[0] <= int(EXPRESSION_LANDMARK_INDICES.max())
+            ):
+                landmark_descriptors = []
+                break
+            # Mouth, eyes, brows, and jaw carry most expression information.
+            selected = landmarks[EXPRESSION_LANDMARK_INDICES, :2]
+            center = selected.mean(axis=0, keepdims=True)
+            scale = float(np.linalg.norm(selected.max(axis=0) - selected.min(axis=0)))
+            landmark_descriptors.append(
+                ((selected - center) / (scale + 1e-6)).flatten()
+            )
+        if len(landmark_descriptors) == len(frames):
+            return np.stack(landmark_descriptors), "mediapipe_face_mesh"
+
+    # A sequence must use one descriptor shape. If Face Mesh misses even one
+    # frame, use the proxy consistently instead of mixing 20-D landmarks with
+    # 576-D image descriptors.
     descriptors: list[np.ndarray] = []
     face_count = 0
     for frame in frames:
-        landmarks = landmark_tracker.extract(frame)
-        if landmarks is not None:
-            # Mouth, eyes, brows, and jaw carry most expression information.
-            selected = landmarks[[13, 14, 61, 291, 159, 145, 386, 374, 70, 300], :2]
-            center = selected.mean(axis=0, keepdims=True)
-            scale = float(np.linalg.norm(selected.max(axis=0) - selected.min(axis=0)))
-            descriptors.append(((selected - center) / (scale + 1e-6)).flatten())
-            face_count += 1
-            continue
         bbox = detector.detect(frame)
         if bbox is not None:
             face_count += 1
@@ -1107,6 +1156,22 @@ def _motion_signature(
     magnitudes = np.linalg.norm(deltas, axis=1)
     normalized = deltas / (magnitudes[:, None] + 1e-6)
     return normalized, magnitudes, backend
+
+
+def _motion_direction_similarity(
+    result_vector: np.ndarray,
+    result_magnitude: float,
+    reference_vector: np.ndarray,
+    reference_magnitude: float,
+) -> float:
+    result_is_static = float(result_magnitude) <= 1e-6
+    reference_is_static = float(reference_magnitude) <= 1e-6
+    if result_is_static and reference_is_static:
+        return 1.0
+    if result_is_static or reference_is_static:
+        return 0.0
+    cosine = float(np.dot(result_vector, reference_vector))
+    return _clamp((cosine + 1.0) / 2.0)
 
 
 def evaluate_expression(
@@ -1186,6 +1251,27 @@ def evaluate_expression(
         detector,
         landmark_tracker,
     )
+    if (
+        len(result_motion) > 0
+        and len(reference_motion) > 0
+        and (
+            result_motion.shape[1] != reference_motion.shape[1]
+            or result_backend != reference_backend
+        )
+    ):
+        # Compare both clips with the same fallback when Face Mesh coverage
+        # differs between the generated and reference videos.
+        landmark_tracker.mesh = None
+        result_motion, result_magnitude, result_backend = _motion_signature(
+            result_frames[:count],
+            detector,
+            landmark_tracker,
+        )
+        reference_motion, reference_magnitude, reference_backend = _motion_signature(
+            reference_frames[:count],
+            detector,
+            landmark_tracker,
+        )
     if len(result_motion) == 0 or len(reference_motion) == 0:
         if viclip_result is not None:
             return {
@@ -1220,7 +1306,12 @@ def evaluate_expression(
 
     pair_count = min(len(result_motion), len(reference_motion))
     cosine_values = [
-        _clamp((float(np.dot(result_motion[i], reference_motion[i])) + 1.0) / 2.0)
+        _motion_direction_similarity(
+            result_motion[i],
+            result_magnitude[i],
+            reference_motion[i],
+            reference_magnitude[i],
+        )
         for i in range(pair_count)
     ]
     intensity_values = [
@@ -1245,6 +1336,11 @@ def evaluate_expression(
     backend = f"{result_backend} vs {reference_backend}"
     if viclip_result is not None:
         backend = f"viclip_internvid_10m_flt + {backend}"
+    note = (
+        "ViCLIP video similarity and face/画面运动轨迹 proxy are active."
+        if viclip_result is not None
+        else "VideoCLIP/ViCLIP 未安装，当前使用人脸/画面运动轨迹代理。"
+    )
     return {
         "status": "available" if viclip_result is not None else "partial",
         "mode": (
@@ -1258,7 +1354,7 @@ def evaluate_expression(
         "videoclip": None,
         "viclip": viclip_result,
         "reference_source": "reference_video" if reference_video else "gt_video",
-        "note": "VideoCLIP/ViCLIP 未安装，当前使用人脸/画面运动轨迹代理。",
+        "note": note,
         "warnings": [viclip_warning] if viclip_warning else [],
         "metrics": {
             "viclip_video_similarity": (
@@ -1330,19 +1426,77 @@ def _flow_endpoint_error(frame_a: np.ndarray, frame_b: np.ndarray, reference_a: 
     return float(np.mean(np.linalg.norm(difference, axis=2)) / max(frame_a.shape[:2]))
 
 
+TEMPORAL_LANDMARK_INDICES = np.array(
+    [
+        1,
+        13,
+        14,
+        33,
+        61,
+        70,
+        105,
+        133,
+        145,
+        159,
+        263,
+        291,
+        300,
+        334,
+        362,
+        374,
+        386,
+    ],
+    dtype=np.int64,
+)
+
+
+def _normalize_landmarks(landmarks: np.ndarray) -> np.ndarray | None:
+    if (
+        landmarks.ndim != 2
+        or landmarks.shape[0] <= int(TEMPORAL_LANDMARK_INDICES.max())
+    ):
+        return None
+    points = landmarks[TEMPORAL_LANDMARK_INDICES, :2].astype(np.float32)
+    points -= points.mean(axis=0, keepdims=True)
+    scale = float(np.sqrt(np.mean(np.sum(np.square(points), axis=1))))
+    if not math.isfinite(scale) or scale <= 1e-6:
+        return None
+    return points / scale
+
+
+def _align_landmarks(points: np.ndarray, reference: np.ndarray) -> np.ndarray:
+    covariance = points.T @ reference
+    left, _, right = np.linalg.svd(covariance)
+    rotation = left @ right
+    if np.linalg.det(rotation) < 0:
+        left[:, -1] *= -1
+        rotation = left @ right
+    return points @ rotation
+
+
 def _face_box_jitter(
     frames: list[np.ndarray],
     detector: _FaceDetector,
     landmark_tracker: _LandmarkTracker,
 ) -> tuple[float | None, str]:
     if landmark_tracker.available:
-        landmark_sequences = [
-            landmarks[:, :2] - landmarks[:, :2].mean(axis=0, keepdims=True)
-            for frame in frames
-            if (landmarks := landmark_tracker.extract(frame)) is not None
-        ]
-        if len(landmark_sequences) >= 2:
-            stacked = np.stack(landmark_sequences)
+        landmark_sequences: list[np.ndarray] = []
+        for frame in frames:
+            landmarks = landmark_tracker.extract(frame)
+            if landmarks is None:
+                landmark_sequences = []
+                break
+            normalized = _normalize_landmarks(landmarks)
+            if normalized is None:
+                landmark_sequences = []
+                break
+            landmark_sequences.append(normalized)
+        if len(landmark_sequences) == len(frames) and len(landmark_sequences) >= 2:
+            reference = landmark_sequences[0]
+            aligned = np.stack(
+                [_align_landmarks(points, reference) for points in landmark_sequences]
+            )
+            stacked = aligned
             if len(stacked) >= 3:
                 displacement = np.diff(stacked, n=2, axis=0)
             else:
@@ -1591,34 +1745,17 @@ def evaluate_all(
         effective_device,
         use_viclip=use_viclip,
     )
-    if text_alignment["status"] != "unavailable":
-        text_score = text_alignment["metrics"].get("score_0_1")
-        motion_score = expression.get("score_0_1")
-        if text_score is not None:
-            expression.setdefault("metrics", {})["text_video_alignment"] = text_score
-            if motion_score is not None and expression["mode"] != "manual":
-                expression["score_0_1"] = (
-                    0.6 * float(motion_score) + 0.4 * float(text_score)
-                )
-            else:
-                expression["score_0_1"] = float(text_score)
-            expression["status"] = (
-                "available"
-                if expression.get("status") == "available"
-                and text_alignment["backend"] == "viclip_internvid_10m_flt"
-                else "partial"
-            )
-            expression["backend"] = (
-                f'{expression.get("backend", "manual")} + '
-                f'{text_alignment["backend"]}'
-            )
-            expression["note"] = (
-                f'{expression.get("note", "")} '
-                "已加入文本-视频语义对齐分数。"
-            ).strip()
-            expression.setdefault("frame_records", []).extend(
-                text_alignment.get("frame_records", [])
-            )
+    text_score = (
+        text_alignment.get("metrics", {}).get("score_0_1")
+        if text_alignment["status"] != "unavailable"
+        else None
+    )
+    if text_score is not None:
+        expression.setdefault("metrics", {})["text_video_alignment"] = text_score
+        expression.setdefault("frame_records", []).extend(
+            text_alignment.get("frame_records", [])
+        )
+    expression_style_score = expression.get("score_0_1")
     # Do not keep local ViCLIP resident while the external VLM judge runs.
     clear_viclip_cache()
     etva_judge = evaluate_etva_judge(
@@ -1627,30 +1764,59 @@ def evaluate_all(
         reference_path=reference_video or ground_truth,
         max_frames=min(max_frames, policy.etva_frames),
     )
-    if etva_judge["status"] == "available":
-        etva_score = etva_judge["score_0_1"]
+    etva_score = (
+        etva_judge.get("score_0_1")
+        if etva_judge["status"] == "available"
+        else None
+    )
+    if etva_score is not None:
         expression.setdefault("metrics", {})["etva_judge_score_0_1"] = etva_score
-        expression_score = expression.get("score_0_1")
-        if expression_score is not None and expression.get("mode") != "manual":
-            expression["score_0_1"] = (
-                0.5 * float(expression_score) + 0.5 * float(etva_score)
-            )
-        else:
-            expression["score_0_1"] = float(etva_score)
-        expression["backend"] = (
-            f'{expression.get("backend", "manual")} + '
-            f'{etva_judge["backend"]}'
-        )
-        expression["status"] = (
-            "available"
-            if "viclip_internvid_10m_flt" in expression.get("backend", "")
-            else "partial"
-        )
-        expression["note"] = (
-            f'{expression.get("note", "")} ETVA Qwen judge is active.'
-        ).strip()
     elif etva_judge.get("warnings"):
         expression.setdefault("warnings", []).extend(etva_judge["warnings"])
+
+    semantic_score = (
+        float(etva_score)
+        if etva_score is not None
+        else (float(text_score) if text_score is not None else None)
+    )
+    semantic_backend = (
+        etva_judge.get("backend")
+        if etva_score is not None
+        else text_alignment.get("backend")
+        if text_score is not None
+        else None
+    )
+    if semantic_score is not None and semantic_backend:
+        if expression_style_score is not None:
+            expression["score_0_1"] = _clamp(
+                0.6 * float(expression_style_score)
+                + 0.4 * semantic_score
+            )
+        else:
+            expression["score_0_1"] = _clamp(semantic_score)
+        expression["backend"] = (
+            f'{expression.get("backend", "manual")} + {semantic_backend}'
+        )
+        if etva_score is not None:
+            expression["status"] = (
+                "available"
+                if "viclip_internvid_10m_flt" in expression.get("backend", "")
+                else "partial"
+            )
+            expression["note"] = (
+                f'{expression.get("note", "")} ETVA Qwen judge is active.'
+            ).strip()
+        else:
+            expression["status"] = (
+                "available"
+                if expression.get("status") == "available"
+                and text_alignment["backend"] == "viclip_internvid_10m_flt"
+                else "partial"
+            )
+            expression["note"] = (
+                f'{expression.get("note", "")} '
+                "已加入文本-视频语义对齐分数。"
+            ).strip()
 
     temporal = evaluate_temporal(
         result_path,
@@ -1672,6 +1838,16 @@ def evaluate_all(
         "temporal": temporal,
         "aesthetics": aesthetics,
     }
+    category_scores = {
+        "identity": identity.get("metrics", {}).get("score_0_1"),
+        "texture": texture.get("metrics", {}).get("score_0_1"),
+        "expression": expression.get("score_0_1"),
+        "temporal": temporal.get("metrics", {}).get("stability_score_0_1"),
+        "aesthetics": aesthetics.get("metrics", {}).get("manual_score_0_to_1"),
+    }
+    for category_name, score in category_scores.items():
+        # Keep one canonical category score for API consumers and the UI.
+        categories[category_name]["score_0_1"] = score
     summary = [
         {
             "类别": "1. 角色一致性",
@@ -1791,19 +1967,9 @@ def evaluate_all(
                 warnings.append(f"{category_labels[category_name]}：{reason}")
             if note:
                 warnings.append(f"{category_labels[category_name]}后端说明：{note}")
-    covered_count = sum(
-        category["status"] in {"available", "manual", "partial"}
-        for category in categories.values()
-    )
     score_entries = [
-        (WEIGHTS["identity"], identity["metrics"].get("score_0_1")),
-        (WEIGHTS["texture"], texture["metrics"].get("score_0_1")),
-        (WEIGHTS["expression"], expression.get("score_0_1")),
-        (WEIGHTS["temporal"], temporal["metrics"].get("stability_score_0_1")),
-        (
-            WEIGHTS["aesthetics"],
-            aesthetics["metrics"].get("manual_score_0_to_1"),
-        ),
+        (WEIGHTS[category_name], category_scores[category_name])
+        for category_name in WEIGHTS
     ]
     valid_score_entries = [
         (weight, float(score))
@@ -1816,31 +1982,40 @@ def evaluate_all(
         if score_weight
         else None
     )
-    all_categories_scored = all(
+    all_scores_available = len(valid_score_entries) == len(score_entries)
+    all_backends_complete = all(
         category["status"] in {"available", "manual"}
         for category in categories.values()
     )
-    return {
-        "status": "complete" if all_categories_scored else "partial",
-        "coverage": f"{covered_count}/5",
-        "evaluation_mode": (
-            "full_reference"
-            if ground_truth
+    report_status = (
+        "complete"
+        if all_scores_available and all_backends_complete
+        else "partial"
+    )
+    evaluation_mode = (
+        "full_reference"
+        if texture.get("mode") == "full_reference"
+        else (
+            "reference_material"
+            if reference_image or reference_video
             else (
-                "reference_material"
-                if reference_image or reference_video
-                else (
-                    "prompt_only"
-                    if (prompt_text or "").strip()
-                    else "result_only"
-                )
+                "prompt_only"
+                if (prompt_text or "").strip()
+                else "result_only"
             )
-        ),
+        )
+    )
+    return {
+        "status": report_status,
+        "coverage": f"{len(valid_score_entries)}/5",
+        "evaluation_mode": evaluation_mode,
         "prompt_text": prompt_text,
         "weighted_score_0_1": weighted_score,
         "weighted_score_0_100": weighted_score * 100 if weighted_score is not None else None,
         "weighted_score_weight_coverage": score_weight,
-        "weighted_score_status": "complete" if all_categories_scored else "partial",
+        "weighted_score_status": (
+            "complete" if all_scores_available else "partial"
+        ),
         "weights": WEIGHTS,
         "evaluation_plan": {
             "full_reference_metrics": (
@@ -1848,7 +2023,10 @@ def evaluate_all(
                 "第 2 类计算 PSNR/SSIM/LPIPS。"
             ),
             "identity_reference": "参考图 > 参考视频 > GT 视频。",
-            "expression_reference": "参考视频 > GT 视频 > Prompt > 人工 1~5 分。",
+            "expression_reference": (
+                "参考视频/GT 计算表情与动作风格分；Prompt 或 ETVA 计算语义分；"
+                "缺少风格参考时使用人工 1~5 分，二者同时存在时按 60% 风格 + 40% 语义合成。"
+            ),
             "condition_alignment": "Prompt + 生成视频使用逐帧 CLIP 基线；不替代 VideoCLIP/ViCLIP。",
             "temporal_reference": "参考视频 > GT 视频 > 结果视频自对齐。",
             "aesthetic_reference": "人工 1~5 分为主，技术代理为辅助。",

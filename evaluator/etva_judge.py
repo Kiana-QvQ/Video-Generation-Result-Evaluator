@@ -180,12 +180,13 @@ def evaluate_etva_judge(
                 ),
             }
         ]
-        content.extend(
-            {"type": "text", "text": "Generated video frame:"}
-            if index == 0
-            else {"type": "text", "text": "Generated video frame:"}
-            for index, _ in enumerate(result_frames)
-        )
+        if result_frames:
+            content.append(
+                {
+                    "type": "text",
+                    "text": "Generated video frames follow in temporal order.",
+                }
+            )
         content.extend(
             {"type": "image_url", "image_url": {"url": _data_uri(frame)}}
             for frame in result_frames

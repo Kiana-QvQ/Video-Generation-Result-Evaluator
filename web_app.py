@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import json
+import ipaddress
 import math
 from multiprocessing import Process
+import os
 import queue
 import shutil
 import threading
+from collections import deque
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
@@ -14,7 +17,7 @@ from uuid import uuid4
 
 import numpy as np
 import pandas as pd
-from fastapi import File, Form, HTTPException, UploadFile
+from fastapi import File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi import FastAPI
@@ -35,13 +38,21 @@ WEB_DIR = PROJECT_ROOT / "web"
 WEB_RUNS_DIR = OUTPUT_DIR / "web_runs"
 JOB_STATUS_FILENAME = "status.json"
 JOB_PARAMS_FILENAME = "params.json"
+JOB_OWNER_FILENAME = "owner.json"
+TRUST_PROXY_HEADERS = os.getenv("FRAME_AUDIT_TRUST_PROXY_HEADERS", "").lower() in {
+    "1",
+    "true",
+    "yes",
+}
 MAX_UPLOAD_BYTES = 1_500 * 1024 * 1024
 VIDEO_SUFFIXES = {".mp4", ".mov", ".avi", ".mkv", ".webm", ".wmv", ".m4v"}
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp"}
 
 WEB_RUNS_DIR.mkdir(parents=True, exist_ok=True)
 
-JOB_QUEUE: queue.Queue[str] = queue.Queue()
+JOB_DISPATCH_QUEUE: queue.Queue[str] = queue.Queue()
+JOB_QUEUES_BY_IP: dict[str, deque[str]] = {}
+JOB_SCHEDULED_IPS: set[str] = set()
 JOB_LOCK = threading.RLock()
 JOB_WORKER: threading.Thread | None = None
 JOB_QUEUE_RECOVERED = False
@@ -56,7 +67,10 @@ class JobUpdate(BaseModel):
 @asynccontextmanager
 async def app_lifespan(_: FastAPI):
     _ensure_queue_worker()
-    yield
+    try:
+        yield
+    finally:
+        _terminate_all_job_processes()
 
 app = FastAPI(
     title="Frame Audit",
@@ -101,6 +115,27 @@ def _safe_job_id(job_id: str) -> str:
     return safe_job_id
 
 
+def _client_ip(request: Request) -> str:
+    host = request.client.host if request.client else "unknown"
+    if TRUST_PROXY_HEADERS:
+        forwarded_for = request.headers.get("x-forwarded-for", "")
+        if forwarded_for:
+            host = forwarded_for.split(",", 1)[0].strip() or host
+    try:
+        return str(ipaddress.ip_address(host))
+    except ValueError:
+        return host
+
+
+def _job_owner(job: dict[str, Any]) -> str:
+    return str(job.get("client_ip") or "legacy")
+
+
+def _assert_job_owner(job: dict[str, Any], client_ip: str) -> None:
+    if _job_owner(job) != client_ip:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+
 def _job_dir(job_id: str) -> Path:
     safe_job_id = _safe_job_id(job_id)
     run_dir = (WEB_RUNS_DIR / safe_job_id).resolve()
@@ -113,13 +148,38 @@ def _job_status_path(job_id: str) -> Path:
     return _job_dir(job_id) / JOB_STATUS_FILENAME
 
 
+def _job_owner_path(job_id: str) -> Path:
+    return _job_dir(job_id) / JOB_OWNER_FILENAME
+
+
+def _write_job_owner(job_id: str, client_ip: str) -> None:
+    run_dir = _job_dir(job_id)
+    run_dir.mkdir(parents=True, exist_ok=True)
+    _atomic_write_json(run_dir / JOB_OWNER_FILENAME, {"client_ip": client_ip})
+
+
+def _read_job_owner(job_id: str) -> str | None:
+    owner_path = _job_owner_path(job_id)
+    if not owner_path.is_file():
+        return None
+    try:
+        payload = json.loads(owner_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    owner = payload.get("client_ip") if isinstance(payload, dict) else None
+    return str(owner) if owner else None
+
+
 def _atomic_write_json(path: Path, payload: Any) -> None:
-    temporary_path = path.with_name(f"{path.name}.tmp")
-    temporary_path.write_text(
-        json.dumps(_json_safe(payload), ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
-    temporary_path.replace(path)
+    temporary_path = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
+    try:
+        temporary_path.write_text(
+            json.dumps(_json_safe(payload), ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        temporary_path.replace(path)
+    finally:
+        temporary_path.unlink(missing_ok=True)
 
 
 def _read_job(job_id: str) -> dict[str, Any] | None:
@@ -211,6 +271,10 @@ def _job_response(
     include_result: bool = False,
     queue_position: int | None = None,
 ) -> dict[str, Any]:
+    result_path = _job_dir(str(job["job_id"])) / "result.json"
+    result_available = (
+        job.get("status") == "completed" and result_path.is_file()
+    )
     response: dict[str, Any] = {
         "job_id": job["job_id"],
         "run_id": job["job_id"],
@@ -229,12 +293,11 @@ def _job_response(
         "parameters": job.get("parameters", {}),
         "original_files": job.get("original_files", {}),
         "uploaded_files": _job_uploaded_urls(job),
-        "result_available": job.get("status") == "completed",
+        "result_available": result_available,
     }
     if job.get("status") == "completed":
         response["downloads"] = _result_downloads(job)
     if include_result and job.get("status") == "completed":
-        result_path = _job_dir(str(job["job_id"])) / "result.json"
         if result_path.is_file():
             try:
                 response["result"] = json.loads(result_path.read_text(encoding="utf-8"))
@@ -259,9 +322,21 @@ def _all_jobs() -> list[dict[str, Any]]:
     )
 
 
-def _queued_positions(jobs: list[dict[str, Any]]) -> dict[str, int]:
+def _jobs_for_ip(jobs: list[dict[str, Any]], client_ip: str) -> list[dict[str, Any]]:
+    return [job for job in jobs if _job_owner(job) == client_ip]
+
+
+def _queued_positions(
+    jobs: list[dict[str, Any]],
+    client_ip: str | None = None,
+) -> dict[str, int]:
     queued = sorted(
-        (job for job in jobs if job.get("status") == "queued"),
+        (
+            job
+            for job in jobs
+            if job.get("status") == "queued"
+            and (client_ip is None or _job_owner(job) == client_ip)
+        ),
         key=lambda item: str(item.get("queued_at") or item.get("created_at", "")),
     )
     return {
@@ -286,6 +361,41 @@ def _display_jobs(jobs: list[dict[str, Any]]) -> list[dict[str, Any]]:
         reverse=True,
     )
     return active + queued + history
+
+
+def _enqueue_job(job_id: str, client_ip: str | None = None) -> None:
+    with JOB_LOCK:
+        if client_ip is None:
+            job = _read_job(job_id)
+            if job is None:
+                return
+            client_ip = _job_owner(job)
+        ip_queue = JOB_QUEUES_BY_IP.setdefault(client_ip, deque())
+        if job_id not in ip_queue:
+            ip_queue.append(job_id)
+        if client_ip not in JOB_SCHEDULED_IPS:
+            JOB_SCHEDULED_IPS.add(client_ip)
+            JOB_DISPATCH_QUEUE.put(client_ip)
+
+
+def _take_next_job(client_ip: str) -> str | None:
+    with JOB_LOCK:
+        ip_queue = JOB_QUEUES_BY_IP.get(client_ip)
+        if not ip_queue:
+            JOB_SCHEDULED_IPS.discard(client_ip)
+            JOB_QUEUES_BY_IP.pop(client_ip, None)
+            return None
+        return ip_queue.popleft()
+
+
+def _reschedule_ip(client_ip: str) -> None:
+    with JOB_LOCK:
+        ip_queue = JOB_QUEUES_BY_IP.get(client_ip)
+        if ip_queue:
+            JOB_DISPATCH_QUEUE.put(client_ip)
+        else:
+            JOB_SCHEDULED_IPS.discard(client_ip)
+            JOB_QUEUES_BY_IP.pop(client_ip, None)
 
 
 def _update_job_state(job_id: str, **changes: Any) -> dict[str, Any]:
@@ -464,6 +574,7 @@ def _validate_evaluation_request(
 def _prepare_job(
     *,
     run_id: str,
+    client_ip: str,
     result_video: UploadFile,
     gt_video: UploadFile | None,
     reference_images: list[UploadFile] | None,
@@ -578,6 +689,7 @@ def _prepare_job(
     created_at = _now_iso()
     job = {
         "job_id": run_id,
+        "client_ip": client_ip,
         "name": Path(result_video.filename or "result video").name,
         "status": "queued",
         "stage": "queued",
@@ -687,6 +799,7 @@ def _process_job(job_id: str) -> None:
                 "started_at": now,
                 "updated_at": now,
                 "error": None,
+                "cancel_requested": False,
             }
         )
         _write_job(job)
@@ -701,6 +814,7 @@ def _process_job(job_id: str) -> None:
             process.start()
         except Exception as exc:
             JOB_PROCESSES.pop(job_id, None)
+            process.close()
             _update_job_state(
                 job_id,
                 status="failed",
@@ -730,6 +844,7 @@ def _process_job(job_id: str) -> None:
     finally:
         with JOB_LOCK:
             JOB_PROCESSES.pop(job_id, None)
+        process.close()
 
 
 def _terminate_job_process(job_id: str) -> None:
@@ -740,21 +855,40 @@ def _terminate_job_process(job_id: str) -> None:
             status_code=409,
             detail="评估进程尚未准备好，稍后再试。",
         )
-    if process.is_alive():
-        process.terminate()
-    process.join(timeout=5)
-    if process.is_alive():
-        process.kill()
+    try:
+        if process.is_alive():
+            process.terminate()
         process.join(timeout=5)
+        if process.is_alive():
+            process.kill()
+            process.join(timeout=5)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=f"无法中断评估进程: {type(exc).__name__}: {exc}",
+        ) from exc
+
+
+def _terminate_all_job_processes() -> None:
+    with JOB_LOCK:
+        job_ids = list(JOB_PROCESSES)
+    for job_id in job_ids:
+        try:
+            _terminate_job_process(job_id)
+        except HTTPException:
+            continue
 
 
 def _queue_worker_loop() -> None:
     while True:
-        job_id = JOB_QUEUE.get()
+        client_ip = JOB_DISPATCH_QUEUE.get()
         try:
-            _process_job(job_id)
+            job_id = _take_next_job(client_ip)
+            if job_id is not None:
+                _process_job(job_id)
         finally:
-            JOB_QUEUE.task_done()
+            _reschedule_ip(client_ip)
+            JOB_DISPATCH_QUEUE.task_done()
 
 
 def _recover_persisted_jobs() -> None:
@@ -762,7 +896,41 @@ def _recover_persisted_jobs() -> None:
     with JOB_LOCK:
         if JOB_QUEUE_RECOVERED:
             return
-        for job in _all_jobs():
+        persisted_jobs = sorted(
+            _all_jobs(),
+            key=lambda item: str(
+                item.get("queued_at") or item.get("created_at", "")
+            ),
+        )
+        for job in persisted_jobs:
+            if not job.get("client_ip") and job.get("status") in {"queued", "running"}:
+                now = _now_iso()
+                job.update(
+                    {
+                        "status": "canceled",
+                        "stage": "canceled",
+                        "finished_at": now,
+                        "updated_at": now,
+                        "error": "无法确认任务来源，已停止恢复。",
+                        "cancel_requested": False,
+                    }
+                )
+                _write_job(job)
+                continue
+            if job.get("status") == "canceling":
+                now = _now_iso()
+                job.update(
+                    {
+                        "status": "canceled",
+                        "stage": "canceled",
+                        "finished_at": now,
+                        "updated_at": now,
+                        "error": "服务重启后确认任务已中断。",
+                        "cancel_requested": False,
+                    }
+                )
+                _write_job(job)
+                continue
             if job.get("status") == "running":
                 now = _now_iso()
                 job.update(
@@ -774,11 +942,12 @@ def _recover_persisted_jobs() -> None:
                         "started_at": None,
                         "updated_at": now,
                         "error": "Requeued after service restart.",
+                        "cancel_requested": False,
                     }
                 )
                 _write_job(job)
             if job.get("status") == "queued":
-                JOB_QUEUE.put(str(job["job_id"]))
+                _enqueue_job(str(job["job_id"]), _job_owner(job))
         JOB_QUEUE_RECOVERED = True
 
 
@@ -786,7 +955,7 @@ def _ensure_queue_worker() -> None:
     global JOB_WORKER
     with JOB_LOCK:
         _recover_persisted_jobs()
-        if JOB_QUEUE.empty():
+        if JOB_DISPATCH_QUEUE.empty():
             return
         if JOB_WORKER is None or not JOB_WORKER.is_alive():
             JOB_WORKER = threading.Thread(
@@ -825,6 +994,7 @@ def hardware(device: str = "auto") -> dict[str, Any]:
 
 @app.post("/api/jobs", status_code=202)
 def create_job(
+    request: Request,
     result_video: UploadFile = File(...),
     gt_video: UploadFile | None = File(None),
     reference_images: list[UploadFile] | None = File(None),
@@ -836,6 +1006,7 @@ def create_job(
     manual_expression_score: str = Form(""),
     manual_aesthetic_score: str = Form(""),
 ) -> JSONResponse:
+    client_ip = _client_ip(request)
     run_id = (
         datetime.now().strftime("%Y%m%d_%H%M%S")
         + "_"
@@ -844,6 +1015,7 @@ def create_job(
     try:
         job = _prepare_job(
             run_id=run_id,
+            client_ip=client_ip,
             result_video=result_video,
             gt_video=gt_video,
             reference_images=reference_images,
@@ -858,10 +1030,10 @@ def create_job(
         _ensure_queue_worker()
         with JOB_LOCK:
             _write_job(job)
-        JOB_QUEUE.put(run_id)
+        _enqueue_job(run_id, client_ip)
         _ensure_queue_worker()
-        jobs = _all_jobs()
-        positions = _queued_positions(jobs)
+        jobs = _jobs_for_ip(_all_jobs(), client_ip)
+        positions = _queued_positions(jobs, client_ip)
         return JSONResponse(
             status_code=202,
             content=_job_response(
@@ -881,13 +1053,14 @@ def create_job(
 
 
 @app.get("/api/jobs")
-def list_jobs(limit: int = 20) -> dict[str, Any]:
+def list_jobs(request: Request, limit: int = 20) -> dict[str, Any]:
     if limit < 1 or limit > 100:
         raise HTTPException(status_code=422, detail="limit must be between 1 and 100.")
     _ensure_queue_worker()
-    jobs = _all_jobs()
+    client_ip = _client_ip(request)
+    jobs = _jobs_for_ip(_all_jobs(), client_ip)
     display_jobs = _display_jobs(jobs)
-    positions = _queued_positions(jobs)
+    positions = _queued_positions(jobs, client_ip)
     items = [
         _job_response(
             job,
@@ -909,12 +1082,14 @@ def list_jobs(limit: int = 20) -> dict[str, Any]:
 
 
 @app.get("/api/jobs/{job_id}")
-def get_job(job_id: str) -> dict[str, Any]:
+def get_job(job_id: str, request: Request) -> dict[str, Any]:
     _ensure_queue_worker()
     job = _read_job(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found")
-    positions = _queued_positions(_all_jobs())
+    client_ip = _client_ip(request)
+    _assert_job_owner(job, client_ip)
+    positions = _queued_positions(_jobs_for_ip(_all_jobs(), client_ip), client_ip)
     return _job_response(
         job,
         include_result=True,
@@ -923,7 +1098,11 @@ def get_job(job_id: str) -> dict[str, Any]:
 
 
 @app.patch("/api/jobs/{job_id}")
-def update_job(job_id: str, update: JobUpdate) -> dict[str, Any]:
+def update_job(
+    job_id: str,
+    request: Request,
+    update: JobUpdate,
+) -> dict[str, Any]:
     _ensure_queue_worker()
     if update.name is not None and not update.name.strip():
         raise HTTPException(status_code=422, detail="Job name cannot be empty.")
@@ -934,6 +1113,7 @@ def update_job(job_id: str, update: JobUpdate) -> dict[str, Any]:
         job = _read_job(job_id)
         if job is None:
             raise HTTPException(status_code=404, detail="Job not found")
+        _assert_job_owner(job, _client_ip(request))
         status = str(job.get("status"))
         if update.action == "cancel":
             if status == "canceled":
@@ -949,6 +1129,7 @@ def update_job(job_id: str, update: JobUpdate) -> dict[str, Any]:
                     {
                         "status": "canceling",
                         "stage": "canceled",
+                        "cancel_previous_stage": job.get("stage", "models"),
                         "cancel_requested": True,
                         "updated_at": _now_iso(),
                         "error": "正在中断评估进程。",
@@ -996,7 +1177,23 @@ def update_job(job_id: str, update: JobUpdate) -> dict[str, Any]:
             _write_job(job)
 
     if cancel_running:
-        _terminate_job_process(job_id)
+        try:
+            _terminate_job_process(job_id)
+        except HTTPException as exc:
+            with JOB_LOCK:
+                job = _read_job(job_id)
+                if job is not None and job.get("status") == "canceling":
+                    job.update(
+                        {
+                            "status": "running",
+                            "stage": job.get("cancel_previous_stage", "models"),
+                            "cancel_requested": False,
+                            "updated_at": _now_iso(),
+                            "error": str(exc.detail),
+                        }
+                    )
+                    _write_job(job)
+            raise
         with JOB_LOCK:
             job = _read_job(job_id)
             if job is None:
@@ -1010,15 +1207,21 @@ def update_job(job_id: str, update: JobUpdate) -> dict[str, Any]:
                         "finished_at": _now_iso(),
                         "updated_at": _now_iso(),
                         "error": "已由用户中断。",
+                        "cancel_requested": False,
+                        "cancel_previous_stage": None,
                     }
                 )
                 if update.name is not None:
                     job["name"] = update.name.strip()
                 _write_job(job)
     if enqueue_after_update:
-        JOB_QUEUE.put(str(job["job_id"]))
+        _enqueue_job(str(job["job_id"]), _job_owner(job))
         _ensure_queue_worker()
-    positions = _queued_positions(_all_jobs())
+    client_ip = _client_ip(request)
+    positions = _queued_positions(
+        _jobs_for_ip(_all_jobs(), client_ip),
+        client_ip,
+    )
     return _job_response(
         job,
         queue_position=positions.get(str(job["job_id"])),
@@ -1026,15 +1229,16 @@ def update_job(job_id: str, update: JobUpdate) -> dict[str, Any]:
 
 
 @app.delete("/api/jobs/{job_id}")
-def delete_job(job_id: str) -> dict[str, Any]:
+def delete_job(job_id: str, request: Request) -> dict[str, Any]:
     with JOB_LOCK:
         job = _read_job(job_id)
         if job is None:
             raise HTTPException(status_code=404, detail="Job not found")
-        if job.get("status") == "running":
+        _assert_job_owner(job, _client_ip(request))
+        if job.get("status") in {"running", "canceling"}:
             raise HTTPException(
                 status_code=409,
-                detail="Running jobs cannot be deleted.",
+                detail="运行中的任务不能删除，请先中断任务。",
             )
         run_dir = _job_dir(job_id)
         shutil.rmtree(run_dir, ignore_errors=False)
@@ -1042,7 +1246,11 @@ def delete_job(job_id: str) -> dict[str, Any]:
 
 
 @app.get("/api/runs/{run_id}/{filename}")
-def download_run_file(run_id: str, filename: str) -> FileResponse:
+def download_run_file(
+    run_id: str,
+    filename: str,
+    request: Request,
+) -> FileResponse:
     safe_run_id = Path(run_id).name
     safe_filename = Path(filename).name
     if safe_run_id != run_id or safe_filename != filename:
@@ -1051,6 +1259,13 @@ def download_run_file(run_id: str, filename: str) -> FileResponse:
     run_root = (WEB_RUNS_DIR / safe_run_id).resolve()
     if run_root.parent != WEB_RUNS_DIR.resolve() or not target.is_relative_to(run_root):
         raise HTTPException(status_code=404, detail="File not found")
+    job = _read_job(run_id)
+    if job is not None:
+        _assert_job_owner(job, _client_ip(request))
+    else:
+        owner = _read_job_owner(run_id)
+        if owner is not None and owner != _client_ip(request):
+            raise HTTPException(status_code=404, detail="File not found")
     if not target.exists() or not target.is_file():
         raise HTTPException(status_code=404, detail="File not found")
     return FileResponse(target)
@@ -1058,6 +1273,7 @@ def download_run_file(run_id: str, filename: str) -> FileResponse:
 
 @app.post("/api/evaluate")
 def evaluate(
+    request: Request,
     result_video: UploadFile = File(...),
     gt_video: UploadFile | None = File(None),
     reference_images: list[UploadFile] | None = File(None),
@@ -1069,6 +1285,7 @@ def evaluate(
     manual_expression_score: str = Form(""),
     manual_aesthetic_score: str = Form(""),
 ) -> JSONResponse:
+    client_ip = _client_ip(request)
     result_suffix = _upload_suffix(result_video, VIDEO_SUFFIXES)
     if not is_video_path(f"result{result_suffix}"):
         raise HTTPException(status_code=415, detail="Result upload must be a video.")
@@ -1091,6 +1308,7 @@ def evaluate(
         "reference_video": None,
     }
     try:
+        _write_job_owner(run_id, client_ip)
         uploaded["result_video"] = _save_upload(
             result_video,
             run_dir,

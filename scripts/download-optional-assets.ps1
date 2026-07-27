@@ -4,7 +4,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$root = Split-Path -Parent $MyInvocation.MyCommand.Path
+$root = (Resolve-Path (Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) "..")).Path
 $python = Join-Path $root ".venv\Scripts\python.exe"
 $cache = Join-Path $root "model_cache"
 $insightfaceRoot = Join-Path $cache "insightface"
@@ -33,7 +33,7 @@ if (-not $SkipPythonPackages) {
     if (-not (Test-Path $python)) {
         throw "Project Python environment is missing. Run .\setup.ps1 first."
     }
-    & $python -m pip install -r (Join-Path $root "requirements-optional.txt")
+    & $python -m pip install -r (Join-Path $root "requirements\optional.txt")
 }
 
 New-Item -ItemType Directory -Force -Path $insightfaceModels, $iqaWeights, $clipRoot | Out-Null

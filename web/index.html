@@ -113,7 +113,12 @@
                 <p class="eyebrow">01 / INPUT MATERIALS</p>
                 <h2>装载一次评估</h2>
               </div>
-              <span class="panel-status">READY WHEN YOU ARE</span>
+              <div class="panel-heading-actions">
+                <span class="panel-status">READY WHEN YOU ARE</span>
+                <button id="new-evaluation" class="new-evaluation-button" type="button">
+                  新建评估
+                </button>
+              </div>
             </div>
 
             <form id="evaluation-form">
@@ -212,11 +217,11 @@
                 </summary>
                 <div class="advanced-grid">
                   <label class="field">
-                    <span class="field-label"><span>MAX FRAMES</span><small>2—256</small></span>
+                    <span class="field-label"><span>最大帧数</span><small>2—256</small></span>
                     <input name="max_frames" type="number" min="2" max="256" value="64" />
                   </label>
                   <label class="field">
-                    <span class="field-label"><span>DEVICE</span><small>推理设备</small></span>
+                    <span class="field-label"><span>运行设备</span><small>推理设备</small></span>
                     <select name="device">
                       <option value="cpu">CPU / 稳定</option>
                       <option value="auto">AUTO / 自动</option>
@@ -224,11 +229,11 @@
                     </select>
                   </label>
                   <label class="field">
-                    <span class="field-label"><span>EXPRESSION BACKSTOP</span><small>1—5</small></span>
+                    <span class="field-label"><span>表情人工兜底评分</span><small>1—5</small></span>
                     <input name="manual_expression_score" type="number" min="1" max="5" step="1" placeholder="留空自动判断" />
                   </label>
                   <label class="field">
-                    <span class="field-label"><span>AESTHETIC SCORE</span><small>1—5</small></span>
+                    <span class="field-label"><span>美学评分</span><small>1—5</small></span>
                     <input name="manual_aesthetic_score" type="number" min="1" max="5" step="1" placeholder="建议填写" />
                   </label>
                 </div>
@@ -294,7 +299,12 @@
                     <strong id="active-job-name">--</strong>
                     <small id="active-job-stage">等待中</small>
                   </div>
-                  <span id="active-job-status" class="queue-status running">运行中</span>
+                  <div class="queue-active-actions">
+                    <span id="active-job-status" class="queue-status running">运行中</span>
+                    <button id="active-job-cancel" class="queue-item-action is-danger" type="button">
+                      中断任务
+                    </button>
+                  </div>
                 </div>
                 <div class="queue-progress">
                   <span id="active-job-progress"></span>
@@ -352,19 +362,19 @@
               <div class="report-overview">
                 <div class="score-hero">
                   <div>
-                    <span class="metric-label">WEIGHTED SCORE</span>
+                    <span class="metric-label">加权总分</span>
                     <div class="big-score"><span id="overall-score">--</span><small>/100</small></div>
-                    <span id="score-caption" class="score-caption">partial coverage</span>
+                    <span id="score-caption" class="score-caption">覆盖情况</span>
                   </div>
                   <div class="coverage-ring" id="coverage-ring" style="--coverage: 0%">
                     <span id="coverage-value">0/5</span>
-                    <small>covered</small>
+                    <small>已覆盖</small>
                   </div>
                 </div>
                 <div class="radar-panel">
                   <div class="subheading">
-                    <span>FIVE-DIMENSION RADAR</span>
-                    <span>0—1 normalized</span>
+                    <span>五维评分雷达图</span>
+                    <span>0—1 归一化</span>
                   </div>
                   <div id="radar-chart" class="radar-chart" aria-label="五类评分雷达图"></div>
                 </div>
@@ -374,8 +384,8 @@
 
               <div class="evidence-block">
                 <div class="subheading">
-                  <span>KEY EVIDENCE</span>
-                  <span>normalized / raw</span>
+                  <span>KEY EVIDENCE <em>关键证据</em></span>
+                  <span>normalized / raw <em>归一化 / 原始值</em></span>
                 </div>
                 <div id="evidence-grid" class="evidence-grid"></div>
               </div>

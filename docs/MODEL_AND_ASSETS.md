@@ -19,7 +19,7 @@ $env:EVALUATOR_GPU_MEMORY_GB = "8"
 ```
 
 实际选择规则和缓存配置保存在
-`model_profile_compact_9p6g.json`，由 `evaluator/model_profile.py` 读取。
+`config/model_profile.json`，由 `evaluator/model_profile.py` 读取。
 
 ## 缓存目录
 
@@ -40,7 +40,7 @@ $env:EVALUATOR_GPU_MEMORY_GB = "8"
 
 ```powershell
 .\setup.ps1 -Optional
-.\download-optional-assets.ps1 -SkipPythonPackages
+.\scripts\download-optional-assets.ps1 -SkipPythonPackages
 ```
 
 下载脚本会生成 `model_cache/OPTIONAL_ASSETS.json`，记录资源大小、来源和
@@ -52,16 +52,16 @@ SHA256。基础评估不依赖这些大模型；缺失时网页端会显示 `OPT
 默认 8GB 档位使用 Qwen2-VL-2B AWQ。下载并启动本地 OpenAI 兼容服务：
 
 ```powershell
-.\download-compact-models.ps1
+.\scripts\download-vlm-judge.ps1
 $env:ETVA_JUDGE_ENABLED = "1"
-.\run-vlm-judge-docker.ps1
+.\scripts\run-vlm-judge-docker.ps1
 ```
 
 12GB 升级模型：
 
 ```powershell
-.\download-compact-models.ps1 -JudgeModel 2.5-3b
-.\run-vlm-judge-docker.ps1 -JudgeModel 2.5-3b
+.\scripts\download-vlm-judge.ps1 -JudgeModel 2.5-3b
+.\scripts\run-vlm-judge-docker.ps1 -JudgeModel 2.5-3b
 ```
 
 服务默认监听 `127.0.0.1:30000` 映射的 Docker 端口。下载权重不会自动
@@ -73,8 +73,8 @@ VBench 是独立的可选后端，建议使用 Docker 运行：
 
 ```powershell
 .\setup.ps1 -VBench
-.\download-vbench-models.ps1 -SkipDinoRepository
-.\build-vbench-docker.ps1
+.\scripts\download-vbench-models.ps1 -SkipDinoRepository
+.\docker\build-vbench.ps1
 ```
 
 如果需要完整的 DINO 源码，可省略 `-SkipDinoRepository`。下载失败时，
@@ -84,7 +84,7 @@ VBench 结果写入 `outputs/vbench/`，不参与主流程的五类加权总分�
 自定义 CUDA 基础镜像：
 
 ```powershell
-.\build-vbench-docker.ps1 `
+.\docker\build-vbench.ps1 `
     -CudaBaseImage "nvcr.io/nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu22.04"
 ```
 
