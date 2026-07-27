@@ -1,6 +1,5 @@
 # Optional exact backends for the five-category evaluator.
 # The base evaluator already provides NumPy and OpenCV.
 insightface>=0.7.3
-onnxruntime>=1.18
 mediapipe>=0.10.14
 pyiqa>=0.1.12

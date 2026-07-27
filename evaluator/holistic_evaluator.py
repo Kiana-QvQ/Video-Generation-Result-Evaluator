@@ -94,6 +94,13 @@ def get_model_inventory() -> list[dict[str, Any]]:
             / "model.safetensors"
         ).exists()
     )
+    onnx_cuda_ready = False
+    try:
+        import onnxruntime as ort
+
+        onnx_cuda_ready = "CUDAExecutionProvider" in ort.get_available_providers()
+    except Exception:
+        pass
     mediapipe_ready = False
     mediapipe_note = "未安装，将回退到人脸框抖动代理。"
     try:
@@ -146,7 +153,13 @@ def get_model_inventory() -> list[dict[str, Any]]:
             "ArcFace",
             "角色 / 身份一致性",
             arcface_ready,
-            "InsightFace buffalo_l 已缓存。" if arcface_ready else "未检测到 ArcFace 权重，将回退到人脸特征代理。",
+            (
+                "InsightFace buffalo_l 已缓存，ONNX Runtime CUDA provider 可用。"
+                if onnx_cuda_ready
+                else "InsightFace buffalo_l 已缓存，但 ONNX Runtime 没有 CUDA provider，ArcFace 将使用 CPU。"
+            )
+            if arcface_ready
+            else "未检测到 ArcFace 权重，将回退到人脸特征代理。",
         ),
         _model_status(
             "CLIP ViT-B/32",
@@ -337,9 +350,10 @@ def _crop_face(
 class _IdentityBackend:
     """Use InsightFace when installed, otherwise an explicit face proxy."""
 
-    def __init__(self, detector: _FaceDetector) -> None:
+    def __init__(self, detector: _FaceDetector, device: str = "auto") -> None:
         self.detector = detector
         self.insight_app: Any | None = None
+        self.device = "cpu"
         self.backend = "face_crop_proxy"
         self.note = (
             "InsightFace 未安装，身份一致性使用 OpenCV 人脸框和人脸裁剪特征代理；"
@@ -349,7 +363,32 @@ class _IdentityBackend:
             try:
                 from insightface.app import FaceAnalysis
 
-                face_device = os.environ.get("EVALUATOR_FACE_DEVICE", "cpu").lower()
+                face_device = os.environ.get(
+                    "EVALUATOR_FACE_DEVICE",
+                    device,
+                ).lower()
+                if face_device == "auto":
+                    try:
+                        import torch
+
+                        face_device = (
+                            "cuda" if torch.cuda.is_available() else "cpu"
+                        )
+                    except ImportError:
+                        face_device = "cpu"
+                cuda_provider_available = False
+                if face_device == "cuda":
+                    try:
+                        import onnxruntime as ort
+
+                        cuda_provider_available = (
+                            "CUDAExecutionProvider"
+                            in ort.get_available_providers()
+                        )
+                    except Exception:
+                        cuda_provider_available = False
+                    if not cuda_provider_available:
+                        face_device = "cpu"
                 providers = (
                     ["CUDAExecutionProvider", "CPUExecutionProvider"]
                     if face_device == "cuda"
@@ -360,9 +399,19 @@ class _IdentityBackend:
                     root=str(MODEL_CACHE_DIR / "insightface"),
                     providers=providers,
                 )
-                self.insight_app.prepare(ctx_id=-1, det_size=(640, 640))
+                self.insight_app.prepare(
+                    ctx_id=0 if face_device == "cuda" else -1,
+                    det_size=(640, 640),
+                )
+                self.device = face_device
                 self.backend = "arcface"
-                self.note = "使用 InsightFace ArcFace 人脸嵌入。"
+                if cuda_provider_available:
+                    self.note = "使用 InsightFace ArcFace 人脸嵌入（CUDA）。"
+                elif face_device == "cpu":
+                    self.note = (
+                        "使用 InsightFace ArcFace 人脸嵌入（CPU）；"
+                        "ONNX Runtime CUDA provider 不可用。"
+                    )
             except Exception as exc:
                 self.note = f"InsightFace 初始化失败，回退到人脸特征代理：{exc}"
 
@@ -485,9 +534,10 @@ def evaluate_identity(
     reference_video: str | Path | None,
     ground_truth: str | Path | None,
     max_frames: int,
+    device: str = "auto",
 ) -> dict[str, Any]:
     detector = _FaceDetector()
-    backend = _IdentityBackend(detector)
+    backend = _IdentityBackend(detector, device=device)
     reference_frames, reference_source = _reference_frames(
         reference_image,
         reference_video,
@@ -661,7 +711,9 @@ def _optional_iqa(
         import torch
         import pyiqa
 
-        requested_device = os.environ.get("EVALUATOR_IQA_DEVICE", device).lower()
+        requested_device = os.environ.get("EVALUATOR_IQA_DEVICE", "").lower()
+        if requested_device not in {"cpu", "cuda"}:
+            requested_device = device
         resolved_device = (
             "cuda"
             if requested_device == "cuda" and torch.cuda.is_available()
@@ -1009,8 +1061,10 @@ def evaluate_text_alignment(
 
         requested_device = os.environ.get(
             "EVALUATOR_SEMANTIC_DEVICE",
-            device,
+            "",
         ).lower()
+        if requested_device not in {"cpu", "cuda"}:
+            requested_device = device
         resolved_device = (
             "cuda"
             if requested_device == "cuda" and torch.cuda.is_available()
@@ -1718,6 +1772,7 @@ def evaluate_all(
         reference_video,
         ground_truth,
         max_frames,
+        device=effective_device,
     )
     texture = evaluate_texture(
         result_path,

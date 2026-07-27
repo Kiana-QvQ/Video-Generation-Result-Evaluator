@@ -43,6 +43,22 @@ if ($Cuda) {
 if ($Optional) {
     Write-Host "Installing optional exact evaluator backends..."
     & $python -m pip install -r (Join-Path $root "requirements\optional.txt")
+    $torchCuda = (& $python -c "import torch; print(torch.version.cuda or '')").Trim()
+    if ($torchCuda -like "11.*") {
+        Write-Host "Installing ONNX Runtime GPU for CUDA 11.x..."
+        & $python -m pip install `
+            "onnxruntime-gpu>=1.19.2,<1.21" `
+            --index-url https://aiinfra.pkgs.visualstudio.com/PublicPackages/_packaging/onnxruntime-cuda-11/pypi/simple/
+    } elseif ($torchCuda -like "12.*") {
+        Write-Host "Installing ONNX Runtime GPU for CUDA 12.x..."
+        & $python -m pip install "onnxruntime-gpu>=1.19"
+    } else {
+        Write-Host "Installing CPU ONNX Runtime..."
+        & $python -m pip install "onnxruntime>=1.18"
+    }
+    if ($LASTEXITCODE -ne 0) {
+        throw "ONNX Runtime installation failed."
+    }
 }
 if ($VBench) {
     Write-Host "Installing the optional VBench backend..."
