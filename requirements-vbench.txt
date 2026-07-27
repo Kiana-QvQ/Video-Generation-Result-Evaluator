@@ -1,0 +1,4 @@
+# Optional official VBench backend.
+# Some dimensions may additionally require CUDA-specific packages such as
+# Detectron2 and extra model weights.
+vbench>=0.1.5,<0.2

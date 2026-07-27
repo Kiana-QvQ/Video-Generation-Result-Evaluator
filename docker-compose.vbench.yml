@@ -1,0 +1,18 @@
+services:
+  vbench:
+    build:
+      context: .
+      dockerfile: Dockerfile.vbench
+      args:
+        CUDA_BASE_IMAGE: ${CUDA_BASE_IMAGE:-nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu22.04}
+    image: video-evaluator-vbench:cu118
+    gpus: all
+    environment:
+      VBENCH_CACHE_DIR: /root/.cache/vbench
+      TORCH_HOME: /root/.cache/torch
+      HF_HOME: /root/.cache/huggingface
+    volumes:
+      - ./model_cache/vbench:/root/.cache/vbench
+      - ./model_cache/torch:/root/.cache/torch
+      - ./model_cache/huggingface:/root/.cache/huggingface
+      - ./outputs:/workspace/outputs
