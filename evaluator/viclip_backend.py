@@ -88,8 +88,33 @@ def _load_checkpoint() -> dict[str, Any]:
 
 def _build_model(device: str, need_text: bool) -> Any:
     import torch
-    from clip.model import LayerNorm, QuickGELU, Transformer
+    from clip.model import Transformer
     from torch import nn
+    import torch.nn.functional as F
+
+    class SafeLayerNorm(nn.LayerNorm):
+        def forward(self, inputs: torch.Tensor) -> torch.Tensor:
+            output = F.layer_norm(
+                inputs.float(),
+                self.normalized_shape,
+                self.weight.float() if self.weight is not None else None,
+                self.bias.float() if self.bias is not None else None,
+                self.eps,
+            )
+            return output.to(inputs.dtype)
+
+    def replace_layer_norms(module: nn.Module) -> None:
+        for name, child in list(module.named_children()):
+            if isinstance(child, nn.LayerNorm):
+                replacement = SafeLayerNorm(
+                    child.normalized_shape,
+                    eps=child.eps,
+                    elementwise_affine=child.elementwise_affine,
+                )
+                replacement.load_state_dict(child.state_dict())
+                setattr(module, name, replacement)
+            else:
+                replace_layer_norms(child)
 
     class VisionEncoder(nn.Module):
         def __init__(self) -> None:
@@ -111,9 +136,10 @@ def _build_model(device: str, need_text: bool) -> Any:
             self.temporal_positional_embedding = nn.Parameter(
                 torch.zeros(1, VICLIP_FRAMES, width)
             )
-            self.ln_pre = LayerNorm(width)
+            self.ln_pre = SafeLayerNorm(width)
             self.transformer = Transformer(width, 24, 16)
-            self.ln_post = LayerNorm(width)
+            replace_layer_norms(self.transformer)
+            self.ln_post = SafeLayerNorm(width)
             self.proj = nn.Parameter(torch.empty(width, 768))
 
         def forward(self, video: torch.Tensor) -> torch.Tensor:
@@ -168,11 +194,12 @@ def _build_model(device: str, need_text: bool) -> Any:
             super().__init__()
             width = 768
             self.transformer = Transformer(width, 12, 12)
+            replace_layer_norms(self.transformer)
             self.token_embedding = nn.Embedding(49408, width)
             self.positional_embedding = nn.Parameter(
                 torch.empty(32, width)
             )
-            self.ln_final = LayerNorm(width)
+            self.ln_final = SafeLayerNorm(width)
             self.text_projection = nn.Parameter(torch.empty(width, 768))
 
         def forward(self, text: torch.Tensor) -> torch.Tensor:

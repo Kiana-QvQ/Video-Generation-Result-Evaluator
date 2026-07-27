@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import math
+from multiprocessing import Process
 import queue
 import shutil
 import threading
@@ -44,6 +45,7 @@ JOB_QUEUE: queue.Queue[str] = queue.Queue()
 JOB_LOCK = threading.RLock()
 JOB_WORKER: threading.Thread | None = None
 JOB_QUEUE_RECOVERED = False
+JOB_PROCESSES: dict[str, Process] = {}
 
 
 class JobUpdate(BaseModel):
@@ -225,6 +227,7 @@ def _job_response(
         "updated_at": job.get("updated_at"),
         "error": job.get("error"),
         "parameters": job.get("parameters", {}),
+        "original_files": job.get("original_files", {}),
         "uploaded_files": _job_uploaded_urls(job),
         "result_available": job.get("status") == "completed",
     }
@@ -290,6 +293,8 @@ def _update_job_state(job_id: str, **changes: Any) -> dict[str, Any]:
         job = _read_job(job_id)
         if job is None:
             raise HTTPException(status_code=404, detail="Job not found")
+        if job.get("cancel_requested") and changes.get("status") != "canceled":
+            return job
         job.update(changes)
         job["updated_at"] = _now_iso()
         _write_job(job)
@@ -366,6 +371,17 @@ def _save_upload(
         target.unlink(missing_ok=True)
         raise
     if allowed == VIDEO_SUFFIXES:
+        # Most generated MP4 files are already browser/OpenCV compatible.
+        # Avoid blocking job creation with a second full video encode.
+        if suffix == ".mp4":
+            try:
+                probe_video(target)
+            except (FileNotFoundError, ValueError):
+                pass
+            else:
+                normalized = run_dir / f"{stem}.mp4"
+                target.replace(normalized)
+                return normalized
         normalized = run_dir / f"{stem}.mp4"
         transcode_video_for_browser(target, normalized)
         return normalized
@@ -533,6 +549,24 @@ def _prepare_job(
         )
         for key, paths in uploaded.items()
     }
+    original_files = {
+        "result_video": Path(result_video.filename or "result video").name,
+        "gt_video": (
+            Path(gt_video.filename).name
+            if gt_video is not None and gt_video.filename
+            else None
+        ),
+        "reference_images": [
+            Path(image.filename).name
+            for image in (reference_images or [])
+            if image.filename
+        ],
+        "reference_video": (
+            Path(reference_video.filename).name
+            if reference_video is not None and reference_video.filename
+            else None
+        ),
+    }
     parameters = {
         "prompt_text": prompt,
         "max_frames": max_frames,
@@ -555,30 +589,17 @@ def _prepare_job(
         "updated_at": created_at,
         "error": None,
         "files": files,
+        "original_files": original_files,
         "parameters": parameters,
     }
     _write_job_params(job)
     return job
 
 
-def _process_job(job_id: str) -> None:
-    with JOB_LOCK:
-        job = _read_job(job_id)
-        if job is None or job.get("status") != "queued":
-            return
-        now = _now_iso()
-        job.update(
-            {
-                "status": "running",
-                "stage": "preparing",
-                "progress": 0.08,
-                "started_at": now,
-                "updated_at": now,
-                "error": None,
-            }
-        )
-        _write_job(job)
-
+def _execute_job(job_id: str) -> None:
+    job = _read_job(job_id)
+    if job is None or job.get("status") != "running":
+        return
     try:
         result_path = _job_file_path(job, "result_video")
         gt_path = _job_file_path(job, "gt_video")
@@ -650,6 +671,81 @@ def _process_job(job_id: str) -> None:
             )
         except HTTPException:
             pass
+
+
+def _process_job(job_id: str) -> None:
+    with JOB_LOCK:
+        job = _read_job(job_id)
+        if job is None or job.get("status") != "queued":
+            return
+        now = _now_iso()
+        job.update(
+            {
+                "status": "running",
+                "stage": "preparing",
+                "progress": 0.08,
+                "started_at": now,
+                "updated_at": now,
+                "error": None,
+            }
+        )
+        _write_job(job)
+        process = Process(
+            target=_execute_job,
+            args=(job_id,),
+            name=f"frame-audit-job-{job_id}",
+        )
+        process.daemon = True
+        JOB_PROCESSES[job_id] = process
+        try:
+            process.start()
+        except Exception as exc:
+            JOB_PROCESSES.pop(job_id, None)
+            _update_job_state(
+                job_id,
+                status="failed",
+                stage="failed",
+                progress=0.0,
+                finished_at=_now_iso(),
+                error=f"{type(exc).__name__}: {exc}",
+            )
+            return
+
+    try:
+        process.join()
+        job_after = _read_job(job_id)
+        if (
+            job_after is not None
+            and job_after.get("status") == "running"
+            and process.exitcode not in {0, None}
+        ):
+            _update_job_state(
+                job_id,
+                status="failed",
+                stage="failed",
+                progress=0.0,
+                finished_at=_now_iso(),
+                error=f"评估进程异常退出，退出码: {process.exitcode}",
+            )
+    finally:
+        with JOB_LOCK:
+            JOB_PROCESSES.pop(job_id, None)
+
+
+def _terminate_job_process(job_id: str) -> None:
+    with JOB_LOCK:
+        process = JOB_PROCESSES.get(job_id)
+    if process is None:
+        raise HTTPException(
+            status_code=409,
+            detail="评估进程尚未准备好，稍后再试。",
+        )
+    if process.is_alive():
+        process.terminate()
+    process.join(timeout=5)
+    if process.is_alive():
+        process.kill()
+        process.join(timeout=5)
 
 
 def _queue_worker_loop() -> None:
@@ -832,6 +928,8 @@ def update_job(job_id: str, update: JobUpdate) -> dict[str, Any]:
     if update.name is not None and not update.name.strip():
         raise HTTPException(status_code=422, detail="Job name cannot be empty.")
 
+    cancel_running = False
+    enqueue_after_update = False
     with JOB_LOCK:
         job = _read_job(job_id)
         if job is None:
@@ -839,26 +937,43 @@ def update_job(job_id: str, update: JobUpdate) -> dict[str, Any]:
         status = str(job.get("status"))
         if update.action == "cancel":
             if status == "canceled":
-                return _job_response(job)
-            if status != "queued":
+                pass
+            elif status == "running":
+                if JOB_PROCESSES.get(job_id) is None:
+                    raise HTTPException(
+                        status_code=409,
+                        detail="评估进程尚未准备好，稍后再试。",
+                    )
+                cancel_running = True
+                job.update(
+                    {
+                        "status": "canceling",
+                        "stage": "canceled",
+                        "cancel_requested": True,
+                        "updated_at": _now_iso(),
+                        "error": "正在中断评估进程。",
+                    }
+                )
+            elif status == "queued":
+                job.update(
+                    {
+                        "status": "canceled",
+                        "stage": "canceled",
+                        "progress": 0.0,
+                        "finished_at": _now_iso(),
+                        "error": "已由用户取消。",
+                    }
+                )
+            else:
                 raise HTTPException(
                     status_code=409,
-                    detail="Only queued jobs can be canceled.",
+                    detail="只有排队中或运行中的任务可以取消。",
                 )
-            job.update(
-                {
-                    "status": "canceled",
-                    "stage": "canceled",
-                    "progress": 0.0,
-                    "finished_at": _now_iso(),
-                    "error": "Canceled by user.",
-                }
-            )
         elif update.action == "retry":
             if status not in {"failed", "canceled"}:
                 raise HTTPException(
                     status_code=409,
-                    detail="Only failed or canceled jobs can be retried.",
+                    detail="只有失败或已取消的任务可以重试。",
                 )
             now = _now_iso()
             job.update(
@@ -870,15 +985,38 @@ def update_job(job_id: str, update: JobUpdate) -> dict[str, Any]:
                     "started_at": None,
                     "finished_at": None,
                     "error": None,
+                    "cancel_requested": False,
                 }
             )
-            JOB_QUEUE.put(str(job["job_id"]))
+            enqueue_after_update = True
         if update.name is not None:
             job["name"] = update.name.strip()
-        job["updated_at"] = _now_iso()
-        _write_job(job)
+        if not cancel_running:
+            job["updated_at"] = _now_iso()
+            _write_job(job)
 
-    if update.action == "retry":
+    if cancel_running:
+        _terminate_job_process(job_id)
+        with JOB_LOCK:
+            job = _read_job(job_id)
+            if job is None:
+                raise HTTPException(status_code=404, detail="Job not found")
+            if job.get("status") in {"running", "canceling"}:
+                job.update(
+                    {
+                        "status": "canceled",
+                        "stage": "canceled",
+                        "progress": float(job.get("progress", 0)),
+                        "finished_at": _now_iso(),
+                        "updated_at": _now_iso(),
+                        "error": "已由用户中断。",
+                    }
+                )
+                if update.name is not None:
+                    job["name"] = update.name.strip()
+                _write_job(job)
+    if enqueue_after_update:
+        JOB_QUEUE.put(str(job["job_id"]))
         _ensure_queue_worker()
     positions = _queued_positions(_all_jobs())
     return _job_response(

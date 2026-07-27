@@ -24,7 +24,6 @@ def configure_project_environment() -> dict[str, str]:
         "TORCH_EXTENSIONS_DIR": MODEL_CACHE_DIR / "torch_extensions",
         "MPLCONFIGDIR": MODEL_CACHE_DIR / "matplotlib",
         "PIP_CACHE_DIR": MODEL_CACHE_DIR / "pip",
-        "GRADIO_TEMP_DIR": OUTPUT_DIR / "gradio_temp",
         "DOCKER_CONFIG": PROJECT_ROOT / ".docker",
     }
     for key, value in cache_dirs.items():

@@ -24,6 +24,7 @@ class WebAppTests(unittest.TestCase):
         self.assertIn("评分原理与准则", response.text)
         self.assertIn("preflight-list", response.text)
         self.assertIn("process-queue", response.text)
+        self.assertIn("处理队列", response.text)
         self.assertIn("看清视频，", response.text)
         self.assertIn("上传视频后开始评分。", response.text)
 
@@ -148,6 +149,25 @@ class WebAppTests(unittest.TestCase):
                 self.client.get(f"/api/jobs/{job_id}").status_code,
                 404,
             )
+
+    def test_readable_mp4_is_not_reencoded_when_queued(self) -> None:
+        video_path = Path("outputs/test_result.mp4")
+        with patch("web_app._ensure_queue_worker"), patch(
+            "web_app.transcode_video_for_browser"
+        ) as transcode:
+            with video_path.open("rb") as video:
+                response = self.client.post(
+                    "/api/jobs",
+                    files={"result_video": ("result.mp4", video, "video/mp4")},
+                    data={
+                        "calculate_lpips": "false",
+                        "max_frames": "2",
+                        "device": "cpu",
+                    },
+                )
+            self.assertEqual(response.status_code, 202)
+            transcode.assert_not_called()
+            self.client.delete(f"/api/jobs/{response.json()['job_id']}")
 
     def test_json_safe_handles_numpy_and_paths(self) -> None:
         payload = _json_safe(

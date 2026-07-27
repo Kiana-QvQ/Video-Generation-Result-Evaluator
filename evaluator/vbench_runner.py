@@ -11,7 +11,6 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from .runtime import MODEL_CACHE_DIR, OUTPUT_DIR, PROJECT_ROOT
-from .video_metrics import resolve_path
 
 
 VBENCH_DIMENSIONS = [
@@ -403,78 +402,3 @@ def run_vbench(
         "stdout": completed.stdout[-12000:],
         "stderr": completed.stderr[-12000:],
     }
-
-
-def run_vbench_ui(
-    video_value: Any,
-    dimensions: list[str] | None,
-    output_root: str | Path = OUTPUT_DIR,
-) -> tuple[str, list[list[Any]], str]:
-    video_path = resolve_path(video_value)
-    if not video_path:
-        return (
-            "### 请先上传生成结果视频",
-            [],
-            json.dumps({"status": "missing_video"}, ensure_ascii=False, indent=2),
-        )
-
-    selected_dimensions = dimensions or ["motion_smoothness", "aesthetic_quality"]
-    try:
-        result = run_vbench(video_path, selected_dimensions, output_root)
-    except Exception as exc:
-        return (
-            f"### VBench 执行失败\n\n`{type(exc).__name__}: {exc}`",
-            [],
-            json.dumps(
-                {"status": "failed", "error": str(exc)},
-                ensure_ascii=False,
-                indent=2,
-            ),
-        )
-
-    if result["status"] == "not_installed":
-        return (
-            "### VBench 尚未安装\n\n"
-            f'{result["installation"]}\n\n'
-            "VBench 是可选后端，不会影响 PSNR、SSIM、LPIPS。",
-            [],
-            json.dumps(result, ensure_ascii=False, indent=2),
-        )
-    if result["status"] == "not_ready":
-        return (
-            "### VBench is partially unavailable\n\n"
-            "The requested DINO-dependent dimension was skipped because its "
-            "source/checkpoint is not ready.",
-            [],
-            json.dumps(result, ensure_ascii=False, indent=2),
-        )
-
-    rows = [
-        [
-            record["dimension"],
-            (
-                f'{record["score"]:.6f}'
-                if record["score"] is not None
-                else "未解析到结果"
-            ),
-            record["direction"],
-            record["source_file"] or "-",
-        ]
-        for record in result["records"]
-    ]
-    if result["status"] == "completed":
-        status = (
-            "### VBench 评估完成\n\n"
-            f'后端：`{result["backend"]}`，结果目录：`{result["output_dir"]}`'
-        )
-    else:
-        platform_note = result.get("platform_note")
-        if platform_note:
-            status = f"### VBench 当前环境不可用\n\n{platform_note}"
-        else:
-            status = (
-                "### VBench 执行失败\n\n"
-                f'退出码：`{result["return_code"]}`\n\n'
-                "请查看原始 JSON 中的 stderr。"
-            )
-    return status, rows, json.dumps(result, ensure_ascii=False, indent=2)

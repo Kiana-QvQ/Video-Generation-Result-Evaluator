@@ -455,14 +455,21 @@ loadModels();
 window.queueMode = true;
 
 const queueStageLabels = {
-  queued: ["upload", "WAITING IN QUEUE"],
-  preparing: ["upload", "PREPARING INPUTS"],
-  sampling: ["sample", "SAMPLING FRAMES"],
-  models: ["models", "RUNNING LOCAL MODELS"],
-  report: ["report", "WRITING REPORT"],
-  completed: ["report", "EVALUATION COMPLETE"],
-  failed: ["report", "EVALUATION FAILED"],
-  canceled: ["upload", "JOB CANCELED"],
+  queued: ["upload", "排队等待"],
+  preparing: ["upload", "准备输入文件"],
+  sampling: ["sample", "抽取关键帧"],
+  models: ["models", "运行本地模型"],
+  report: ["report", "整理评估报告"],
+  completed: ["report", "评估完成"],
+  failed: ["report", "评估失败"],
+  canceled: ["upload", "任务已取消"],
+};
+const queueStatusLabels = {
+  queued: "排队中",
+  running: "运行中",
+  completed: "已完成",
+  failed: "失败",
+  canceled: "已取消",
 };
 const queueTerminalStatuses = new Set(["completed", "failed", "canceled"]);
 const queueKnownStatuses = new Map();
@@ -472,8 +479,8 @@ let queueRefreshInFlight = false;
 function setQueueBusy(isBusy) {
   evaluateButton.disabled = isBusy;
   evaluateButton.querySelector("span:first-child").textContent = isBusy
-    ? "UPLOADING..."
-    : "ADD TO QUEUE";
+    ? "上传中..."
+    : "加入队列";
 }
 
 function updateQueueProgressPanel(job) {
@@ -498,7 +505,7 @@ function updateQueueProgressPanel(job) {
     progressBar.classList.add("is-complete");
   }
   if (queueTerminalStatuses.has(job.status)) {
-    progressTime.textContent = job.status.toUpperCase();
+    progressTime.textContent = queueStatusLabels[job.status] ?? job.status;
     return;
   }
   const startedAt = Date.parse(job.started_at ?? "");
@@ -514,15 +521,15 @@ function updateQueueProgressPanel(job) {
 }
 
 function queueStatusText(status) {
-  return String(status ?? "unknown").replaceAll("_", " ").toUpperCase();
+  return queueStatusLabels[status] ?? "未知状态";
 }
 
 function renderQueue(payload) {
   const jobs = Array.isArray(payload.jobs) ? payload.jobs : [];
   const active = jobs.find((job) => job.status === "running");
-  queueSummary.textContent = `${active ? 1 : 0} active / ${
+  queueSummary.textContent = `${active ? 1 : 0} 个运行 / ${
     payload.queued_count ?? 0
-  } waiting`;
+  } 个等待`;
   queueActive.classList.toggle("is-hidden", !active);
   if (active) {
     activeJobName.textContent = active.name || active.job_id;
@@ -542,23 +549,33 @@ function renderQueue(payload) {
   queueList.innerHTML = visibleJobs
     .map((job, index) => {
       const position = job.queue_position ?? index + 1;
-      const action =
-        job.status === "queued"
-          ? `<button class="queue-item-action" type="button" data-action="cancel" data-job-id="${escapeHtml(job.job_id)}">CANCEL</button>`
-          : queueTerminalStatuses.has(job.status)
-            ? `<button class="queue-item-action" type="button" data-action="${job.status === "completed" ? "delete" : "retry"}" data-job-id="${escapeHtml(job.job_id)}">${job.status === "completed" ? "DELETE" : "RETRY"}</button>`
-            : "";
+      const actions = [];
+      if (job.status === "queued") {
+        actions.push(["cancel", "取消"]);
+      }
+      if (job.status === "failed" || job.status === "canceled") {
+        actions.push(["retry", "重试"]);
+      }
+      if (job.status !== "running") {
+        actions.push(["delete", "删除"]);
+      }
+      const actionMarkup = actions
+        .map(
+          ([action, label]) =>
+            `<button class="queue-item-action ${action === "delete" ? "is-danger" : ""}" type="button" data-action="${action}" data-job-id="${escapeHtml(job.job_id)}">${label}</button>`,
+        )
+        .join("");
       return `
         <div class="queue-item-row">
+          <span class="queue-item-index">${String(position).padStart(2, "0")}</span>
           <button class="queue-item" type="button" data-job-id="${escapeHtml(job.job_id)}">
-            <span class="queue-item-index">${String(position).padStart(2, "0")}</span>
             <span class="queue-item-copy">
               <strong>${escapeHtml(job.name || job.job_id)}</strong>
               <small>${escapeHtml(queueStageLabels[job.stage]?.[1] ?? queueStatusText(job.status))}</small>
             </span>
             <span class="queue-item-status ${escapeHtml(job.status)}">${queueStatusText(job.status)}</span>
           </button>
-          ${action}
+          <div class="queue-item-actions">${actionMarkup}</div>
         </div>
       `;
     })
@@ -601,14 +618,14 @@ async function selectQueueJob(jobId) {
   try {
     const payload = await getQueueJob(jobId, true);
     if (payload?.status === "completed") {
-      setFormNote(`Loaded report / ${payload.name}`, "success");
+      setFormNote(`已加载报告 / ${payload.name}`, "success");
     } else if (payload?.error) {
       setFormNote(payload.error, "error");
     } else {
       setFormNote(`${queueStatusText(payload?.status)} / ${payload?.name}`);
     }
   } catch (error) {
-    setFormNote(error.message || "Unable to load queue job.", "error");
+    setFormNote(error.message || "无法加载队列任务。", "error");
   }
 }
 
@@ -616,7 +633,7 @@ async function mutateQueueJob(jobId, action) {
   if (!jobId) return;
   if (
     action === "delete" &&
-    !window.confirm("Delete this stored job and its files?")
+    !window.confirm("确定删除这个任务及其已保存的文件吗？")
   ) {
     return;
   }
@@ -641,7 +658,7 @@ async function mutateQueueJob(jobId, action) {
     }
     await refreshQueue();
   } catch (error) {
-    setFormNote(error.message || "Unable to update queue job.", "error");
+    setFormNote(error.message || "无法更新队列任务。", "error");
   }
 }
 
@@ -666,7 +683,7 @@ async function refreshQueue() {
         previousStatus !== "completed"
       ) {
         await getQueueJob(selected.job_id);
-        setFormNote(`Evaluation complete / ${selected.name}`, "success");
+        setFormNote(`评估完成 / ${selected.name}`, "success");
       } else if (
         selected.status === "failed" &&
         previousStatus !== "failed"
@@ -676,7 +693,7 @@ async function refreshQueue() {
       queueKnownStatuses.set(selected.job_id, selected.status);
     }
   } catch (error) {
-    setFormNote(error.message || "Unable to refresh queue.", "error");
+    setFormNote(error.message || "无法刷新处理队列。", "error");
   } finally {
     queueRefreshInFlight = false;
   }
@@ -687,7 +704,7 @@ refreshQueueButton.addEventListener("click", refreshQueue);
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
   setQueueBusy(true);
-  setFormNote("Uploading files and adding the job to the queue...");
+  setFormNote("正在上传文件并加入处理队列...");
   try {
     const formData = new FormData(form);
     formData.set(
@@ -703,18 +720,18 @@ form.addEventListener("submit", async (event) => {
       throw new Error(describeApiError(payload.detail, response.status));
     }
     if (!payload.job_id) {
-      throw new Error("The queue did not return a job id.");
+      throw new Error("队列没有返回任务编号。");
     }
     selectedJobId = payload.job_id;
     queueKnownStatuses.set(payload.job_id, payload.status);
     updateQueueProgressPanel(payload);
     setFormNote(
-      `Queued / position ${payload.queue_position ?? "next"} / ${payload.name}`,
+      `已加入队列 / 第 ${payload.queue_position ?? "下一个"} 位 / ${payload.name}`,
       "success",
     );
     await refreshQueue();
   } catch (error) {
-    setFormNote(error.message || "Unable to create queue job.", "error");
+    setFormNote(error.message || "无法创建队列任务。", "error");
   } finally {
     setQueueBusy(false);
   }
