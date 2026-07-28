@@ -120,6 +120,16 @@ class GrpcTransportTests(unittest.TestCase):
             self.assertIn("result_video", payload["uploaded_files"])
         finally:
             if job_id:
+                try:
+                    self.stub.UpdateJob(
+                        pb2.UpdateJobRequest(
+                            job_id=job_id,
+                            action="cancel",
+                        )
+                    )
+                except grpc.RpcError:
+                    # The short CPU job may finish before cleanup runs.
+                    pass
                 self.stub.DeleteJob(pb2.JobRequest(job_id=job_id))
 
 

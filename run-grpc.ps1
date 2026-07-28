@@ -25,10 +25,7 @@ $env:PYTHONNOUSERSITE = "1"
 $env:EVALUATOR_FACE_DEVICE = "auto"
 $env:EVALUATOR_IQA_DEVICE = "auto"
 $env:EVALUATOR_SEMANTIC_DEVICE = "auto"
-$env:EVALUATOR_GRPC_HOST = $hostAddress
-$env:EVALUATOR_GRPC_PORT = [string]$Port
 
 Set-Location $root
-Write-Host "gRPC listening on ${hostAddress}:${Port}"
-& $python (Join-Path $root "start.py") --transport grpc
+& $python (Join-Path $root "start_grpc.py") --host $hostAddress --port $Port
 exit $LASTEXITCODE

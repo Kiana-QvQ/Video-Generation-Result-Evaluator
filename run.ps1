@@ -31,6 +31,11 @@ $env:EVALUATOR_HOST = $hostAddress
 $env:EVALUATOR_PORT = [string]$Port
 
 Set-Location $root
+$listeners = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
+if ($listeners) {
+    $pids = ($listeners | Select-Object -ExpandProperty OwningProcess -Unique) -join ", "
+    throw "Port $Port is already in use by PID $pids. Stop the existing service before starting another instance."
+}
 $startArguments = @()
 if ($WithGrpc) {
     $startArguments += "--with-grpc"

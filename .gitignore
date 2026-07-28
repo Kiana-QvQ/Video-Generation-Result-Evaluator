@@ -33,3 +33,4 @@ integrations/VBench/
 *.tar.gz
 *.7z
 *.tmp
+*.part

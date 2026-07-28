@@ -525,6 +525,7 @@ const queueStatusLabels = {
   canceling: "中断中",
 };
 const queueTerminalStatuses = new Set(["completed", "failed", "canceled"]);
+const activeQueueStatuses = new Set(["running", "canceling"]);
 const formLockedStatuses = new Set([
   "queued",
   "running",
@@ -538,6 +539,7 @@ let selectedJob = null;
 let formLocked = false;
 let formBusy = false;
 let queueRefreshInFlight = false;
+let queueMutationJobId = null;
 
 function setQueueBusy(isBusy) {
   formBusy = isBusy;
@@ -606,8 +608,9 @@ function queueStatusText(status) {
 
 function renderQueue(payload) {
   const jobs = Array.isArray(payload.jobs) ? payload.jobs : [];
-  const active = jobs.find((job) => job.status === "running");
-  queueSummary.textContent = `${active ? 1 : 0} 个运行 / ${
+  const active = jobs.find((job) => activeQueueStatuses.has(job.status));
+  const activeRunning = active?.status === "running";
+  queueSummary.textContent = `${activeRunning ? 1 : 0} 个运行 / ${
     payload.queued_count ?? 0
   } 个等待`;
   queueActive.classList.toggle("is-hidden", !active);
@@ -618,7 +621,10 @@ function renderQueue(payload) {
     activeJobStatus.textContent = queueStatusText(active.status);
     activeJobStatus.className = `queue-status ${escapeHtml(active.status)}`;
     activeJobCancel.dataset.jobId = active.job_id;
-    activeJobCancel.disabled = false;
+    activeJobCancel.textContent =
+      active.status === "canceling" ? "中断中..." : "中断任务";
+    activeJobCancel.disabled =
+      active.status === "canceling" || queueMutationJobId === active.job_id;
     queueActive.dataset.jobId = active.job_id;
     queueActive.classList.add("is-selectable");
     activeJobProgress.style.width = `${Math.max(
@@ -628,12 +634,13 @@ function renderQueue(payload) {
   } else {
     activeJobCancel.dataset.jobId = "";
     activeJobCancel.disabled = true;
+    activeJobCancel.textContent = "中断任务";
     queueActive.dataset.jobId = "";
     queueActive.classList.remove("is-selectable");
   }
 
   const visibleJobs = jobs
-    .filter((job) => job.status !== "running")
+    .filter((job) => !activeQueueStatuses.has(job.status))
     .slice(0, 10);
   queueList.innerHTML = visibleJobs
     .map((job, index) => {
@@ -884,6 +891,12 @@ async function mutateQueueJob(jobId, action) {
   ) {
     return;
   }
+  if (action === "cancel" && jobId === activeJobCancel.dataset.jobId) {
+    queueMutationJobId = jobId;
+    activeJobCancel.disabled = true;
+    activeJobCancel.textContent = "中断中...";
+    setFormNote("正在中断评估任务...");
+  }
   try {
     const response =
       action === "delete"
@@ -913,6 +926,10 @@ async function mutateQueueJob(jobId, action) {
     await refreshQueue();
   } catch (error) {
     setFormNote(error.message || "无法更新队列任务。", "error");
+  } finally {
+    if (queueMutationJobId === jobId) {
+      queueMutationJobId = null;
+    }
   }
 }
 

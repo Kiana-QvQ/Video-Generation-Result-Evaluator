@@ -335,6 +335,46 @@ h2 em {
   margin: 0;
   color: #b5b4b3;
   font-size: 12px;
+  line-height: 1.5;
+  text-align: right;
+}
+
+.principles-vbench {
+  margin-top: 13px;
+  padding: 12px 14px;
+  border: 1px solid rgba(215, 243, 106, 0.26);
+  border-radius: 10px;
+  background: rgba(215, 243, 106, 0.055);
+}
+
+.principles-vbench-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.principles-vbench-head span {
+  color: var(--acid);
+  font: 10px var(--mono);
+}
+
+.principles-vbench-head strong {
+  color: var(--paper);
+  font-size: 13px;
+}
+
+.principles-vbench p {
+  margin: 8px 0 0;
+  color: #b5b4b3;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.principles-vbench b {
+  color: var(--acid);
+  font-family: var(--mono);
+  font-weight: 500;
 }
 
 .principles-grid {
@@ -357,6 +397,12 @@ h2 em {
 .principles-grid article > span {
   color: var(--acid);
   font: 10px var(--mono);
+}
+
+.principles-grid article > .principles-model {
+  color: #d5d4d1;
+  font-size: 10px;
+  line-height: 1.35;
 }
 
 .principles-grid article strong {
@@ -1862,6 +1908,22 @@ input[type="number"]:focus {
 
   .principles-grid {
     grid-template-columns: 1fr;
+  }
+
+  .principles-intro {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .principles-intro p {
+    text-align: left;
+  }
+
+  .principles-vbench-head {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 6px;
   }
 
   .stamp {

@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 from unittest.mock import patch
 
-from start import _parse_args
+from start import _parse_args, _run_au_training
 
 
 class StartArgumentTests(unittest.TestCase):
@@ -28,6 +28,31 @@ class StartArgumentTests(unittest.TestCase):
             args = _parse_args(["--with-grpc"])
         self.assertEqual(args.http_host, "0.0.0.0")
         self.assertEqual(args.grpc_host, "0.0.0.0")
+
+    def test_train_au_arguments_build_the_shared_runner_command(self) -> None:
+        args = _parse_args(
+            [
+                "--train-au",
+                "--negative-dataset",
+                "RAVDESS",
+                "--ravdess-actors",
+                "1,2",
+                "--max-negative-videos",
+                "12",
+                "--au-device",
+                "cpu",
+            ]
+        )
+        with patch("start.subprocess.call", return_value=0) as call:
+            result = _run_au_training(args)
+
+        self.assertEqual(result, 0)
+        command = call.call_args.args[0]
+        self.assertIn("scripts\\run_au_training_pipeline.py", command[1])
+        self.assertIn("--max-negative-videos", command)
+        self.assertIn("12", command)
+        self.assertIn("--device", command)
+        self.assertIn("cpu", command)
 
 
 if __name__ == "__main__":
