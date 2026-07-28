@@ -20,9 +20,19 @@ def _restart_in_project_venv() -> None:
     project_venv = (ROOT / ".venv").resolve()
     if Path(sys.prefix).resolve() == project_venv:
         return
-    return_code = subprocess.call(
+    child = subprocess.Popen(
         [str(VENV_PYTHON), str(Path(__file__).resolve()), *sys.argv[1:]]
     )
+    try:
+        return_code = child.wait()
+    except KeyboardInterrupt:
+        child.terminate()
+        try:
+            return_code = child.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            child.kill()
+            return_code = child.wait(timeout=5)
+        raise
     raise SystemExit(return_code)
 
 
@@ -66,6 +76,39 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Print the selected Python environment and exit.",
     )
+    parser.add_argument(
+        "--train-au",
+        action="store_true",
+        help="Run the bounded AU leakage training pipeline and exit.",
+    )
+    parser.add_argument(
+        "--negative-dataset",
+        choices=("RAVDESS", "MetaHuman"),
+        default="RAVDESS",
+    )
+    parser.add_argument("--metahuman-archive", default="")
+    parser.add_argument("--metahuman-url", default="")
+    parser.add_argument("--ravdess-actors", default="1,2")
+    parser.add_argument(
+        "--ravdess-source",
+        choices=("ZENODO", "HUGGINGFACE"),
+        default="ZENODO",
+    )
+    parser.add_argument(
+        "--ravdess-emotions",
+        default="1,2,3,4,5,6,7,8",
+    )
+    parser.add_argument("--ravdess-cache-root", default="data/cache/ravdess")
+    parser.add_argument("--max-negative-videos", type=int, default=48)
+    parser.add_argument(
+        "--au-device",
+        choices=("cpu", "cuda", "auto"),
+        default="cuda",
+    )
+    parser.add_argument("--au-batch-size", type=int, default=64)
+    parser.add_argument("--au-num-workers", type=int, default=2)
+    parser.add_argument("--skip-negative-preparation", action="store_true")
+    parser.add_argument("--force-au-extraction", action="store_true")
     args = parser.parse_args(argv)
     if args.with_grpc:
         args.transport = "both"
@@ -98,6 +141,40 @@ def _start_grpc_process(args: argparse.Namespace) -> subprocess.Popen[bytes]:
     return process
 
 
+def _run_au_training(args: argparse.Namespace) -> int:
+    command = [
+        sys.executable,
+        str(ROOT / "scripts" / "run_au_training_pipeline.py"),
+        "--negative-dataset",
+        args.negative_dataset,
+        "--ravdess-actors",
+        args.ravdess_actors,
+        "--ravdess-source",
+        args.ravdess_source,
+        "--ravdess-emotions",
+        args.ravdess_emotions,
+        "--ravdess-cache-root",
+        args.ravdess_cache_root,
+        "--max-negative-videos",
+        str(args.max_negative_videos),
+        "--device",
+        args.au_device,
+        "--batch-size",
+        str(args.au_batch_size),
+        "--num-workers",
+        str(args.au_num_workers),
+    ]
+    if args.metahuman_archive:
+        command.extend(["--metahuman-archive", args.metahuman_archive])
+    if args.metahuman_url:
+        command.extend(["--metahuman-url", args.metahuman_url])
+    if args.skip_negative_preparation:
+        command.append("--skip-negative-preparation")
+    if args.force_au_extraction:
+        command.append("--force-au-extraction")
+    return subprocess.call(command, cwd=ROOT)
+
+
 def _stop_process(process: subprocess.Popen[bytes] | None) -> None:
     if process is None or process.poll() is not None:
         return
@@ -123,6 +200,9 @@ def main(argv: Sequence[str] | None = None) -> None:
         print(f"prefix={sys.prefix}")
         print(f"venv={VENV_PYTHON}")
         return
+
+    if args.train_au:
+        raise SystemExit(_run_au_training(args))
 
     grpc_process = None
     if args.transport in {"grpc", "both"}:

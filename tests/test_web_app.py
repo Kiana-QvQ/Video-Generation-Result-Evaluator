@@ -307,12 +307,16 @@ class WebAppTests(unittest.TestCase):
         class FakeProcess:
             def __init__(self) -> None:
                 self.terminated = False
+                self.job_id = None
+                self.cancel_state = None
 
             def is_alive(self) -> bool:
                 return not self.terminated
 
             def terminate(self) -> None:
                 self.terminated = True
+                if self.job_id:
+                    self.cancel_state = web_app._read_job(self.job_id)
 
             def join(self, timeout: int | None = None) -> None:
                 return None
@@ -343,6 +347,7 @@ class WebAppTests(unittest.TestCase):
                 started_at="2026-07-27T12:00:00+08:00",
             )
             fake_process = FakeProcess()
+            fake_process.job_id = job_id
             web_app.JOB_PROCESSES[job_id] = fake_process
             try:
                 cancel_response = self.client.patch(
@@ -352,6 +357,8 @@ class WebAppTests(unittest.TestCase):
                 self.assertEqual(cancel_response.status_code, 200)
                 self.assertEqual(cancel_response.json()["status"], "canceled")
                 self.assertTrue(fake_process.terminated)
+                self.assertEqual(fake_process.cancel_state["status"], "canceling")
+                self.assertTrue(fake_process.cancel_state["cancel_requested"])
             finally:
                 web_app.JOB_PROCESSES.pop(job_id, None)
                 self.client.delete(f"/api/jobs/{job_id}")
@@ -445,6 +452,14 @@ class WebAppTests(unittest.TestCase):
                 target.read_text(encoding="utf-8"),
                 '{\n  "status": "ok"\n}',
             )
+
+    def test_stale_running_job_without_process_is_detected(self) -> None:
+        job = {
+            "job_id": f"stale-{uuid4().hex}",
+            "status": "running",
+            "updated_at": "2020-01-01T00:00:00+08:00",
+        }
+        self.assertTrue(web_app._is_stale_running_job(job))
 
 
 if __name__ == "__main__":

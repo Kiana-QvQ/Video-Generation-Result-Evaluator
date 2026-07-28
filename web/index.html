@@ -66,33 +66,45 @@
               <div class="principles-panel">
                 <div class="principles-intro">
                   <span class="note-index">HOW IT READS</span>
-                  <p>每一类只使用它真正需要的参考素材；有 GT 才启用逐帧全参考指标。</p>
+                  <p>五项先各自换算为 0—1，再按权重合成总分；缺少某项时只按已覆盖的权重计算，并标记为部分覆盖。GT 必须与结果逐帧对应。</p>
+                </div>
+                <div class="principles-vbench">
+                  <div class="principles-vbench-head">
+                    <span>VBENCH / OPTIONAL AUTO EVAL</span>
+                    <strong>VBench 不是第六个加权项</strong>
+                  </div>
+                  <p>VBench 是独立的自动视频评测框架，本网页接入 <b>aesthetic_quality</b>，输出 0—1 分；CUDA/VBench 可用时作为第 5 项“美学质量”，不额外计入总分。</p>
                 </div>
                 <div class="principles-grid">
                   <article>
                     <span>01 / 35%</span>
                     <strong>角色一致性</strong>
-                    <p>ArcFace 比较人脸嵌入的余弦相似度，并关注最后 10% 帧的相似度和波动。</p>
+                    <span class="principles-model">ArcFace</span>
+                    <p>逐帧比较参考人脸与结果人脸，关注相似度和稳定性。</p>
                   </article>
                   <article>
                     <span>02 / 15%</span>
                     <strong>质感和细节</strong>
-                    <p>有 GT：PSNR、SSIM、LPIPS；无 GT：MANIQA、MUSIQ 和高频细节代理。</p>
+                    <span class="principles-model">MANIQA / MUSIQ</span>
+                    <p>有 GT 比较像素与感知差异；无 GT 评估清晰度和细节。</p>
                   </article>
                   <article>
                     <span>03 / 15%</span>
                     <strong>表情准确</strong>
-                    <p>Prompt 使用 CLIP 语义对齐，参考动作视频使用运动轨迹；不可用时回退人工评分。</p>
+                    <span class="principles-model">ViCLIP / CLIP</span>
+                    <p>比较参考动作与结果的表情、运动轨迹和文本语义。</p>
                   </article>
                   <article>
                     <span>04 / 25%</span>
                     <strong>时间稳定性</strong>
-                    <p>结合 Face Mesh / 人脸框抖动、身份方差和光流 warping error 判断连续性。</p>
+                    <span class="principles-model">Face Mesh / Farneback</span>
+                    <p>检测帧间光流、warping 误差和人脸关键点抖动。</p>
                   </article>
                   <article>
                     <span>05 / 10%</span>
                     <strong>美学质量</strong>
-                    <p>人工 1—5 分为主，曝光、清晰度和色彩技术代理只作辅助。</p>
+                    <span class="principles-model">VBench aesthetic_quality</span>
+                    <p>评估画面的审美、清晰度、曝光和色彩表现。</p>
                   </article>
                 </div>
               </div>
@@ -234,7 +246,7 @@
                   </label>
                   <label class="field">
                     <span class="field-label"><span>美学评分</span><small>1—5</small></span>
-                    <input name="manual_aesthetic_score" type="number" min="1" max="5" step="1" placeholder="留空时使用 VBench" />
+                    <input name="manual_aesthetic_score" type="number" min="1" max="5" step="1" placeholder="留空时尝试 VBench" />
                   </label>
                 </div>
                 <label class="check-field">

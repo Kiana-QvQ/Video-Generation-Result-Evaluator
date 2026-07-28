@@ -7,6 +7,7 @@ from multiprocessing import Process
 import os
 import queue
 import shutil
+import subprocess
 import threading
 import time
 from collections import deque
@@ -63,6 +64,8 @@ JOB_WORKER_STATE = "stopped"
 JOB_WORKER_LAST_ERROR: str | None = None
 JOB_WORKER_HEARTBEAT = 0.0
 JOB_RECONCILE_INTERVAL_SECONDS = 2.0
+JOB_STALE_RUNNING_SECONDS = 10 * 60
+JOB_PROCESS_JOIN_TIMEOUT_SECONDS = 5
 
 
 class JobUpdate(BaseModel):
@@ -464,6 +467,29 @@ def _worker_snapshot() -> dict[str, Any]:
     }
 
 
+def _job_age_seconds(job: dict[str, Any]) -> float | None:
+    timestamp = job.get("updated_at") or job.get("started_at")
+    if not timestamp:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(timestamp))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.astimezone()
+    return max(0.0, (datetime.now().astimezone() - parsed).total_seconds())
+
+
+def _is_stale_running_job(job: dict[str, Any]) -> bool:
+    if job.get("status") != "running":
+        return False
+    with JOB_LOCK:
+        if str(job.get("job_id")) in JOB_PROCESSES:
+            return False
+    age = _job_age_seconds(job)
+    return age is not None and age >= JOB_STALE_RUNNING_SECONDS
+
+
 def _restore_queued_jobs() -> None:
     """Rebuild dispatch entries from persisted jobs after a worker loss."""
     with JOB_LOCK:
@@ -485,6 +511,25 @@ def _restore_queued_jobs() -> None:
 def _reconcile_queued_jobs() -> None:
     """Recover jobs that were persisted but lost from the in-memory queue."""
     for job in _all_jobs():
+        if _is_stale_running_job(job):
+            job_id = str(job["job_id"])
+            now = _now_iso()
+            job.update(
+                {
+                    "status": "queued",
+                    "stage": "queued",
+                    "progress": 0.0,
+                    "started_at": None,
+                    "queued_at": now,
+                    "updated_at": now,
+                    "error": "Recovered a stale running task; queued for retry.",
+                    "cancel_requested": False,
+                }
+            )
+            if not _safe_recovery_write(job):
+                continue
+            _enqueue_job(job_id, _job_owner(job))
+            continue
         if job.get("status") != "queued":
             continue
         client_ip = job.get("client_ip")
@@ -964,11 +1009,26 @@ def _terminate_job_process(job_id: str) -> None:
         )
     try:
         if process.is_alive():
-            process.terminate()
-        process.join(timeout=5)
+            if os.name == "nt" and getattr(process, "pid", None):
+                # The evaluator can launch ffmpeg, VBench, or Docker children.
+                # Terminating only the Python parent leaves those processes alive.
+                subprocess.run(
+                    [
+                        "taskkill",
+                        "/PID",
+                        str(process.pid),
+                        "/T",
+                        "/F",
+                    ],
+                    capture_output=True,
+                    check=False,
+                )
+            else:
+                process.terminate()
+        process.join(timeout=JOB_PROCESS_JOIN_TIMEOUT_SECONDS)
         if process.is_alive():
             process.kill()
-            process.join(timeout=5)
+            process.join(timeout=JOB_PROCESS_JOIN_TIMEOUT_SECONDS)
     except Exception as exc:
         raise HTTPException(
             status_code=409,
@@ -1294,21 +1354,37 @@ def update_job(
                 pass
             elif status == "running":
                 if JOB_PROCESSES.get(job_id) is None:
-                    raise HTTPException(
-                        status_code=409,
-                        detail="评估进程尚未准备好，稍后再试。",
+                    if not _is_stale_running_job(job):
+                        raise HTTPException(
+                            status_code=409,
+                            detail="评估进程尚未准备好，稍后再试。",
+                        )
+                    job.update(
+                        {
+                            "status": "canceled",
+                            "stage": "canceled",
+                            "progress": float(job.get("progress", 0)),
+                            "finished_at": _now_iso(),
+                            "updated_at": _now_iso(),
+                            "error": "Canceled a stale task with no live process.",
+                            "cancel_requested": False,
+                        }
                     )
-                cancel_running = True
-                job.update(
-                    {
-                        "status": "canceling",
-                        "stage": "canceled",
-                        "cancel_previous_stage": job.get("stage", "models"),
-                        "cancel_requested": True,
-                        "updated_at": _now_iso(),
-                        "error": "正在中断评估进程。",
-                    }
-                )
+                else:
+                    cancel_running = True
+                    job.update(
+                        {
+                            "status": "canceling",
+                            "stage": "canceled",
+                            "cancel_previous_stage": job.get("stage", "models"),
+                            "cancel_requested": True,
+                            "updated_at": _now_iso(),
+                            "error": "正在中断评估进程。",
+                        }
+                    )
+                    # Persist the cancellation before killing the worker. The
+                    # child may otherwise write a stale completed state.
+                    _write_job(job)
             elif status == "queued":
                 job.update(
                     {
