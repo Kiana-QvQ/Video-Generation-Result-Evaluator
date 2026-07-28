@@ -313,6 +313,18 @@ function renderEvidence(result) {
   const temporal = categories.temporal?.metrics ?? {};
   const aesthetics = categories.aesthetics?.metrics ?? {};
   const fullReference = categories.texture?.mode === "full_reference";
+  const manualAesthetic = aesthetics.manual_score_0_to_1;
+  const vbenchAesthetic = aesthetics.vbench_aesthetic_quality_0_to_1;
+  const aestheticValue = manualAesthetic ?? vbenchAesthetic;
+  const aestheticLabel = manualAesthetic === null || manualAesthetic === undefined
+    ? "AESTHETIC / VBench"
+    : "AESTHETIC / MANUAL";
+  const aestheticChineseLabel = manualAesthetic === null || manualAesthetic === undefined
+    ? "自动审美质量"
+    : "人工审美评分";
+  const aestheticDetail = manualAesthetic === null || manualAesthetic === undefined
+    ? "VBench aesthetic_quality"
+    : "人工优先";
   const evidence = [
     ["IDENTITY / MEAN", "身份一致性 / 均值", formatNumber(identity.mean_similarity), "ArcFace / 代理指标", "higher"],
     [fullReference ? "PSNR / dB" : "TEXTURE / SCORE", fullReference ? "峰值信噪比" : "纹理质量 / 分数", fullReference ? formatNumber(texture.psnr_db, 2) : formatNumber(texture.score_0_1), fullReference ? "GT 参考" : "无 GT", "higher"],
@@ -321,6 +333,13 @@ function renderEvidence(result) {
     ["TEXT / VIDEO", "文本 / 视频一致性", formatNumber(expression.text_video_alignment), "CLIP 基线", "higher"],
     ["TEMPORAL / STABILITY", "时间稳定性", formatNumber(temporal.stability_score_0_1), "光流 + 抖动", "higher"],
   ];
+  evidence.push([
+    aestheticLabel,
+    aestheticChineseLabel,
+    formatNumber(aestheticValue),
+    aestheticDetail,
+    "higher",
+  ]);
   evidenceGrid.innerHTML = evidence
     .map(
       ([label, chineseLabel, value, detail, direction]) => {

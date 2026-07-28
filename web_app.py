@@ -8,6 +8,7 @@ import os
 import queue
 import shutil
 import threading
+import time
 from collections import deque
 from contextlib import asynccontextmanager
 from datetime import datetime
@@ -177,7 +178,20 @@ def _atomic_write_json(path: Path, payload: Any) -> None:
             json.dumps(_json_safe(payload), ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
-        temporary_path.replace(path)
+        last_error: PermissionError | None = None
+        for attempt in range(6):
+            try:
+                temporary_path.replace(path)
+                return
+            except PermissionError as exc:
+                last_error = exc
+                if attempt == 5:
+                    raise
+                # Windows antivirus/indexers and another short-lived worker
+                # can briefly hold status.json during an atomic replacement.
+                time.sleep(0.1 * (attempt + 1))
+        if last_error is not None:
+            raise last_error
     finally:
         temporary_path.unlink(missing_ok=True)
 
@@ -396,6 +410,38 @@ def _reschedule_ip(client_ip: str) -> None:
         else:
             JOB_SCHEDULED_IPS.discard(client_ip)
             JOB_QUEUES_BY_IP.pop(client_ip, None)
+
+
+def _clear_dispatch_state() -> None:
+    """Drop stale in-memory dispatch entries before rebuilding them."""
+    with JOB_LOCK:
+        while True:
+            try:
+                JOB_DISPATCH_QUEUE.get_nowait()
+            except queue.Empty:
+                break
+            else:
+                JOB_DISPATCH_QUEUE.task_done()
+        JOB_QUEUES_BY_IP.clear()
+        JOB_SCHEDULED_IPS.clear()
+
+
+def _restore_queued_jobs() -> None:
+    """Rebuild dispatch entries from persisted jobs after a worker loss."""
+    with JOB_LOCK:
+        persisted_jobs = sorted(
+            _all_jobs(),
+            key=lambda item: str(
+                item.get("queued_at") or item.get("created_at", "")
+            ),
+        )
+        for job in persisted_jobs:
+            if job.get("status") != "queued":
+                continue
+            client_ip = job.get("client_ip")
+            if not client_ip:
+                continue
+            _enqueue_job(str(job["job_id"]), str(client_ip))
 
 
 def _update_job_state(job_id: str, **changes: Any) -> dict[str, Any]:
@@ -734,6 +780,7 @@ def _execute_job(job_id: str) -> None:
             device=str(parameters.get("device", "cpu")),
             manual_expression_score=parameters.get("manual_expression_score"),
             manual_aesthetic_score=parameters.get("manual_aesthetic_score"),
+            vbench_output_root=_job_dir(job_id),
         )
         result["web_run_id"] = job_id
         result["result_video"] = probe_video(result_path).to_dict()
@@ -879,13 +926,31 @@ def _terminate_all_job_processes() -> None:
             continue
 
 
+def _mark_dispatch_failure(job_id: str, exc: Exception) -> None:
+    try:
+        _update_job_state(
+            job_id,
+            status="failed",
+            stage="failed",
+            progress=0.0,
+            finished_at=_now_iso(),
+            error=f"Queue worker failed: {type(exc).__name__}: {exc}",
+        )
+    except HTTPException:
+        pass
+
+
 def _queue_worker_loop() -> None:
     while True:
         client_ip = JOB_DISPATCH_QUEUE.get()
+        job_id: str | None = None
         try:
             job_id = _take_next_job(client_ip)
             if job_id is not None:
                 _process_job(job_id)
+        except Exception as exc:
+            if job_id is not None:
+                _mark_dispatch_failure(job_id, exc)
         finally:
             _reschedule_ip(client_ip)
             JOB_DISPATCH_QUEUE.task_done()
@@ -955,9 +1020,9 @@ def _ensure_queue_worker() -> None:
     global JOB_WORKER
     with JOB_LOCK:
         _recover_persisted_jobs()
-        if JOB_DISPATCH_QUEUE.empty():
-            return
         if JOB_WORKER is None or not JOB_WORKER.is_alive():
+            _clear_dispatch_state()
+            _restore_queued_jobs()
             JOB_WORKER = threading.Thread(
                 target=_queue_worker_loop,
                 name="frame-audit-job-worker",
@@ -1027,10 +1092,9 @@ def create_job(
             manual_expression_score=manual_expression_score,
             manual_aesthetic_score=manual_aesthetic_score,
         )
-        _ensure_queue_worker()
         with JOB_LOCK:
             _write_job(job)
-        _enqueue_job(run_id, client_ip)
+            _enqueue_job(run_id, client_ip)
         _ensure_queue_worker()
         jobs = _jobs_for_ip(_all_jobs(), client_ip)
         positions = _queued_positions(jobs, client_ip)
@@ -1368,6 +1432,7 @@ def evaluate(
                     manual_aesthetic_score,
                     "manual_aesthetic_score",
                 ),
+                vbench_output_root=run_dir,
             )
         except (FileNotFoundError, ValueError) as exc:
             raise HTTPException(
@@ -1421,7 +1486,7 @@ if __name__ == "__main__":
 
     uvicorn.run(
         "web_app:app",
-        host="127.0.0.1",
-        port=7860,
+        host=os.environ.get("EVALUATOR_HOST", "127.0.0.1"),
+        port=int(os.environ.get("EVALUATOR_PORT", "7860")),
         reload=False,
     )

@@ -1,0 +1,79 @@
+syntax = "proto3";
+
+package frame_audit;
+
+message Empty {}
+
+message JsonResponse {
+  string json = 1;
+  int32 http_status = 2;
+}
+
+message HardwareRequest {
+  string device = 1;
+}
+
+message ListJobsRequest {
+  int32 limit = 1;
+}
+
+message JobRequest {
+  string job_id = 1;
+}
+
+message UpdateJobRequest {
+  string job_id = 1;
+  optional string name = 2;
+  string action = 3;
+}
+
+message DownloadRequest {
+  string run_id = 1;
+  string filename = 2;
+}
+
+message JobOptions {
+  string prompt_text = 1;
+  optional int32 max_frames = 2;
+  optional bool calculate_lpips = 3;
+  string device = 4;
+  string manual_expression_score = 5;
+  string manual_aesthetic_score = 6;
+}
+
+message UploadChunk {
+  string file_id = 1;
+  string field_name = 2;
+  string filename = 3;
+  string content_type = 4;
+  bytes data = 5;
+  bool first = 6;
+  bool last = 7;
+}
+
+message UploadRequest {
+  oneof payload {
+    JobOptions options = 1;
+    UploadChunk chunk = 2;
+  }
+}
+
+message DownloadChunk {
+  string filename = 1;
+  string content_type = 2;
+  bytes data = 3;
+  bool eof = 4;
+}
+
+service FrameAudit {
+  rpc Health(Empty) returns (JsonResponse);
+  rpc Models(Empty) returns (JsonResponse);
+  rpc Hardware(HardwareRequest) returns (JsonResponse);
+  rpc CreateJob(stream UploadRequest) returns (JsonResponse);
+  rpc Evaluate(stream UploadRequest) returns (JsonResponse);
+  rpc ListJobs(ListJobsRequest) returns (JsonResponse);
+  rpc GetJob(JobRequest) returns (JsonResponse);
+  rpc UpdateJob(UpdateJobRequest) returns (JsonResponse);
+  rpc DeleteJob(JobRequest) returns (JsonResponse);
+  rpc DownloadRunFile(DownloadRequest) returns (stream DownloadChunk);
+}

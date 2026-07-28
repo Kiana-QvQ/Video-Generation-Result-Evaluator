@@ -47,6 +47,13 @@ def _launch_script(root: Path) -> Path | None:
 
 
 def _distributed_command(script: Path) -> list[str]:
+    if os.name == "nt":
+        return [
+            sys.executable,
+            str(PROJECT_ROOT / "tools" / "vbench_windows_runner.py"),
+            "--script",
+            str(script),
+        ]
     return [
         sys.executable,
         "-m",
@@ -68,8 +75,9 @@ def _docker_image_available(image: str) -> bool:
             capture_output=True,
             text=True,
             check=False,
+            timeout=5,
         )
-    except OSError:
+    except (OSError, subprocess.TimeoutExpired):
         return False
     return completed.returncode == 0
 
@@ -100,32 +108,28 @@ def _dino_available() -> bool:
     return importlib.util.find_spec("timm") is not None
 
 
-def discover_vbench() -> dict[str, Any]:
-    """Find an official VBench source checkout or its CLI command."""
-    dino_available = _dino_available()
-    docker = shutil.which("docker")
-    if docker and _docker_image_available(VBENCH_DOCKER_IMAGE):
-        return {
-            "available": True,
-            "backend": "docker",
-            "root": None,
-            "docker": docker,
-            "image": VBENCH_DOCKER_IMAGE,
-            "command": None,
-            "dino_available": dino_available,
-        }
+def _missing_local_assets(dimensions: list[str]) -> list[str]:
+    assets: dict[str, list[Path]] = {
+        "aesthetic_quality": [
+            MODEL_CACHE_DIR / "vbench" / "clip_model" / "ViT-L-14.pt",
+            MODEL_CACHE_DIR
+            / "vbench"
+            / "aesthetic_model"
+            / "emb_reader"
+            / "sa_0_4_vit_l_14_linear.pth",
+        ],
+    }
+    missing: list[str] = []
+    for dimension in dimensions:
+        for path in assets.get(dimension, []):
+            if not path.is_file():
+                missing.append(str(path))
+    return missing
 
-    configured_root = _as_root(os.environ.get("VBENCH_ROOT"))
-    if configured_root:
-        launch_script = _launch_script(configured_root)
-        if launch_script:
-            return {
-                "available": True,
-                "backend": "source",
-                "root": str(configured_root),
-                "command": _distributed_command(launch_script),
-                "dino_available": dino_available,
-            }
+
+def discover_vbench() -> dict[str, Any]:
+    """Prefer the active project environment before external backends."""
+    dino_available = _dino_available()
     package_spec = importlib.util.find_spec("vbench")
     if package_spec and package_spec.submodule_search_locations:
         package_root = Path(
@@ -137,6 +141,18 @@ def discover_vbench() -> dict[str, Any]:
                 "available": True,
                 "backend": "package",
                 "root": str(package_root.parent),
+                "command": _distributed_command(launch_script),
+                "dino_available": dino_available,
+            }
+
+    configured_root = _as_root(os.environ.get("VBENCH_ROOT"))
+    if configured_root:
+        launch_script = _launch_script(configured_root)
+        if launch_script:
+            return {
+                "available": True,
+                "backend": "source",
+                "root": str(configured_root),
                 "command": _distributed_command(launch_script),
                 "dino_available": dino_available,
             }
@@ -158,6 +174,18 @@ def discover_vbench() -> dict[str, Any]:
             "backend": "package-cli",
             "root": None,
             "command": [str(sibling_executable), "evaluate"],
+            "dino_available": dino_available,
+        }
+
+    docker = shutil.which("docker")
+    if docker and _docker_image_available(VBENCH_DOCKER_IMAGE):
+        return {
+            "available": True,
+            "backend": "docker",
+            "root": None,
+            "docker": docker,
+            "image": VBENCH_DOCKER_IMAGE,
+            "command": None,
             "dino_available": dino_available,
         }
 
@@ -273,6 +301,30 @@ def run_vbench(
             "records": [],
             "blocked_dimensions": blocked_dimensions,
         }
+    missing_assets = _missing_local_assets(runnable_dimensions)
+    if missing_assets:
+        return {
+            "available": True,
+            "status": "not_ready",
+            "backend": installation["backend"],
+            "dimensions": dimensions,
+            "records": [
+                {
+                    "dimension": dimension,
+                    "score": None,
+                    "direction": "higher_is_better",
+                    "source_file": None,
+                    "status": "unavailable",
+                    "reason": (
+                        "Missing local VBench assets: "
+                        + ", ".join(missing_assets)
+                    ),
+                }
+                for dimension in dimensions
+            ],
+            "blocked_dimensions": blocked_dimensions,
+            "missing_assets": missing_assets,
+        }
     if not runnable_dimensions:
         return {
             "available": True,
@@ -346,6 +398,10 @@ def run_vbench(
             "--load_ckpt_from_local",
             "True",
         ]
+    process_env = os.environ.copy()
+    if os.name == "nt":
+        process_env["USE_LIBUV"] = "0"
+        process_env["TORCH_USE_LIBUV"] = "0"
     completed = subprocess.run(
         command,
         cwd=installation["root"] or str(run_dir),
@@ -353,6 +409,7 @@ def run_vbench(
         text=True,
         encoding="utf-8",
         errors="replace",
+        env=process_env,
         check=False,
     )
     parsed_records = _parse_output(result_dir, runnable_dimensions)

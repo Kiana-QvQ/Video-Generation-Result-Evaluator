@@ -12,7 +12,14 @@ from typing import Any
 import cv2
 import numpy as np
 
-from .video_metrics import _read_frames, _sample_indices, probe_video
+from .video_metrics import (
+    SEMANTIC_WINDOW_FRAMES,
+    _read_frames,
+    _sample_indices,
+    sample_aligned_video_windows,
+    sample_video_windows,
+    probe_video,
+)
 
 
 ETVA_URL = os.environ.get(
@@ -125,11 +132,29 @@ def _parse_result(text: str) -> tuple[float | None, list[float]]:
     return (float(np.mean(values)) if values else None), values
 
 
+def _aggregate_window_scores(
+    scores: list[float],
+    tail_weight: float = 0.2,
+) -> tuple[float | None, float | None]:
+    if not scores:
+        return None, None
+    ordered = sorted(float(score) for score in scores)
+    tail_count = max(1, int(np.ceil(len(ordered) * 0.1)))
+    mean_score = float(np.mean(ordered))
+    tail_score = float(np.mean(ordered[:tail_count]))
+    weight = max(0.0, min(1.0, float(tail_weight)))
+    return (
+        float((1.0 - weight) * mean_score + weight * tail_score),
+        tail_score,
+    )
+
+
 def evaluate_etva_judge(
     result_path: str | Path,
     prompt_text: str | None,
     reference_path: str | Path | None,
     max_frames: int,
+    window_frames: int = SEMANTIC_WINDOW_FRAMES,
 ) -> dict[str, Any]:
     """Ask the local OpenAI-compatible Qwen VLM to score semantic alignment."""
     prompt = (prompt_text or "").strip()
@@ -158,64 +183,118 @@ def evaluate_etva_judge(
         }
 
     try:
-        result_frames = _sample_video_frames(result_path, min(max_frames, 8))
-        reference_frames = (
-            _sample_video_frames(reference_path, min(max_frames, 8))
-            if reference_path
-            else []
-        )
-        content: list[dict[str, Any]] = [
-            {
-                "type": "text",
-                "text": (
-                    "You are an evaluation judge for a generated human video. "
-                    "Return JSON only with this schema: "
-                    '{"scores":[0,0.5,1],"overall":0.5}. '
-                    "Each score must be exactly 0, 0.5, or 1. "
-                    "Score whether the generated frames match the requested "
-                    "prompt and preserve the intended expression/action. "
-                    "Use 1 for clear match, 0.5 for partial/uncertain, and 0 "
-                    "for mismatch. "
-                    f"Prompt: {prompt or '(compare against the reference video)'}"
-                ),
-            }
-        ]
-        if result_frames:
-            content.append(
+        frame_count = max(1, min(int(window_frames), SEMANTIC_WINDOW_FRAMES))
+        if reference_path:
+            _, _, windows = sample_aligned_video_windows(
+                result_path,
+                reference_path,
+                max_frames,
+                window_frames=frame_count,
+            )
+        else:
+            _, windows = sample_video_windows(
+                result_path,
+                max_frames,
+                window_frames=frame_count,
+            )
+
+        window_scores: list[float] = []
+        question_scores: list[float] = []
+        raw_responses: list[str] = []
+        window_records: list[dict[str, Any]] = []
+        warnings: list[str] = []
+        for window in windows:
+            result_frames = window.get("result_frames", window.get("frames", []))
+            reference_frames = window.get("reference_frames", [])
+            content: list[dict[str, Any]] = [
+                {
+                    "type": "text",
+                    "text": (
+                        "You are an evaluation judge for a generated human video. "
+                        "Return JSON only with this schema: "
+                        '{"scores":[0,0.5,1],"overall":0.5}. '
+                        "Each score must be exactly 0, 0.5, or 1. "
+                        "Score whether the generated frames match the requested "
+                        "prompt and preserve the intended expression/action. "
+                        "Use 1 for clear match, 0.5 for partial/uncertain, and 0 "
+                        "for mismatch. "
+                        f"Prompt: {prompt or '(compare against the reference video)'}"
+                    ),
+                },
                 {
                     "type": "text",
                     "text": "Generated video frames follow in temporal order.",
-                }
-            )
-        content.extend(
-            {"type": "image_url", "image_url": {"url": _data_uri(frame)}}
-            for frame in result_frames
-        )
-        if reference_frames:
-            content.append(
-                {
-                    "type": "text",
-                    "text": "Reference video frames follow. Compare expression and action.",
-                }
-            )
+                },
+            ]
             content.extend(
                 {"type": "image_url", "image_url": {"url": _data_uri(frame)}}
-                for frame in reference_frames
+                for frame in result_frames
+            )
+            if reference_frames:
+                content.append(
+                    {
+                        "type": "text",
+                        "text": "Reference video frames follow. Compare expression and action.",
+                    }
+                )
+                content.extend(
+                    {"type": "image_url", "image_url": {"url": _data_uri(frame)}}
+                    for frame in reference_frames
+                )
+
+            try:
+                raw = _request(content, timeout_seconds=4.0)
+                score, scores = _parse_result(raw)
+                if score is None:
+                    raise ValueError(
+                        f"Could not parse a 0/0.5/1 score from: {raw[:500]}"
+                    )
+            except (
+                OSError,
+                ValueError,
+                KeyError,
+                json.JSONDecodeError,
+                urllib.error.URLError,
+            ) as exc:
+                warnings.append(
+                    f"ETVA window {window['window_index']} failed: {exc}"
+                )
+                continue
+
+            normalized_score = float(max(0.0, min(1.0, score)))
+            window_scores.append(normalized_score)
+            question_scores.extend(scores)
+            raw_responses.append(raw)
+            window_records.append(
+                {
+                    "window_index": int(window["window_index"]),
+                    "window_start_seconds": window["start_seconds"],
+                    "window_end_seconds": window["end_seconds"],
+                    "score_0_1": normalized_score,
+                    "question_scores": scores,
+                }
             )
 
-        raw = _request(content, timeout_seconds=4.0)
-        score, scores = _parse_result(raw)
-        if score is None:
-            raise ValueError(f"Could not parse a 0/0.5/1 score from: {raw[:500]}")
+        aggregate_score, tail_score = _aggregate_window_scores(window_scores)
+        if aggregate_score is None:
+            raise ValueError("ETVA did not produce a usable score for any window.")
         return {
             "status": "available",
             "backend": "qwen2_vl_2b_awq_http",
             "model": ETVA_MODEL,
             "url": ETVA_URL,
-            "score_0_1": float(max(0.0, min(1.0, score))),
-            "question_scores": scores,
-            "raw_response": raw,
-            "warnings": [],
+            "score_0_1": aggregate_score,
+            "question_scores": question_scores,
+            "raw_response": raw_responses[-1] if raw_responses else None,
+            "raw_responses": raw_responses,
+            "metrics": {
+                "window_mean_score": float(np.mean(window_scores)),
+                "window_lower_10pct_score": tail_score,
+                "window_count": len(window_scores),
+                "requested_window_count": len(windows),
+            },
+            "window_records": window_records,
+            "warnings": warnings,
         }
     except (OSError, ValueError, KeyError, json.JSONDecodeError, urllib.error.URLError) as exc:
         return {

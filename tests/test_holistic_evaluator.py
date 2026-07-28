@@ -10,6 +10,7 @@ from unittest.mock import patch
 import cv2
 import numpy as np
 
+from evaluator.etva_judge import evaluate_etva_judge
 from evaluator.holistic_evaluator import (
     TEMPORAL_LANDMARK_INDICES,
     WEIGHTS,
@@ -17,28 +18,38 @@ from evaluator.holistic_evaluator import (
     _face_box_jitter,
     _lower_tail,
     _motion_direction_similarity,
+    evaluate_aesthetics,
     evaluate_all,
 )
-from evaluator.video_metrics import VideoInfo, _aligned_sample_indices, _mean
+from evaluator.video_metrics import (
+    VideoInfo,
+    _aligned_sample_indices,
+    _mean,
+    _sample_timestamps,
+    sample_aligned_video_windows,
+    sample_video_windows,
+)
 
 
 def _write_video(
     path: Path,
     shift: int = 0,
     size: tuple[int, int] = (64, 64),
+    frame_count: int = 8,
+    fps: float = 8.0,
 ) -> None:
     writer = cv2.VideoWriter(
         str(path),
         cv2.VideoWriter_fourcc(*"mp4v"),
-        8.0,
+        fps,
         size,
     )
     if not writer.isOpened():
         raise RuntimeError("Unable to create test video")
     try:
-        for index in range(8):
+        for index in range(frame_count):
             frame = np.zeros((size[1], size[0], 3), dtype=np.uint8)
-            left = 8 + index * 2 + shift
+            left = 8 + (index % 20) * 2 + shift
             cv2.rectangle(frame, (left, 18), (left + 18, 42), (80, 160, 220), -1)
             cv2.circle(frame, (left + 9, 25), 3, (230, 230, 230), -1)
             writer.write(frame)
@@ -76,6 +87,99 @@ class HolisticEvaluatorTests(unittest.TestCase):
         self.assertEqual(result_indices.tolist(), [0, 10, 20, 30])
         self.assertEqual(gt_indices.tolist(), [0, 5, 10, 15])
         self.assertAlmostEqual(float(timestamps[-1]), 1.0, places=5)
+
+    def test_time_sampling_uses_fixed_rate_before_max_frame_cap(self) -> None:
+        timestamps = _sample_timestamps(5.0, 256, sample_fps=8.0)
+
+        self.assertEqual(len(timestamps), 41)
+        self.assertAlmostEqual(float(timestamps[1]), 0.125)
+        self.assertAlmostEqual(float(timestamps[-1]), 5.0)
+
+    def test_semantic_windows_cover_long_video_with_fixed_frame_budget(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            result_path = Path(directory) / "result.mp4"
+            _write_video(result_path, frame_count=40, fps=8.0)
+
+            info, windows = sample_video_windows(
+                result_path,
+                max_frames=16,
+                window_frames=8,
+            )
+
+        self.assertEqual(info["frame_count"], 40)
+        self.assertEqual(len(windows), 2)
+        self.assertTrue(all(len(window["frames"]) == 8 for window in windows))
+        self.assertAlmostEqual(windows[0]["start_seconds"], 0.0)
+        self.assertAlmostEqual(windows[-1]["end_seconds"], 4.875)
+
+    def test_semantic_windows_align_result_and_reference_timestamps(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            result_path = root / "result.mp4"
+            reference_path = root / "reference.mp4"
+            _write_video(result_path, frame_count=40, fps=8.0)
+            _write_video(reference_path, frame_count=20, fps=4.0)
+
+            _, _, windows = sample_aligned_video_windows(
+                result_path,
+                reference_path,
+                max_frames=16,
+                window_frames=8,
+            )
+
+        self.assertEqual(len(windows), 2)
+        for window in windows:
+            np.testing.assert_allclose(
+                window["timestamps"],
+                np.linspace(
+                    window["start_seconds"],
+                    window["end_seconds"],
+                    8,
+                ),
+            )
+            self.assertEqual(
+                len(window["result_frames"]),
+                len(window["reference_frames"]),
+            )
+
+    def test_etva_aggregates_scores_across_windows(self) -> None:
+        frame = np.zeros((8, 8, 3), dtype=np.uint8)
+        windows = [
+            {
+                "window_index": 0,
+                "start_seconds": 0.0,
+                "end_seconds": 1.0,
+                "frames": [frame] * 8,
+            },
+            {
+                "window_index": 1,
+                "start_seconds": 1.0,
+                "end_seconds": 2.0,
+                "frames": [frame] * 8,
+            },
+        ]
+        with (
+            patch("evaluator.etva_judge.sample_video_windows", return_value=({}, windows)),
+            patch(
+                "evaluator.etva_judge._request",
+                side_effect=[
+                    '{"scores":[1],"overall":1}',
+                    '{"scores":[0],"overall":0}',
+                ],
+            ),
+        ):
+            result = evaluate_etva_judge(
+                "result.mp4",
+                "perform a wink",
+                None,
+                max_frames=16,
+                window_frames=8,
+            )
+
+        self.assertEqual(result["status"], "available")
+        self.assertEqual(result["metrics"]["window_count"], 2)
+        self.assertAlmostEqual(result["metrics"]["window_mean_score"], 0.5)
+        self.assertAlmostEqual(result["score_0_1"], 0.4)
 
     def test_identity_tail_uses_lowest_scores(self) -> None:
         self.assertEqual(_lower_tail([0.95, 0.2, 0.8, 0.7], 0.5), [0.2, 0.7])
@@ -198,6 +302,89 @@ class HolisticEvaluatorTests(unittest.TestCase):
             self.assertGreater(len(result["frame_records"]), 0)
             self.assertIn("weighted_score_0_1", result)
             self.assertIn("gt_frame", result["frame_records"][0])
+
+    def test_empty_manual_aesthetic_score_uses_vbench(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            result_path = Path(directory) / "result.mp4"
+            _write_video(result_path)
+            with patch(
+                "evaluator.holistic_evaluator.run_vbench",
+                return_value={
+                    "status": "completed",
+                    "backend": "docker",
+                    "output_dir": str(Path(directory) / "vbench"),
+                    "records": [
+                        {
+                            "dimension": "aesthetic_quality",
+                            "score": 0.72,
+                        }
+                    ],
+                },
+            ) as run_vbench:
+                result = evaluate_aesthetics(
+                    result_path,
+                    None,
+                    max_frames=4,
+                    output_root=directory,
+                )
+
+        run_vbench.assert_called_once()
+        self.assertEqual(result["status"], "available")
+        self.assertEqual(result["mode"], "vbench")
+        self.assertEqual(result["backend"], "vbench_aesthetic_quality")
+        self.assertAlmostEqual(result["score_0_1"], 0.72)
+        self.assertAlmostEqual(
+            result["metrics"]["vbench_aesthetic_quality_0_to_1"],
+            0.72,
+        )
+
+    def test_cpu_without_manual_aesthetic_score_does_not_start_vbench(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            result_path = Path(directory) / "result.mp4"
+            _write_video(result_path)
+            with patch("evaluator.holistic_evaluator.run_vbench") as run_vbench:
+                result = evaluate_aesthetics(
+                    result_path,
+                    None,
+                    max_frames=4,
+                    output_root=directory,
+                    device="cpu",
+                )
+
+        run_vbench.assert_not_called()
+        self.assertEqual(result["status"], "unavailable")
+        self.assertIn("requires CUDA", result["note"])
+
+    def test_incomplete_vbench_result_is_not_used_as_aesthetic_score(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            result_path = Path(directory) / "result.mp4"
+            _write_video(result_path)
+            with patch(
+                "evaluator.holistic_evaluator.run_vbench",
+                return_value={
+                    "status": "failed",
+                    "backend": "package",
+                    "records": [
+                        {
+                            "dimension": "aesthetic_quality",
+                            "score": 0.91,
+                        }
+                    ],
+                    "stderr": "VBench process failed",
+                },
+            ):
+                result = evaluate_aesthetics(
+                    result_path,
+                    None,
+                    max_frames=4,
+                    output_root=directory,
+                )
+
+        self.assertEqual(result["status"], "unavailable")
+        self.assertIsNone(result["score_0_1"])
+        self.assertTrue(
+            any("did not complete successfully" in warning for warning in result["warnings"])
+        )
 
     def test_no_reference_path_uses_manual_and_self_alignment(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

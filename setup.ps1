@@ -1,6 +1,7 @@
 param(
     [switch]$Cuda,
     [switch]$Optional,
+    [switch]$Grpc,
     [switch]$VBench
 )
 
@@ -60,6 +61,13 @@ if ($Optional) {
         throw "ONNX Runtime installation failed."
     }
 }
+if ($Grpc) {
+    Write-Host "Installing the optional gRPC transport..."
+    & $python -m pip install -r (Join-Path $root "requirements\grpc.txt")
+    if ($LASTEXITCODE -ne 0) {
+        throw "gRPC installation failed."
+    }
+}
 if ($VBench) {
     Write-Host "Installing the optional VBench backend..."
     & $python -m pip install -r (Join-Path $root "requirements\vbench.txt")
@@ -74,6 +82,9 @@ if ($Optional) {
 }
 if ($VBench) {
     Write-Host "VBench package is ready. Download its assets with: .\scripts\download-vbench-models.ps1"
+}
+if ($Grpc) {
+    Write-Host "gRPC transport is ready. Start the alternative endpoint with: .\run-grpc.ps1"
 }
 if ($Cuda) {
     Write-Host "CUDA mode requested. Verify with: .\.venv\Scripts\python.exe -c `"import torch; print(torch.version.cuda, torch.cuda.is_available())`""

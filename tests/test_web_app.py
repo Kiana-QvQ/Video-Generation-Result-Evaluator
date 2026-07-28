@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import shutil
+import tempfile
 from pathlib import Path
 import unittest
 from unittest.mock import patch
@@ -263,6 +264,44 @@ class WebAppTests(unittest.TestCase):
                 web_app.JOB_QUEUES_BY_IP.clear()
                 web_app.JOB_SCHEDULED_IPS.clear()
 
+    def test_single_persisted_queued_job_is_restored_for_dispatch(self) -> None:
+        job_id = f"queued-recovery-{uuid4().hex}"
+        job_dir = Path("outputs/web_runs") / job_id
+        created_at = "2026-07-27T12:00:00+08:00"
+        job = {
+            "job_id": job_id,
+            "client_ip": "192.0.2.10",
+            "name": "queued.mp4",
+            "status": "queued",
+            "stage": "queued",
+            "progress": 0.0,
+            "created_at": created_at,
+            "queued_at": created_at,
+            "started_at": None,
+            "finished_at": None,
+            "updated_at": created_at,
+            "error": None,
+            "files": {"result_video": None},
+            "original_files": {"result_video": "queued.mp4"},
+            "parameters": {"device": "cpu", "max_frames": 2},
+        }
+        web_app._write_job(job)
+        try:
+            with web_app.JOB_LOCK:
+                web_app._clear_dispatch_state()
+                web_app._restore_queued_jobs()
+
+            client_ip = web_app.JOB_DISPATCH_QUEUE.get_nowait()
+            restored_job_id = web_app._take_next_job(client_ip)
+            web_app._reschedule_ip(client_ip)
+            web_app.JOB_DISPATCH_QUEUE.task_done()
+            self.assertEqual(client_ip, "192.0.2.10")
+            self.assertEqual(restored_job_id, job_id)
+        finally:
+            shutil.rmtree(job_dir, ignore_errors=True)
+            with web_app.JOB_LOCK:
+                web_app._clear_dispatch_state()
+
     def test_running_job_can_be_interrupted(self) -> None:
         class FakeProcess:
             def __init__(self) -> None:
@@ -376,6 +415,35 @@ class WebAppTests(unittest.TestCase):
         self.assertEqual(payload["path"], "result.mp4")
         self.assertEqual(payload["array"], [1, 2])
         self.assertIsNone(payload["score"])
+
+    def test_atomic_status_write_retries_windows_permission_error(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "status.json"
+            original_replace = Path.replace
+            attempts = 0
+
+            def replace_with_transient_lock(
+                source: Path,
+                destination: Path,
+            ) -> Path:
+                nonlocal attempts
+                attempts += 1
+                if attempts == 1:
+                    raise PermissionError(5, "access denied")
+                return original_replace(source, destination)
+
+            with patch.object(
+                Path,
+                "replace",
+                new=replace_with_transient_lock,
+            ):
+                web_app._atomic_write_json(target, {"status": "ok"})
+
+            self.assertEqual(attempts, 2)
+            self.assertEqual(
+                target.read_text(encoding="utf-8"),
+                '{\n  "status": "ok"\n}',
+            )
 
 
 if __name__ == "__main__":

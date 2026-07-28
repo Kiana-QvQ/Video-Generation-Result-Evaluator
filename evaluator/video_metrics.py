@@ -20,6 +20,10 @@ except Exception:
 
 
 VIDEO_SUFFIXES = {".mp4", ".mov", ".avi", ".mkv", ".webm", ".wmv", ".m4v"}
+DEFAULT_SAMPLE_FPS = 8.0
+SEMANTIC_WINDOW_FRAMES = 8
+SEMANTIC_WINDOW_SECONDS = 1.0
+SEMANTIC_WINDOW_OVERLAP = 0.5
 
 
 @dataclass(frozen=True)
@@ -96,24 +100,88 @@ def _sample_indices(frame_count: int, sample_count: int) -> np.ndarray:
     return np.rint(values).astype(np.int64)
 
 
+def _video_end_seconds(info: VideoInfo) -> float:
+    if info.fps > 0 and info.frame_count > 0:
+        return max(0.0, (info.frame_count - 1) / info.fps)
+    return max(0.0, float(info.duration_seconds))
+
+
+def _sample_timestamps(
+    end_seconds: float,
+    max_frames: int,
+    sample_fps: float = DEFAULT_SAMPLE_FPS,
+) -> np.ndarray:
+    if max_frames <= 0:
+        return np.array([], dtype=np.float64)
+    end_seconds = max(0.0, float(end_seconds))
+    if end_seconds <= 1e-8:
+        return np.array([0.0], dtype=np.float64)
+
+    if sample_fps > 0:
+        step = 1.0 / float(sample_fps)
+        timestamps = np.arange(
+            0.0,
+            end_seconds + step * 0.5,
+            step,
+            dtype=np.float64,
+        )
+        if timestamps.size == 0 or timestamps[-1] < end_seconds - 1e-8:
+            timestamps = np.append(timestamps, end_seconds)
+    else:
+        timestamps = np.array([0.0, end_seconds], dtype=np.float64)
+
+    if timestamps.size > max_frames:
+        timestamps = np.linspace(
+            0.0,
+            end_seconds,
+            int(max_frames),
+            dtype=np.float64,
+        )
+    return timestamps
+
+
+def _time_sample_indices(
+    info: VideoInfo,
+    max_frames: int,
+    sample_fps: float = DEFAULT_SAMPLE_FPS,
+) -> tuple[np.ndarray, np.ndarray]:
+    count = min(int(max_frames), int(info.frame_count))
+    if count < 1:
+        return np.array([], dtype=np.int64), np.array([], dtype=np.float64)
+    if info.fps <= 0:
+        timestamps = np.arange(count, dtype=np.float64)
+        return _sample_indices(info.frame_count, count), timestamps
+
+    timestamps = _sample_timestamps(
+        _video_end_seconds(info),
+        count,
+        sample_fps,
+    )
+    indices = np.rint(timestamps * info.fps).astype(np.int64)
+    indices = np.clip(indices, 0, max(info.frame_count - 1, 0))
+    return indices, timestamps
+
+
 def _aligned_sample_indices(
     result_info: VideoInfo,
     ground_truth_info: VideoInfo,
     max_frames: int,
+    sample_fps: float = DEFAULT_SAMPLE_FPS,
 ) -> tuple[int, np.ndarray, np.ndarray, np.ndarray]:
-    sample_count = min(
-        int(max_frames),
-        result_info.frame_count,
-        ground_truth_info.frame_count,
-    )
+    sample_count = min(int(max_frames), result_info.frame_count, ground_truth_info.frame_count)
     if sample_count < 1:
         raise ValueError("The videos do not contain a common readable frame.")
 
     if result_info.fps > 0 and ground_truth_info.fps > 0:
-        result_end = (result_info.frame_count - 1) / result_info.fps
-        ground_truth_end = (ground_truth_info.frame_count - 1) / ground_truth_info.fps
+        result_end = _video_end_seconds(result_info)
+        ground_truth_end = _video_end_seconds(ground_truth_info)
         overlap_seconds = min(result_end, ground_truth_end)
-        timestamps = np.linspace(0.0, overlap_seconds, sample_count)
+        timestamps = _sample_timestamps(
+            overlap_seconds,
+            sample_count,
+            sample_fps,
+        )
+        sample_count = int(len(timestamps))
         result_indices = np.rint(timestamps * result_info.fps).astype(np.int64)
         ground_truth_indices = np.rint(
             timestamps * ground_truth_info.fps
@@ -127,6 +195,177 @@ def _aligned_sample_indices(
     )
     timestamps = np.arange(sample_count, dtype=np.float64)
     return sample_count, result_indices, ground_truth_indices, timestamps
+
+
+def sample_video_frames(
+    path: str | Path,
+    max_frames: int,
+    sample_fps: float = DEFAULT_SAMPLE_FPS,
+) -> tuple[dict[str, Any], np.ndarray, np.ndarray, list[np.ndarray]]:
+    info = probe_video(path)
+    indices, timestamps = _time_sample_indices(info, max_frames, sample_fps)
+    frames = _read_frames(info.path, indices)
+    return info.to_dict(), indices, timestamps, frames
+
+
+def _window_starts(
+    end_seconds: float,
+    max_windows: int,
+    window_seconds: float = SEMANTIC_WINDOW_SECONDS,
+    overlap: float = SEMANTIC_WINDOW_OVERLAP,
+) -> np.ndarray:
+    if max_windows <= 0:
+        return np.array([], dtype=np.float64)
+    end_seconds = max(0.0, float(end_seconds))
+    window_seconds = max(1e-6, float(window_seconds))
+    last_start = max(0.0, end_seconds - window_seconds)
+    if last_start <= 1e-8:
+        return np.array([0.0], dtype=np.float64)
+
+    stride = window_seconds * max(1e-3, 1.0 - float(overlap))
+    starts = np.arange(
+        0.0,
+        last_start + stride * 0.5,
+        stride,
+        dtype=np.float64,
+    )
+    if starts.size == 0 or starts[-1] < last_start - 1e-8:
+        starts = np.append(starts, last_start)
+    if starts.size > max_windows:
+        starts = np.linspace(0.0, last_start, int(max_windows))
+    return starts
+
+
+def _window_timestamps(
+    start_seconds: float,
+    end_seconds: float,
+    frame_count: int,
+) -> np.ndarray:
+    count = max(1, int(frame_count))
+    return np.linspace(
+        float(start_seconds),
+        max(float(start_seconds), float(end_seconds)),
+        count,
+        dtype=np.float64,
+    )
+
+
+def sample_video_windows(
+    path: str | Path,
+    max_frames: int,
+    window_frames: int = SEMANTIC_WINDOW_FRAMES,
+    window_seconds: float = SEMANTIC_WINDOW_SECONDS,
+    overlap: float = SEMANTIC_WINDOW_OVERLAP,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Sample a video into bounded temporal windows.
+
+    ``max_frames`` controls the total window budget. Each model window keeps
+    its own fixed temporal resolution instead of collapsing the whole clip
+    into one sparse sample.
+    """
+    info = probe_video(path)
+    max_windows = max(1, int(math.ceil(max_frames / max(window_frames, 1))))
+    end_seconds = _video_end_seconds(info)
+    starts = _window_starts(
+        end_seconds,
+        max_windows,
+        window_seconds=window_seconds,
+        overlap=overlap,
+    )
+    windows: list[dict[str, Any]] = []
+    for window_index, start_seconds in enumerate(starts):
+        stop_seconds = min(
+            end_seconds,
+            float(start_seconds) + max(float(window_seconds), 1e-6),
+        )
+        timestamps = _window_timestamps(
+            float(start_seconds),
+            stop_seconds,
+            window_frames,
+        )
+        if info.fps > 0:
+            indices = np.rint(timestamps * info.fps).astype(np.int64)
+        else:
+            indices = np.rint(
+                timestamps / max(end_seconds, 1e-6) * (info.frame_count - 1)
+            ).astype(np.int64)
+        indices = np.clip(indices, 0, max(info.frame_count - 1, 0))
+        windows.append(
+            {
+                "window_index": window_index,
+                "start_seconds": round(float(start_seconds), 6),
+                "end_seconds": round(float(stop_seconds), 6),
+                "timestamps": timestamps,
+                "indices": indices,
+                "frames": _read_frames(info.path, indices),
+            }
+        )
+    return info.to_dict(), windows
+
+
+def sample_aligned_video_windows(
+    result_path: str | Path,
+    reference_path: str | Path,
+    max_frames: int,
+    window_frames: int = SEMANTIC_WINDOW_FRAMES,
+    window_seconds: float = SEMANTIC_WINDOW_SECONDS,
+    overlap: float = SEMANTIC_WINDOW_OVERLAP,
+) -> tuple[dict[str, Any], dict[str, Any], list[dict[str, Any]]]:
+    """Sample result/reference videos in matching timestamp windows."""
+    result_info = probe_video(result_path)
+    reference_info = probe_video(reference_path)
+    max_windows = max(1, int(math.ceil(max_frames / max(window_frames, 1))))
+    overlap_end = min(
+        _video_end_seconds(result_info),
+        _video_end_seconds(reference_info),
+    )
+    starts = _window_starts(
+        overlap_end,
+        max_windows,
+        window_seconds=window_seconds,
+        overlap=overlap,
+    )
+    windows: list[dict[str, Any]] = []
+    for window_index, start_seconds in enumerate(starts):
+        stop_seconds = min(
+            overlap_end,
+            float(start_seconds) + max(float(window_seconds), 1e-6),
+        )
+        timestamps = _window_timestamps(
+            float(start_seconds),
+            stop_seconds,
+            window_frames,
+        )
+        result_indices = np.rint(timestamps * result_info.fps).astype(np.int64)
+        reference_indices = np.rint(
+            timestamps * reference_info.fps
+        ).astype(np.int64)
+        result_indices = np.clip(
+            result_indices,
+            0,
+            max(result_info.frame_count - 1, 0),
+        )
+        reference_indices = np.clip(
+            reference_indices,
+            0,
+            max(reference_info.frame_count - 1, 0),
+        )
+        windows.append(
+            {
+                "window_index": window_index,
+                "start_seconds": round(float(start_seconds), 6),
+                "end_seconds": round(float(stop_seconds), 6),
+                "timestamps": timestamps,
+                "result_indices": result_indices,
+                "reference_indices": reference_indices,
+                "result_frames": _read_frames(result_info.path, result_indices),
+                "reference_frames": _read_frames(
+                    reference_info.path,
+                    reference_indices,
+                ),
+            }
+        )
+    return result_info.to_dict(), reference_info.to_dict(), windows
 
 
 def _read_frames(path: str, indices: Iterable[int]) -> list[np.ndarray]:

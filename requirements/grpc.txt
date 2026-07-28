@@ -1,0 +1,3 @@
+# Optional gRPC transport. HTTP/FastAPI remains the default transport.
+grpcio==1.62.3
+grpcio-tools==1.62.3

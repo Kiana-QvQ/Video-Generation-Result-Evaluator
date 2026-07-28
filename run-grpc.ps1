@@ -1,9 +1,7 @@
 param(
     [switch]$Public,
-    [switch]$WithGrpc,
     [string]$BindHost,
-    [int]$Port = 7860,
-    [int]$GrpcPort = 50051
+    [int]$Port = 50051
 )
 
 $ErrorActionPreference = "Stop"
@@ -27,18 +25,10 @@ $env:PYTHONNOUSERSITE = "1"
 $env:EVALUATOR_FACE_DEVICE = "auto"
 $env:EVALUATOR_IQA_DEVICE = "auto"
 $env:EVALUATOR_SEMANTIC_DEVICE = "auto"
-$env:EVALUATOR_HOST = $hostAddress
-$env:EVALUATOR_PORT = [string]$Port
+$env:EVALUATOR_GRPC_HOST = $hostAddress
+$env:EVALUATOR_GRPC_PORT = [string]$Port
 
 Set-Location $root
-$startArguments = @()
-if ($WithGrpc) {
-    $startArguments += "--with-grpc"
-    $startArguments += "--grpc-port"
-    $startArguments += [string]$GrpcPort
-    Write-Host "Starting HTTP on ${hostAddress}:${Port} and gRPC on ${hostAddress}:${GrpcPort}"
-} else {
-    Write-Host "Starting HTTP on http://${hostAddress}:${Port}"
-}
-& $python (Join-Path $root "start.py") @startArguments
+Write-Host "gRPC listening on ${hostAddress}:${Port}"
+& $python (Join-Path $root "start.py") --transport grpc
 exit $LASTEXITCODE

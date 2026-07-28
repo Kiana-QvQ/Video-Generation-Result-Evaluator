@@ -15,15 +15,22 @@ from .video_metrics import (
     _aligned_sample_indices,
     _read_frames,
     _resize_like,
-    _sample_indices,
+    DEFAULT_SAMPLE_FPS,
+    SEMANTIC_WINDOW_FRAMES,
+    SEMANTIC_WINDOW_OVERLAP,
+    SEMANTIC_WINDOW_SECONDS,
+    sample_aligned_video_windows,
+    sample_video_frames,
+    sample_video_windows,
     VideoInfo,
     evaluate_full_reference,
     probe_video,
 )
-from .runtime import MODEL_CACHE_DIR
+from .runtime import MODEL_CACHE_DIR, OUTPUT_DIR
 from .model_profile import get_recommended_model
 from .etva_judge import evaluate_etva_judge, etva_service_available
 from .hardware_policy import resolve_policy
+from .vbench_runner import run_vbench
 from .viclip_backend import (
     VICLIP_CHECKPOINT,
     clear_viclip_cache,
@@ -238,6 +245,25 @@ def _lower_tail(values: Iterable[float], fraction: float = 0.1) -> list[float]:
     return ordered[:count]
 
 
+def _robust_average(
+    values: Iterable[float | int | None],
+    tail_weight: float = 0.2,
+) -> tuple[float | None, float | None]:
+    valid = [
+        float(value)
+        for value in values
+        if value is not None and math.isfinite(float(value))
+    ]
+    if not valid:
+        return None, None
+    mean = float(np.mean(valid))
+    tail = _safe_mean(_lower_tail(valid))
+    if tail is None:
+        return mean, None
+    weight = _clamp(float(tail_weight))
+    return _clamp((1.0 - weight) * mean + weight * tail), tail
+
+
 def _normalize(vector: np.ndarray) -> np.ndarray:
     vector = vector.astype(np.float32).reshape(-1)
     norm = float(np.linalg.norm(vector))
@@ -252,10 +278,7 @@ def _cosine_similarity(left: np.ndarray, right: np.ndarray) -> float:
 
 
 def _sample_video(path: str | Path, max_frames: int) -> tuple[dict[str, Any], np.ndarray, list[np.ndarray]]:
-    info = probe_video(path).to_dict()
-    sample_count = min(int(max_frames), int(info["frame_count"]))
-    indices = _sample_indices(int(info["frame_count"]), sample_count)
-    frames = _read_frames(info["path"], indices)
+    info, indices, _, frames = sample_video_frames(path, max_frames)
     return info, indices, frames
 
 
@@ -469,6 +492,30 @@ class _LandmarkTracker:
         if importlib.util.find_spec("mediapipe") is not None:
             try:
                 import mediapipe as mp
+                from mediapipe.python import solution_base
+
+                # MediaPipe's native resource loader can fail when the
+                # project path contains Chinese characters on Windows.
+                package_root = Path(mp.__file__).resolve().parent
+                if any(ord(char) > 127 for char in str(package_root)):
+                    ascii_root = (
+                        Path(tempfile.gettempdir())
+                        / "video_evaluator_mediapipe"
+                        / "mediapipe"
+                    )
+                    if any(ord(char) > 127 for char in str(ascii_root)):
+                        raise OSError(
+                            "The system temp path also contains non-ASCII characters."
+                        )
+                    ascii_root.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copytree(
+                        package_root / "modules",
+                        ascii_root / "modules",
+                        dirs_exist_ok=True,
+                    )
+                    solution_base.__file__ = str(
+                        ascii_root / "python" / "solution_base.py"
+                    )
 
                 self.mesh = mp.solutions.face_mesh.FaceMesh(
                     static_image_mode=False,
@@ -642,6 +689,7 @@ def evaluate_identity(
     # "Tail 10%" means the lower tail, not the last timestamps in the clip.
     tail_values = _lower_tail(scoring_values)
     valid_frame_ratio = float(len(similarities) / max(len(records), 1))
+    robust_score, _ = _robust_average(scoring_values)
     return {
         "status": (
             "available"
@@ -662,7 +710,7 @@ def evaluate_identity(
             "variance": float(np.var(scoring_values)),
             "minimum_similarity": float(np.min(scoring_values)),
             "valid_frame_ratio": valid_frame_ratio,
-            "score_0_1": _safe_mean(scoring_values),
+            "score_0_1": robust_score,
         },
         "frame_records": records,
         "warnings": [],
@@ -983,9 +1031,34 @@ def evaluate_text_alignment(
 
     if use_viclip and viclip_enabled(device):
         try:
-            info, indices, frames = _sample_video(result_path, max_frames)
-            viclip_result = viclip_text_similarity(frames, prompt, device)
-            score = float(viclip_result["score_0_1"])
+            info, windows = sample_video_windows(result_path, max_frames)
+            window_scores: list[float] = []
+            raw_scores: list[float] = []
+            window_records: list[dict[str, Any]] = []
+            for window in windows:
+                viclip_result = viclip_text_similarity(
+                    window["frames"],
+                    prompt,
+                    device,
+                )
+                window_scores.append(float(viclip_result["score_0_1"]))
+                raw_scores.append(float(viclip_result["raw_cosine"]))
+                window_records.append(
+                    {
+                        "sample_index": int(window["window_index"]),
+                        "window_index": int(window["window_index"]),
+                        "window_start_seconds": window["start_seconds"],
+                        "window_end_seconds": window["end_seconds"],
+                        "result_frame": int(window["indices"][0]),
+                        "timestamp_seconds": window["start_seconds"],
+                        "text_video_similarity": float(
+                            viclip_result["score_0_1"]
+                        ),
+                    }
+                )
+            score, tail_score = _robust_average(window_scores)
+            if score is None:
+                raise ValueError("ViCLIP produced no usable window scores.")
             return {
                 "status": "available",
                 "backend": "viclip_internvid_10m_flt",
@@ -997,24 +1070,15 @@ def evaluate_text_alignment(
                 ),
                 "metrics": {
                     "score_0_1": score,
-                    "raw_cosine_mean": viclip_result["raw_cosine"],
+                    "raw_cosine_mean": _safe_mean(raw_scores),
+                    "window_mean_score": _safe_mean(window_scores),
+                    "window_lower_10pct_score": tail_score,
+                    "window_count": len(window_scores),
                     "valid_frame_ratio": 1.0,
                     "device": viclip_result["device"],
                     "model_checkpoint": str(VICLIP_CHECKPOINT),
                 },
-                "frame_records": [
-                    {
-                        "sample_index": i,
-                        "result_frame": int(index),
-                        "timestamp_seconds": (
-                            round(int(index) / float(info["fps"]), 4)
-                            if info["fps"] > 0
-                            else None
-                        ),
-                        "text_video_similarity": score,
-                    }
-                    for i, index in enumerate(indices)
-                ],
+                "frame_records": window_records,
                 "warnings": [],
             }
         except Exception as exc:
@@ -1284,14 +1348,47 @@ def evaluate_expression(
     count = min(len(result_frames), len(reference_frames))
     viclip_result: dict[str, Any] | None = None
     viclip_warning: str | None = None
+    viclip_window_records: list[dict[str, Any]] = []
     if use_viclip and viclip_enabled(device):
         try:
-            viclip_result = viclip_video_similarity(
-                result_frames[:count],
-                reference_frames[:count],
-                device,
-                need_text=need_viclip_text,
+            _, _, semantic_windows = sample_aligned_video_windows(
+                result_path,
+                reference_path,
+                max_frames,
             )
+            window_scores: list[float] = []
+            raw_scores: list[float] = []
+            window_device = device
+            for window in semantic_windows:
+                window_result = viclip_video_similarity(
+                    window["result_frames"],
+                    window["reference_frames"],
+                    device,
+                    need_text=need_viclip_text,
+                )
+                window_device = str(window_result["device"])
+                window_scores.append(float(window_result["score_0_1"]))
+                raw_scores.append(float(window_result["raw_cosine"]))
+                viclip_window_records.append(
+                    {
+                        "window_index": int(window["window_index"]),
+                        "window_start_seconds": window["start_seconds"],
+                        "window_end_seconds": window["end_seconds"],
+                        "score_0_1": float(window_result["score_0_1"]),
+                    }
+                )
+            score, tail_score = _robust_average(window_scores)
+            if score is None:
+                raise ValueError("ViCLIP produced no usable window scores.")
+            viclip_result = {
+                "score_0_1": score,
+                "raw_cosine": _safe_mean(raw_scores),
+                "window_mean_score": _safe_mean(window_scores),
+                "window_lower_10pct_score": tail_score,
+                "window_count": len(window_scores),
+                "device": window_device,
+                "frames": 8,
+            }
         except Exception as exc:
             viclip_warning = f"ViCLIP unavailable: {exc}"
 
@@ -1342,6 +1439,7 @@ def evaluate_expression(
                 "note": "ViCLIP video-video similarity is active.",
                 "warnings": [],
                 "frame_records": [],
+                "window_records": viclip_window_records,
             }
         score = _clamp(float(manual_score or 0.0) / 5.0)
         return {
@@ -1414,6 +1512,11 @@ def evaluate_expression(
             "viclip_video_similarity": (
                 viclip_result["score_0_1"] if viclip_result is not None else None
             ),
+            "viclip_window_count": (
+                viclip_result.get("window_count")
+                if viclip_result is not None
+                else 0
+            ),
             "motion_proxy_score": _clamp(proxy_score),
         },
         "frame_records": [
@@ -1435,6 +1538,7 @@ def evaluate_expression(
             }
             for i in range(pair_count)
         ],
+        "window_records": viclip_window_records,
     }
 
 
@@ -1716,13 +1820,17 @@ def evaluate_aesthetics(
     result_path: str | Path,
     manual_score: float | None,
     max_frames: int,
+    output_root: str | Path | None = None,
+    device: str = "auto",
 ) -> dict[str, Any]:
     _, _, frames = _sample_video(result_path, max_frames)
     technical_score = _technical_aesthetic_score(frames)
-    return {
+    if manual_score is not None:
+        return {
         "status": "manual" if manual_score is not None else "unavailable",
         "mode": "manual",
         "backend": "manual_1_to_5 + technical_proxy",
+        "score_0_1": _clamp(float(manual_score) / 5.0),
         "metrics": {
             "manual_score_1_to_5": manual_score,
             "technical_proxy_0_to_1": technical_score,
@@ -1732,6 +1840,117 @@ def evaluate_aesthetics(
         },
         "note": "截图注明暂无成熟自动方法，因此人工评分为主，技术质量仅作辅助。",
         "warnings": [],
+        "frame_records": [],
+    }
+
+    metrics = {
+        "manual_score_1_to_5": None,
+        "technical_proxy_0_to_1": technical_score,
+        "manual_score_0_to_1": None,
+        "vbench_aesthetic_quality_raw": None,
+        "vbench_aesthetic_quality_0_to_1": None,
+    }
+    if device == "cpu":
+        return {
+            "status": "unavailable",
+            "mode": "vbench",
+            "backend": "vbench_aesthetic_quality",
+            "score_0_1": None,
+            "metrics": metrics,
+            "note": "VBench aesthetic_quality requires CUDA; no manual score was provided.",
+            "warnings": [
+                "VBench aesthetic_quality was skipped because the effective device is CPU."
+            ],
+            "frame_records": [],
+        }
+    warnings: list[str] = []
+    vbench_result: dict[str, Any] = {}
+    try:
+        vbench_result = run_vbench(
+            result_path,
+            ["aesthetic_quality"],
+            output_root or OUTPUT_DIR,
+        )
+    except Exception as exc:
+        warnings.append(
+            f"VBench aesthetic_quality failed: {type(exc).__name__}: {exc}"
+        )
+
+    records = vbench_result.get("records", [])
+    record = next(
+        (
+            item
+            for item in records
+            if item.get("dimension") == "aesthetic_quality"
+        ),
+        {},
+    )
+    raw_score = record.get("score")
+    normalized_score: float | None = None
+    if raw_score is not None and vbench_result.get("status") == "completed":
+        try:
+            parsed_score = float(raw_score)
+        except (TypeError, ValueError):
+            parsed_score = None
+        if parsed_score is not None and math.isfinite(parsed_score):
+            if 0.0 <= parsed_score <= 1.0:
+                normalized_score = parsed_score
+                metrics["vbench_aesthetic_quality_raw"] = parsed_score
+                metrics["vbench_aesthetic_quality_0_to_1"] = parsed_score
+            else:
+                warnings.append(
+                    "VBench aesthetic_quality returned a score outside the expected 0-1 range."
+                )
+    elif raw_score is not None:
+        warnings.append(
+            "VBench returned a score, but the evaluation process did not complete successfully."
+        )
+
+    if normalized_score is not None:
+        return {
+            "status": "available",
+            "mode": "vbench",
+            "backend": "vbench_aesthetic_quality",
+            "score_0_1": normalized_score,
+            "metrics": metrics,
+            "vbench": {
+                "status": vbench_result.get("status"),
+                "backend": vbench_result.get("backend"),
+                "output_dir": vbench_result.get("output_dir"),
+                "record": record,
+            },
+            "note": (
+                "No manual aesthetic score was provided; "
+                "VBench aesthetic_quality is the primary score."
+            ),
+            "warnings": warnings,
+            "frame_records": [],
+        }
+
+    failure_detail = (
+        vbench_result.get("installation")
+        or vbench_result.get("stderr")
+        or vbench_result.get("status")
+        or "No VBench aesthetic_quality score was returned."
+    )
+    warnings.append(f"VBench aesthetic_quality unavailable: {failure_detail}")
+    return {
+        "status": "unavailable",
+        "mode": "vbench",
+        "backend": "vbench_aesthetic_quality",
+        "score_0_1": None,
+        "metrics": metrics,
+        "vbench": {
+            "status": vbench_result.get("status", "unavailable"),
+            "backend": vbench_result.get("backend"),
+            "output_dir": vbench_result.get("output_dir"),
+            "record": record,
+        },
+        "note": (
+            "No manual aesthetic score was provided, but VBench "
+            "aesthetic_quality did not return a usable score."
+        ),
+        "warnings": warnings,
         "frame_records": [],
     }
 
@@ -1757,6 +1976,7 @@ def evaluate_all(
     device: str = "auto",
     manual_expression_score: float | None = None,
     manual_aesthetic_score: float | None = None,
+    vbench_output_root: str | Path | None = None,
 ) -> dict[str, Any]:
     policy = resolve_policy(device)
     effective_device = policy.resolved_device
@@ -1782,6 +2002,13 @@ def evaluate_all(
         max_frames,
         calculate_lpips,
         effective_device,
+    )
+    aesthetics = evaluate_aesthetics(
+        result_path,
+        manual_aesthetic_score,
+        max_frames,
+        output_root=vbench_output_root,
+        device=effective_device,
     )
     expression = evaluate_expression(
         result_path,
@@ -1817,7 +2044,8 @@ def evaluate_all(
         result_path=result_path,
         prompt_text=prompt_text,
         reference_path=reference_video or ground_truth,
-        max_frames=min(max_frames, policy.etva_frames),
+        max_frames=max_frames,
+        window_frames=policy.etva_frames,
     )
     etva_score = (
         etva_judge.get("score_0_1")
@@ -1826,6 +2054,10 @@ def evaluate_all(
     )
     if etva_score is not None:
         expression.setdefault("metrics", {})["etva_judge_score_0_1"] = etva_score
+        expression.setdefault("metrics", {})["etva_window_count"] = etva_judge.get(
+            "metrics",
+            {},
+        ).get("window_count")
     elif etva_judge.get("warnings"):
         expression.setdefault("warnings", []).extend(etva_judge["warnings"])
 
@@ -1880,12 +2112,6 @@ def evaluate_all(
         identity,
         max_frames,
     )
-    aesthetics = evaluate_aesthetics(
-        result_path,
-        manual_aesthetic_score,
-        max_frames,
-    )
-
     categories = {
         "identity": identity,
         "texture": texture,
@@ -1893,12 +2119,17 @@ def evaluate_all(
         "temporal": temporal,
         "aesthetics": aesthetics,
     }
+    aesthetics_score = aesthetics.get("score_0_1")
+    if aesthetics_score is None:
+        aesthetics_score = aesthetics.get("metrics", {}).get(
+            "manual_score_0_to_1"
+        )
     category_scores = {
         "identity": identity.get("metrics", {}).get("score_0_1"),
         "texture": texture.get("metrics", {}).get("score_0_1"),
         "expression": expression.get("score_0_1"),
         "temporal": temporal.get("metrics", {}).get("stability_score_0_1"),
-        "aesthetics": aesthetics.get("metrics", {}).get("manual_score_0_to_1"),
+        "aesthetics": aesthetics_score,
     }
     for category_name, score in category_scores.items():
         # Keep one canonical category score for API consumers and the UI.
@@ -1971,7 +2202,7 @@ def evaluate_all(
             "权重": "10%",
             "状态": aesthetics["status"],
             "标准化分数": _format_metric(
-                aesthetics.get("metrics", {}).get("manual_score_0_to_1"),
+                aesthetics.get("score_0_1"),
                 4,
             ),
             "核心结果": (
@@ -2065,6 +2296,16 @@ def evaluate_all(
         "coverage": f"{len(valid_score_entries)}/5",
         "evaluation_mode": evaluation_mode,
         "prompt_text": prompt_text,
+        "sampling_policy": {
+            "regular_sample_fps": DEFAULT_SAMPLE_FPS,
+            "max_frames": int(max_frames),
+            "semantic_window_frames": SEMANTIC_WINDOW_FRAMES,
+            "semantic_window_seconds": SEMANTIC_WINDOW_SECONDS,
+            "semantic_window_overlap": SEMANTIC_WINDOW_OVERLAP,
+            "semantic_window_aggregation": (
+                "0.8 * window_mean + 0.2 * lower_10pct_window_mean"
+            ),
+        },
         "weighted_score_0_1": weighted_score,
         "weighted_score_0_100": weighted_score * 100 if weighted_score is not None else None,
         "weighted_score_weight_coverage": score_weight,
