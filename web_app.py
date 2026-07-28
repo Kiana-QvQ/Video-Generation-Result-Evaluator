@@ -58,6 +58,11 @@ JOB_LOCK = threading.RLock()
 JOB_WORKER: threading.Thread | None = None
 JOB_QUEUE_RECOVERED = False
 JOB_PROCESSES: dict[str, Process] = {}
+JOB_WORKER_STOP = threading.Event()
+JOB_WORKER_STATE = "stopped"
+JOB_WORKER_LAST_ERROR: str | None = None
+JOB_WORKER_HEARTBEAT = 0.0
+JOB_RECONCILE_INTERVAL_SECONDS = 2.0
 
 
 class JobUpdate(BaseModel):
@@ -67,11 +72,20 @@ class JobUpdate(BaseModel):
 
 @asynccontextmanager
 async def app_lifespan(_: FastAPI):
+    global JOB_WORKER
     _ensure_queue_worker()
     try:
         yield
     finally:
+        JOB_WORKER_STOP.set()
         _terminate_all_job_processes()
+        with JOB_LOCK:
+            worker = JOB_WORKER
+        if worker is not None and worker.is_alive():
+            worker.join(timeout=3)
+        with JOB_LOCK:
+            JOB_WORKER = None
+            JOB_WORKER_STOP.clear()
 
 app = FastAPI(
     title="Frame Audit",
@@ -426,6 +440,30 @@ def _clear_dispatch_state() -> None:
         JOB_SCHEDULED_IPS.clear()
 
 
+def _record_worker_error(exc: Exception) -> None:
+    global JOB_WORKER_LAST_ERROR
+    with JOB_LOCK:
+        JOB_WORKER_LAST_ERROR = f"{type(exc).__name__}: {exc}"
+
+
+def _worker_snapshot() -> dict[str, Any]:
+    with JOB_LOCK:
+        worker = JOB_WORKER
+        heartbeat = JOB_WORKER_HEARTBEAT
+        state = JOB_WORKER_STATE
+        last_error = JOB_WORKER_LAST_ERROR
+    return {
+        "state": state if worker is not None and worker.is_alive() else "stopped",
+        "alive": bool(worker is not None and worker.is_alive()),
+        "heartbeat_age_seconds": (
+            round(max(0.0, time.monotonic() - heartbeat), 2)
+            if heartbeat
+            else None
+        ),
+        "last_error": last_error,
+    }
+
+
 def _restore_queued_jobs() -> None:
     """Rebuild dispatch entries from persisted jobs after a worker loss."""
     with JOB_LOCK:
@@ -442,6 +480,25 @@ def _restore_queued_jobs() -> None:
             if not client_ip:
                 continue
             _enqueue_job(str(job["job_id"]), str(client_ip))
+
+
+def _reconcile_queued_jobs() -> None:
+    """Recover jobs that were persisted but lost from the in-memory queue."""
+    for job in _all_jobs():
+        if job.get("status") != "queued":
+            continue
+        client_ip = job.get("client_ip")
+        if client_ip:
+            _enqueue_job(str(job["job_id"]), str(client_ip))
+
+
+def _safe_recovery_write(job: dict[str, Any]) -> bool:
+    try:
+        _write_job(job)
+    except Exception as exc:
+        _record_worker_error(exc)
+        return False
+    return True
 
 
 def _update_job_state(job_id: str, **changes: Any) -> dict[str, Any]:
@@ -828,7 +885,7 @@ def _execute_job(job_id: str) -> None:
                 finished_at=_now_iso(),
                 error=error_message,
             )
-        except HTTPException:
+        except Exception:
             pass
 
 
@@ -862,14 +919,17 @@ def _process_job(job_id: str) -> None:
         except Exception as exc:
             JOB_PROCESSES.pop(job_id, None)
             process.close()
-            _update_job_state(
-                job_id,
-                status="failed",
-                stage="failed",
-                progress=0.0,
-                finished_at=_now_iso(),
-                error=f"{type(exc).__name__}: {exc}",
-            )
+            try:
+                _update_job_state(
+                    job_id,
+                    status="failed",
+                    stage="failed",
+                    progress=0.0,
+                    finished_at=_now_iso(),
+                    error=f"{type(exc).__name__}: {exc}",
+                )
+            except Exception as state_exc:
+                _record_worker_error(state_exc)
             return
 
     try:
@@ -936,24 +996,67 @@ def _mark_dispatch_failure(job_id: str, exc: Exception) -> None:
             finished_at=_now_iso(),
             error=f"Queue worker failed: {type(exc).__name__}: {exc}",
         )
-    except HTTPException:
-        pass
+    except Exception as mark_exc:
+        _record_worker_error(mark_exc)
+        job = _read_job(job_id)
+        if job is not None and job.get("status") == "running":
+            try:
+                _update_job_state(
+                    job_id,
+                    status="queued",
+                    stage="queued",
+                    progress=0.0,
+                    started_at=None,
+                    queued_at=_now_iso(),
+                    error=f"Will retry after worker failure: {type(exc).__name__}: {exc}",
+                )
+            except Exception as retry_exc:
+                _record_worker_error(retry_exc)
 
 
 def _queue_worker_loop() -> None:
-    while True:
-        client_ip = JOB_DISPATCH_QUEUE.get()
+    global JOB_WORKER_HEARTBEAT, JOB_WORKER_STATE
+    next_reconcile = 0.0
+    while not JOB_WORKER_STOP.is_set():
+        now = time.monotonic()
+        with JOB_LOCK:
+            JOB_WORKER_HEARTBEAT = now
+            JOB_WORKER_STATE = "idle"
+        if now >= next_reconcile:
+            try:
+                _reconcile_queued_jobs()
+            except Exception as exc:
+                _record_worker_error(exc)
+            next_reconcile = now + JOB_RECONCILE_INTERVAL_SECONDS
+
         job_id: str | None = None
+        client_ip: str | None = None
         try:
+            client_ip = JOB_DISPATCH_QUEUE.get(timeout=0.5)
             job_id = _take_next_job(client_ip)
             if job_id is not None:
+                with JOB_LOCK:
+                    JOB_WORKER_STATE = "running"
                 _process_job(job_id)
+        except queue.Empty:
+            continue
         except Exception as exc:
+            _record_worker_error(exc)
             if job_id is not None:
                 _mark_dispatch_failure(job_id, exc)
         finally:
-            _reschedule_ip(client_ip)
-            JOB_DISPATCH_QUEUE.task_done()
+            if client_ip is not None:
+                try:
+                    _reschedule_ip(client_ip)
+                except Exception as exc:
+                    _record_worker_error(exc)
+                finally:
+                    JOB_DISPATCH_QUEUE.task_done()
+            with JOB_LOCK:
+                JOB_WORKER_HEARTBEAT = time.monotonic()
+                JOB_WORKER_STATE = "idle"
+    with JOB_LOCK:
+        JOB_WORKER_STATE = "stopped"
 
 
 def _recover_persisted_jobs() -> None:
@@ -980,7 +1083,7 @@ def _recover_persisted_jobs() -> None:
                         "cancel_requested": False,
                     }
                 )
-                _write_job(job)
+                _safe_recovery_write(job)
                 continue
             if job.get("status") == "canceling":
                 now = _now_iso()
@@ -994,7 +1097,7 @@ def _recover_persisted_jobs() -> None:
                         "cancel_requested": False,
                     }
                 )
-                _write_job(job)
+                _safe_recovery_write(job)
                 continue
             if job.get("status") == "running":
                 now = _now_iso()
@@ -1010,19 +1113,22 @@ def _recover_persisted_jobs() -> None:
                         "cancel_requested": False,
                     }
                 )
-                _write_job(job)
+                if not _safe_recovery_write(job):
+                    continue
             if job.get("status") == "queued":
                 _enqueue_job(str(job["job_id"]), _job_owner(job))
         JOB_QUEUE_RECOVERED = True
 
 
 def _ensure_queue_worker() -> None:
-    global JOB_WORKER
+    global JOB_WORKER, JOB_WORKER_LAST_ERROR
     with JOB_LOCK:
+        JOB_WORKER_STOP.clear()
         _recover_persisted_jobs()
         if JOB_WORKER is None or not JOB_WORKER.is_alive():
             _clear_dispatch_state()
             _restore_queued_jobs()
+            JOB_WORKER_LAST_ERROR = None
             JOB_WORKER = threading.Thread(
                 target=_queue_worker_loop,
                 name="frame-audit-job-worker",
@@ -1037,8 +1143,12 @@ def index() -> Path:
 
 
 @app.get("/api/health")
-def health() -> dict[str, str]:
-    return {"status": "ok", "service": "frame-audit"}
+def health() -> dict[str, Any]:
+    return {
+        "status": "ok",
+        "service": "frame-audit",
+        "queue_worker": _worker_snapshot(),
+    }
 
 
 @app.get("/api/models")

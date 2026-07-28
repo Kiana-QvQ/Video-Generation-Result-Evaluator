@@ -26,7 +26,7 @@ from .video_metrics import (
     evaluate_full_reference,
     probe_video,
 )
-from .runtime import MODEL_CACHE_DIR, OUTPUT_DIR
+from .runtime import MODEL_CACHE_DIR, OUTPUT_DIR, prepare_pyiqa_checkpoint
 from .model_profile import get_recommended_model
 from .etva_judge import evaluate_etva_judge, etva_service_available
 from .hardware_policy import resolve_policy
@@ -81,14 +81,9 @@ def get_model_inventory() -> list[dict[str, Any]]:
         importlib.util.find_spec("lpips") is not None
         and (cache / "checkpoints" / "alexnet-owt-7be5be79.pth").exists()
     )
-    maniqa_ready = (
-        importlib.util.find_spec("pyiqa") is not None
-        and (cache / "hub" / "pyiqa" / "MANIQA_PIPAL-ae6d356b.pth").exists()
-    )
-    musiq_ready = (
-        importlib.util.find_spec("pyiqa") is not None
-        and (cache / "hub" / "pyiqa" / "musiq_koniq_ckpt-e95806b9.pth").exists()
-    )
+    pyiqa_ready = importlib.util.find_spec("pyiqa") is not None
+    maniqa_ready = pyiqa_ready and prepare_pyiqa_checkpoint("maniqa-pipal") is not None
+    musiq_ready = pyiqa_ready and prepare_pyiqa_checkpoint("musiq") is not None
     viclip_ready = (
         cache / "viclip" / "ViClip-InternVid-10M-FLT.pth"
     ).exists()
@@ -759,6 +754,9 @@ def _optional_iqa(
         import torch
         import pyiqa
 
+        checkpoint = prepare_pyiqa_checkpoint(metric_name)
+        if checkpoint is None:
+            return None, f"{metric_name} 权重未完整缓存，已跳过自动下载"
         requested_device = os.environ.get("EVALUATOR_IQA_DEVICE", "").lower()
         if requested_device not in {"cpu", "cuda"}:
             requested_device = device
@@ -767,7 +765,13 @@ def _optional_iqa(
             if requested_device == "cuda" and torch.cuda.is_available()
             else "cpu"
         )
-        metric = pyiqa.create_metric(metric_name, device=resolved_device)
+        if metric_name == "maniqa-pipal":
+            metric = _create_offline_maniqa_metric(
+                pyiqa,
+                resolved_device,
+            )
+        else:
+            metric = pyiqa.create_metric(metric_name, device=resolved_device)
         values: list[float] = []
         with torch.no_grad():
             for frame in frames:
@@ -786,6 +790,28 @@ def _optional_iqa(
         return _safe_mean(values), f"pyiqa/{metric_name}"
     except Exception as exc:
         return None, f"{metric_name} 不可用：{exc}"
+
+
+def _create_offline_maniqa_metric(pyiqa: Any, device: str) -> Any:
+    """Avoid timm's redundant ImageNet download; PIPAL contains the ViT weights."""
+    import timm
+
+    original_create_model = timm.create_model
+
+    def create_model_without_download(
+        model_name: str,
+        *args: Any,
+        **kwargs: Any,
+    ) -> Any:
+        if model_name == "vit_base_patch8_224":
+            kwargs["pretrained"] = False
+        return original_create_model(model_name, *args, **kwargs)
+
+    timm.create_model = create_model_without_download
+    try:
+        return pyiqa.create_metric("maniqa-pipal", device=device)
+    finally:
+        timm.create_model = original_create_model
 
 
 def evaluate_texture(

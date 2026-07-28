@@ -10,10 +10,12 @@ from unittest.mock import patch
 import cv2
 import numpy as np
 
+import evaluator.runtime as runtime
 from evaluator.etva_judge import evaluate_etva_judge
 from evaluator.holistic_evaluator import (
     TEMPORAL_LANDMARK_INDICES,
     WEIGHTS,
+    _create_offline_maniqa_metric,
     _expression_descriptors,
     _face_box_jitter,
     _lower_tail,
@@ -186,6 +188,75 @@ class HolisticEvaluatorTests(unittest.TestCase):
 
     def test_non_finite_metric_values_do_not_poison_the_mean(self) -> None:
         self.assertEqual(_mean([1.0, float("inf"), None]), 1.0)
+
+    def test_pyiqa_cache_bridge_replaces_bad_target_and_cleans_partials(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_dir = root / "hub" / "pyiqa"
+            target_dir = root / "hub" / "checkpoints"
+            source_dir.mkdir(parents=True)
+            target_dir.mkdir(parents=True)
+            filename = "test_iqa.pth"
+            source = source_dir / filename
+            target = target_dir / filename
+            source.write_bytes(b"complete checkpoint")
+            target.write_bytes(b"bad")
+            (target_dir / f"{filename}.old.partial").write_bytes(b"orphan")
+            (source_dir / f"{filename}.new.partial").write_bytes(b"orphan")
+
+            with (
+                patch.object(runtime, "MODEL_CACHE_DIR", root),
+                patch.object(
+                    runtime,
+                    "PYIQA_CHECKPOINTS",
+                    {"test": {"filename": filename, "size": len(b"complete checkpoint")}},
+                ),
+            ):
+                result = runtime.prepare_pyiqa_checkpoint("test")
+
+            self.assertEqual(result, target)
+            self.assertEqual(target.read_bytes(), source.read_bytes())
+            self.assertFalse((target_dir / f"{filename}.old.partial").exists())
+            self.assertFalse((source_dir / f"{filename}.new.partial").exists())
+
+    def test_pyiqa_cache_bridge_does_not_invent_missing_weights(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with (
+                patch.object(runtime, "MODEL_CACHE_DIR", root),
+                patch.object(
+                    runtime,
+                    "PYIQA_CHECKPOINTS",
+                    {"test": {"filename": "missing.pth", "size": 10}},
+                ),
+            ):
+                result = runtime.prepare_pyiqa_checkpoint("test")
+
+            self.assertIsNone(result)
+            self.assertFalse((root / "hub" / "checkpoints" / "missing.pth").exists())
+
+    def test_maniqa_creation_disables_redundant_timm_download(self) -> None:
+        import timm
+
+        original_create_model = timm.create_model
+        calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
+
+        def fake_create_model(*args: object, **kwargs: object) -> object:
+            calls.append((args, kwargs))
+            return object()
+
+        class FakePyiqa:
+            @staticmethod
+            def create_metric(metric_name: str, device: str) -> str:
+                timm.create_model("vit_base_patch8_224", pretrained=True)
+                return f"{metric_name}:{device}"
+
+        with patch.object(timm, "create_model", side_effect=fake_create_model):
+            result = _create_offline_maniqa_metric(FakePyiqa(), "cpu")
+
+        self.assertEqual(result, "maniqa-pipal:cpu")
+        self.assertEqual(timm.create_model, original_create_model)
+        self.assertEqual(calls[0][1]["pretrained"], False)
 
     def test_static_motion_matches_static_motion(self) -> None:
         vector = np.zeros(4, dtype=np.float32)

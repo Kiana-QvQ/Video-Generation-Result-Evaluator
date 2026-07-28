@@ -791,7 +791,7 @@ function syncFormWithJob(job) {
 
   setValue("#prompt-text", parameters.prompt_text ?? "");
   setValue('[name="max_frames"]', parameters.max_frames ?? 64);
-  setValue('[name="device"]', parameters.device ?? "cpu");
+  setValue('[name="device"]', parameters.device ?? "cuda");
   setValue(
     '[name="manual_expression_score"]',
     parameters.manual_expression_score ?? "",

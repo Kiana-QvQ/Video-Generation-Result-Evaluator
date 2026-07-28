@@ -29,6 +29,7 @@ class WebAppTests(unittest.TestCase):
         self.assertIn("preflight-list", response.text)
         self.assertIn("process-queue", response.text)
         self.assertIn("new-evaluation", response.text)
+        self.assertIn('<option value="cuda" selected>', response.text)
         self.assertIn("KEY EVIDENCE", response.text)
         self.assertIn("关键证据", response.text)
         self.assertIn("加权总分", response.text)

@@ -29,7 +29,8 @@ $env:EVALUATOR_GPU_MEMORY_GB = "8"
 - `model_cache/viclip/`：ViCLIP 权重
 - `model_cache/vbench/`：VBench 资源和 DINO/RAFT 等依赖
 - `model_cache/insightface/`：ArcFace 权重
-- `model_cache/hub/pyiqa/`：MANIQA 和 MUSIQ 权重
+- `model_cache/hub/pyiqa/`：下载脚本保存的 MANIQA 和 MUSIQ 原始权重
+- `model_cache/hub/checkpoints/`：pyiqa/torch.hub 实际读取的 MANIQA 和 MUSIQ 权重
 - `model_cache/clip/`：OpenAI CLIP ViT-B/32 权重
 
 这些目录已被 `.gitignore` 忽略，不应提交到仓库。
@@ -45,7 +46,8 @@ $env:EVALUATOR_GPU_MEMORY_GB = "8"
 
 下载脚本会生成 `model_cache/OPTIONAL_ASSETS.json`，记录资源大小、来源和
 SHA256。基础评估不依赖这些大模型；缺失时网页端会显示 `OPTIONAL` 或
-`OFFLINE`，不会伪造精确模型结果。
+`OFFLINE`，不会伪造精确模型结果。评估器首次使用时会把完整 IQA 权重原子桥接到
+`hub/checkpoints`，清理同名 `.partial` 残片，并阻止 pyiqa 自动重新下载大文件。
 
 ## VLM Judge
 
