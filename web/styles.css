@@ -755,7 +755,7 @@ h2 em {
 
 .queue-item-copy {
   display: grid;
-  gap: 2px;
+  gap: 4px;
   min-width: 0;
 }
 
@@ -767,12 +767,25 @@ h2 em {
   white-space: nowrap;
 }
 
+.queue-item-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 3px 12px;
+  min-width: 0;
+}
+
 .queue-item-copy small {
   overflow: hidden;
   color: #9a999c;
   font: 10px var(--mono);
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.queue-item-time {
+  flex: 0 0 auto;
+  color: #718c1d !important;
 }
 
 .queue-item-status {
@@ -2352,5 +2365,13 @@ input[type="number"]:focus {
 
   .empty-report-head {
     flex-direction: column;
+  }
+
+  .queue-item {
+    align-items: start;
+  }
+
+  .queue-item-status {
+    margin-top: 1px;
   }
 }
