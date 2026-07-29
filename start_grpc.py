@@ -7,6 +7,8 @@ import subprocess
 import sys
 from typing import Sequence
 
+from start import _start_vlm_judge, _stop_vlm_judge
+
 
 ROOT = Path(__file__).resolve().parent
 VENV_PYTHON = ROOT / ".venv" / "Scripts" / "python.exe"
@@ -58,6 +60,17 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Print the selected Python environment and endpoint, then exit.",
     )
+    parser.add_argument(
+        "--with-vlm",
+        action="store_true",
+        help="Start the cached Qwen VLM Judge on port 30000.",
+    )
+    parser.add_argument(
+        "--vlm-model",
+        choices=("2b", "2.5-3b"),
+        default="2b",
+        help="Cached Qwen Judge model to start.",
+    )
     args = parser.parse_args(argv)
 
     args.host = args.host or (
@@ -92,10 +105,13 @@ def main(argv: Sequence[str] | None = None) -> None:
     os.environ["EVALUATOR_GRPC_HOST"] = args.host
     os.environ["EVALUATOR_GRPC_PORT"] = str(args.port)
     print(f"gRPC starting on {args.host}:{args.port}", flush=True)
+    vlm_handle = _start_vlm_judge(args.vlm_model) if args.with_vlm else None
+    try:
+        from grpc_server import serve
 
-    from grpc_server import serve
-
-    serve()
+        serve()
+    finally:
+        _stop_vlm_judge(vlm_handle)
 
 
 if __name__ == "__main__":

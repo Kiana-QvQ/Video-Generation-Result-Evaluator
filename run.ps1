@@ -1,6 +1,9 @@
 param(
     [switch]$Public,
     [switch]$WithGrpc,
+    [switch]$WithVlm,
+    [ValidateSet("2b", "2.5-3b")]
+    [string]$VlmModel = "2b",
     [string]$BindHost,
     [int]$Port = 7860,
     [int]$GrpcPort = 50051
@@ -44,6 +47,11 @@ if ($WithGrpc) {
     Write-Host "Starting HTTP on ${hostAddress}:${Port} and gRPC on ${hostAddress}:${GrpcPort}"
 } else {
     Write-Host "Starting HTTP on http://${hostAddress}:${Port}"
+}
+if ($WithVlm) {
+    $startArguments += "--with-vlm"
+    $startArguments += "--vlm-model"
+    $startArguments += $VlmModel
 }
 & $python (Join-Path $root "start.py") @startArguments
 exit $LASTEXITCODE

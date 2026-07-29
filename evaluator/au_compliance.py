@@ -52,6 +52,13 @@ DEFAULT_FACE_QUALITY_THRESHOLD = 0.30
 DEFAULT_FACE_VALID_RATIO_THRESHOLD = 0.35
 INTENSITY_PERSONAL_SCORE_WEIGHT = 0.55
 PRESENCE_PERSONAL_SCORE_WEIGHT = 0.45
+AUTO_NEUTRAL_INTENSITY_THRESHOLD = 0.35
+FACE_MESH_MOUTH_OPEN_THRESHOLD = 0.08
+FACE_MESH_MOUTH_CHANGE_THRESHOLD = 0.015
+FACE_MESH_BROW_CHANGE_THRESHOLD = 0.012
+FACE_MESH_EYE_CHANGE_THRESHOLD = 0.012
+FACE_MESH_GLOBAL_MOTION_THRESHOLD = 0.008
+FACE_MESH_SALIENT_DURATION_RATIO = 0.05
 COMPLIANCE_COMPONENT_WEIGHTS = {
     "identity": 0.40,
     "personal_au": 0.40,
@@ -151,6 +158,22 @@ def _landmark_columns(fieldnames: Iterable[str]) -> tuple[list[str], list[str]]:
         elif normalized.startswith("lm_mp_") and normalized.endswith("_y"):
             y_columns.append(name)
     return sorted(x_columns), sorted(y_columns)
+
+
+def _landmark_pairs(
+    fieldnames: Iterable[str],
+) -> list[tuple[int, str, str]]:
+    pairs: list[tuple[int, str, str]] = []
+    names = list(fieldnames)
+    for name in names:
+        match = re.fullmatch(r"lm_mp_(\d+)_x", str(name), re.IGNORECASE)
+        if not match:
+            continue
+        index = int(match.group(1))
+        y_name = _field_name(names, f"lm_mp_{index}_y")
+        if y_name is not None:
+            pairs.append((index, str(name), y_name))
+    return sorted(pairs)
 
 
 def _frame_quality(
@@ -253,6 +276,7 @@ def load_au_table(
             "frame_time_ms",
         )
         landmark_x_columns, landmark_y_columns = _landmark_columns(fieldnames)
+        landmark_pairs = _landmark_pairs(fieldnames)
         quality_available = bool(
             landmark_x_columns
             and landmark_y_columns
@@ -298,9 +322,10 @@ def load_au_table(
                 f"Missing AU {feature_type} columns in {path}: "
                 f"{', '.join(map(str, missing))}. "
                 f"Supported: {', '.join(map(str, supported))}."
-            )
+        )
 
         rows: list[list[float]] = []
+        landmark_rows: list[list[list[float]]] = []
         frame_quality: list[float] = []
         frame_indices: list[int] = []
         frame_times_seconds: list[float | None] = []
@@ -314,6 +339,16 @@ def load_au_table(
                 for au_id in requested
             ]
             rows.append(values)
+            if landmark_pairs:
+                landmark_rows.append(
+                    [
+                        [
+                            _parse_float(row.get(x_name)),
+                            _parse_float(row.get(y_name)),
+                        ]
+                        for _, x_name, y_name in landmark_pairs
+                    ]
+                )
             frame_indices.append(
                 _parse_int(
                     row.get(frame_index_field) if frame_index_field else None,
@@ -364,6 +399,7 @@ def load_au_table(
         "available_au_ids": sorted(available_candidates),
         "frame_indices": frame_indices,
         "frame_times_seconds": frame_times_seconds,
+        "landmark_indices": [index for index, _, _ in landmark_pairs],
         "quality": _quality_metadata(
             frame_quality_array,
             available=quality_available,
@@ -373,6 +409,11 @@ def load_au_table(
             dtype=bool,
         ),
         "_frame_quality": frame_quality_array,
+        "_landmarks_2d": (
+            np.asarray(landmark_rows, dtype=np.float32)
+            if landmark_rows
+            else None
+        ),
     }
 
 
@@ -844,6 +885,10 @@ def _event_summary(
                 "peak_position": position(event_peak_frame),
                 "peak_intensity": float(signal[event_peak_frame]),
                 "mean_intensity": float(np.mean(segment)),
+                "salient": bool(
+                    float(signal[event_peak_frame]) >= 0.50
+                    and duration_frames / max(frame_span + 1, 1) >= 0.05
+                ),
             }
         )
     return {
@@ -945,6 +990,165 @@ def temporal_event_features(
         "per_au": per_au,
         "valid_frame_count": int(np.sum(valid_mask)),
         "valid_frame_ratio": float(np.mean(valid_mask)),
+    }
+
+
+def _face_mesh_action_features(
+    metadata: dict[str, Any],
+    valid_mask: np.ndarray | None = None,
+) -> dict[str, Any]:
+    points = metadata.get("_landmarks_2d")
+    landmark_indices = [
+        int(value) for value in metadata.get("landmark_indices", [])
+    ]
+    if not isinstance(points, np.ndarray) or points.ndim != 3:
+        return {
+            "status": "unavailable",
+            "backend": "mediapipe_face_mesh_csv",
+            "reason": "Face Mesh landmarks are not available in the AU output.",
+        }
+    positions = {index: column for column, index in enumerate(landmark_indices)}
+    required = (13, 14, 61, 291, 105, 334, 159, 145, 386, 374, 234, 454)
+    if any(index not in positions for index in required):
+        return {
+            "status": "unavailable",
+            "backend": "mediapipe_face_mesh_csv",
+            "reason": "Face Mesh output is missing expression landmarks.",
+        }
+    if valid_mask is None:
+        valid_mask = np.ones(len(points), dtype=bool)
+    valid_mask = np.asarray(valid_mask, dtype=bool).reshape(-1)
+    if len(valid_mask) != len(points):
+        raise ValueError("Face Mesh landmarks and valid mask must have the same length.")
+    if not np.any(valid_mask):
+        return {
+            "status": "unavailable",
+            "backend": "mediapipe_face_mesh_csv",
+            "reason": "No valid Face Mesh frames passed the face-quality gate.",
+        }
+
+    def point(index: int) -> np.ndarray:
+        return points[:, positions[index], :2]
+
+    def distance(left: int, right: int) -> np.ndarray:
+        return np.linalg.norm(point(left) - point(right), axis=1)
+
+    face_width = distance(234, 454)
+    mouth_width = distance(61, 291)
+    mouth_aspect = distance(13, 14) / (mouth_width + 1e-6)
+    brow_eye_gap = (
+        distance(105, 159) + distance(334, 386)
+    ) / (2.0 * (face_width + 1e-6))
+    eye_opening = (
+        distance(159, 145) + distance(386, 374)
+    ) / (2.0 * (face_width + 1e-6))
+
+    center = (point(234) + point(454)) / 2.0
+    normalized_points = (points[:, :, :2] - center[:, None, :]) / (
+        face_width[:, None, None] + 1e-6
+    )
+    global_motion = np.concatenate(
+        [
+            np.zeros((1,), dtype=np.float32),
+            np.mean(
+                np.linalg.norm(
+                    np.diff(normalized_points, axis=0),
+                    axis=2,
+                ),
+                axis=1,
+            ),
+        ]
+    )
+
+    def event(signal: np.ndarray, threshold: float) -> dict[str, Any]:
+        result = _event_summary(
+            signal,
+            active_threshold=threshold,
+            valid_mask=valid_mask,
+        )
+        for item in result["events"]:
+            item["salient"] = bool(
+                float(item["peak_intensity"]) >= threshold * 1.25
+                and float(item["duration_ratio"])
+                >= FACE_MESH_SALIENT_DURATION_RATIO
+            )
+        result["salient_event_count"] = sum(
+            1 for item in result["events"] if item["salient"]
+        )
+        return result
+
+    mouth_open = event(mouth_aspect, FACE_MESH_MOUTH_OPEN_THRESHOLD)
+    mouth_change = event(
+        np.r_[0.0, np.abs(np.diff(mouth_aspect))],
+        FACE_MESH_MOUTH_CHANGE_THRESHOLD,
+    )
+    brow_change = event(
+        np.r_[0.0, np.abs(np.diff(brow_eye_gap))],
+        FACE_MESH_BROW_CHANGE_THRESHOLD,
+    )
+    eye_change = event(
+        np.r_[0.0, np.abs(np.diff(eye_opening))],
+        FACE_MESH_EYE_CHANGE_THRESHOLD,
+    )
+    global_motion_events = event(
+        global_motion,
+        FACE_MESH_GLOBAL_MOTION_THRESHOLD,
+    )
+
+    def percentile(signal: np.ndarray, value: float) -> float:
+        finite = signal[valid_mask]
+        return float(np.quantile(finite, value)) if len(finite) else 0.0
+
+    mouth_evidence = min(
+        1.0,
+        max(
+            0.0,
+            (percentile(mouth_aspect, 0.95) - FACE_MESH_MOUTH_OPEN_THRESHOLD)
+            / FACE_MESH_MOUTH_OPEN_THRESHOLD,
+        ),
+    )
+    motion_evidence = max(
+        1.0 if any(
+            item["salient"]
+            for summary in (
+                mouth_open,
+                mouth_change,
+                brow_change,
+                eye_change,
+                global_motion_events,
+            )
+            for item in summary["events"]
+        ) else 0.0,
+        min(
+            1.0,
+            max(
+                0.0,
+                (
+                    percentile(global_motion, 0.95)
+                    - FACE_MESH_GLOBAL_MOTION_THRESHOLD
+                )
+                / FACE_MESH_GLOBAL_MOTION_THRESHOLD,
+            ),
+        ),
+    )
+    return {
+        "status": "available",
+        "backend": "mediapipe_face_mesh_csv",
+        "metrics": {
+            "mouth_aspect_peak": float(np.max(mouth_aspect[valid_mask])),
+            "mouth_aspect_p95": percentile(mouth_aspect, 0.95),
+            "brow_eye_gap_mean": float(np.mean(brow_eye_gap[valid_mask])),
+            "eye_opening_mean": float(np.mean(eye_opening[valid_mask])),
+            "global_motion_p95": percentile(global_motion, 0.95),
+            "mouth_evidence_0_1": mouth_evidence,
+            "motion_evidence_0_1": motion_evidence,
+            "expression_confidence_0_1": max(mouth_evidence, motion_evidence),
+        },
+        "mouth_open": mouth_open,
+        "mouth_change": mouth_change,
+        "brow_change": brow_change,
+        "eye_change": eye_change,
+        "global_motion": global_motion_events,
     }
 
 
@@ -1226,6 +1430,7 @@ def _profile_model_score(
 def _public_au_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
     metadata.pop("_frame_quality", None)
     metadata.pop("_feature_mask", None)
+    metadata.pop("_landmarks_2d", None)
     return metadata
 
 
@@ -1749,6 +1954,11 @@ def score_au_compliance(
         valid_mask=generated_quality_mask,
         frame_indices=generated_frame_indices,
     )
+    face_mesh = _face_mesh_action_features(
+        generated_meta,
+        generated_quality_mask,
+    )
+    generated_temporal["face_mesh"] = face_mesh
 
     classes = profile["classes"]
     class_scores = {
@@ -1800,17 +2010,53 @@ def score_au_compliance(
         },
     )
     _add_auto_selection_scores(class_scores)
+    best_expression_class = max(
+        class_scores,
+        key=lambda name: class_scores[name]["auto_selection_score_0_1"],
+    )
+    best_intensity_score = float(
+        class_scores[best_expression_class]["intensity_personal_au_score_0_1"]
+    )
+    face_mesh_confidence = (
+        float(face_mesh.get("metrics", {}).get("expression_confidence_0_1"))
+        if face_mesh.get("status") == "available"
+        else None
+    )
+    neutral_selection_reason = (
+        "no_clear_expression"
+        if best_intensity_score < AUTO_NEUTRAL_INTENSITY_THRESHOLD
+        else "face_mesh_no_salient_motion"
+    )
     if expected_class:
         if expected_class not in class_scores:
             raise ValueError(
                 f"Unknown expected expression class: {expected_class}"
             )
         selected_class = expected_class
-    else:
-        selected_class = max(
-            class_scores,
-            key=lambda name: class_scores[name]["auto_selection_score_0_1"],
+    elif (
+        best_intensity_score < AUTO_NEUTRAL_INTENSITY_THRESHOLD
+        or (
+            face_mesh_confidence is not None
+            and face_mesh_confidence < 0.25
         )
+    ):
+        class_scores["neutral"] = {
+            "personal_au_score_0_1": None,
+            "intensity_personal_au_score_0_1": best_intensity_score,
+            "presence_fit_score_0_1": None,
+            "auto_selection_score_0_1": 0.0,
+            "selection_reason": neutral_selection_reason,
+            "face_mesh_confidence_0_1": face_mesh_confidence,
+            "frame_anomaly_ratio": 0.0,
+            "summary_distance": None,
+            "summary_threshold": None,
+            "summary_anomaly": False,
+            "max_frame_distance": None,
+            "anomalous_frame_indices": [],
+        }
+        selected_class = "neutral"
+    else:
+        selected_class = best_expression_class
     selected = class_scores[selected_class]
     generated_presence_report = presence_reports.get(selected_class)
     if generated_presence_report is None:
@@ -1823,6 +2069,11 @@ def score_au_compliance(
             "quality": None,
             "status": "unavailable",
         }
+    if selected_class == "neutral":
+        generated_presence_report["status"] = "not_applicable"
+        generated_presence_report["reason"] = (
+            "No clear expression signal passed the automatic selection threshold."
+        )
 
     driver_expression_score: float | None = None
     driver_dtw_score: float | None = None
@@ -1984,8 +2235,16 @@ def score_au_compliance(
                 ),
             )
 
-    personal_score = float(selected["personal_au_score_0_1"])
-    if classifier_risk is not None:
+    selected_personal_score = selected.get("personal_au_score_0_1")
+    personal_score = (
+        float(selected_personal_score)
+        if selected_personal_score is not None
+        else None
+    )
+    if selected_class == "neutral":
+        leakage_risk = None
+        leakage_backend = "not_applicable_no_clear_expression"
+    elif classifier_risk is not None:
         leakage_risk = classifier_risk
         leakage_backend = "trained_au_leakage_classifier"
     elif driver_similarity_proxy is not None:
@@ -1993,7 +2252,7 @@ def score_au_compliance(
             0.0,
             min(
                 1.0,
-                driver_similarity_proxy * (1.0 - personal_score),
+                driver_similarity_proxy * (1.0 - (personal_score or 0.0)),
             ),
         )
         leakage_backend = "driver_style_overlap_proxy"
@@ -2001,7 +2260,7 @@ def score_au_compliance(
         leakage_risk = float(
             max(
                 selected["frame_anomaly_ratio"],
-                1.0 - personal_score,
+                1.0 - (personal_score or 0.0),
             )
         )
         leakage_backend = "target_au_anomaly_proxy"
@@ -2083,6 +2342,7 @@ def score_au_compliance(
             ),
         },
         "temporal_events": generated_temporal,
+        "face_mesh": face_mesh,
         "driver_temporal_alignment": driver_temporal_alignment,
         "time_curve": {
             "au_ids": list(generated_supported),

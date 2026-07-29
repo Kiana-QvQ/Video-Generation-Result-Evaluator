@@ -407,6 +407,37 @@ def _resize_like(frame: np.ndarray, target: np.ndarray) -> np.ndarray:
     )
 
 
+def _center_crop_to_aspect(
+    frame: np.ndarray,
+    target_aspect_ratio: float,
+) -> np.ndarray:
+    """Crop only the excess border so aspect ratios are never stretched."""
+    height, width = frame.shape[:2]
+    if height <= 0 or width <= 0 or target_aspect_ratio <= 0:
+        return frame
+    current_aspect_ratio = width / height
+    if abs(current_aspect_ratio - target_aspect_ratio) <= 0.01:
+        return frame
+    if current_aspect_ratio > target_aspect_ratio:
+        cropped_width = max(1, int(round(height * target_aspect_ratio)))
+        left = max(0, (width - cropped_width) // 2)
+        return frame[:, left : left + cropped_width]
+    cropped_height = max(1, int(round(width / target_aspect_ratio)))
+    top = max(0, (height - cropped_height) // 2)
+    return frame[top : top + cropped_height, :]
+
+
+def _align_ground_truth_frame(
+    frame: np.ndarray,
+    target: np.ndarray,
+) -> np.ndarray:
+    cropped = _center_crop_to_aspect(
+        frame,
+        target.shape[1] / max(target.shape[0], 1),
+    )
+    return _resize_like(cropped, target)
+
+
 def _ssim(result: np.ndarray, ground_truth: np.ndarray) -> float:
     if _skimage_ssim is not None:
         try:
@@ -584,11 +615,11 @@ def evaluate_full_reference(
         (result_info.width / result_info.height)
         - (ground_truth_info.width / ground_truth_info.height)
     )
-    if aspect_ratio_delta > 0.01:
-        raise ValueError(
-            "Result and GT videos have different aspect ratios; "
-            "automatic stretching would make full-reference metrics invalid."
-        )
+    alignment_mode = (
+        "center_crop_gt_to_result_aspect"
+        if aspect_ratio_delta > 0.01
+        else "resize_gt_to_result"
+    )
 
     sample_count, result_indices, ground_truth_indices, timestamps = (
         _aligned_sample_indices(result_info, ground_truth_info, max_frames)
@@ -598,15 +629,18 @@ def evaluate_full_reference(
         ground_truth_info.path,
         ground_truth_indices,
     )
+    aligned_ground_truth_frames = [
+        _align_ground_truth_frame(frame, result_frames[i])
+        for i, frame in enumerate(ground_truth_frames)
+    ]
 
     psnr_values: list[float] = []
     mse_values: list[float] = []
     ssim_values: list[float] = []
     for result_frame, ground_truth_frame in zip(
         result_frames,
-        ground_truth_frames,
+        aligned_ground_truth_frames,
     ):
-        ground_truth_frame = _resize_like(ground_truth_frame, result_frame)
         mse_values.append(_mse(result_frame, ground_truth_frame))
         psnr_values.append(_psnr(result_frame, ground_truth_frame))
         ssim_values.append(_ssim(result_frame, ground_truth_frame))
@@ -617,14 +651,20 @@ def evaluate_full_reference(
     if calculate_lpips:
         raw_lpips, lpips_error = _compute_lpips(
             result_frames,
-            [_resize_like(frame, result_frames[i]) for i, frame in enumerate(ground_truth_frames)],
+            aligned_ground_truth_frames,
             resolved_device,
         )
         if raw_lpips is not None:
             lpips_values = raw_lpips
 
     warnings: list[str] = []
-    if result_info.width != ground_truth_info.width or result_info.height != ground_truth_info.height:
+    if aspect_ratio_delta > 0.01:
+        warnings.append(
+            f"GT 与结果视频宽高比不同（结果 {result_info.width}:{result_info.height} / "
+            f"GT {ground_truth_info.width}:{ground_truth_info.height}）；"
+            "未拉伸画面，已对 GT 做居中裁剪后再比较，指标仅代表居中共同区域。"
+        )
+    elif result_info.width != ground_truth_info.width or result_info.height != ground_truth_info.height:
         warnings.append(
             "GT 分辨率与结果视频不同，计算前已将 GT 帧缩放到结果视频分辨率。"
         )
@@ -669,6 +709,15 @@ def evaluate_full_reference(
         "ground_truth_video": ground_truth_info.to_dict(),
         "sample_count": sample_count,
         "device": resolved_device,
+        "alignment": {
+            "mode": alignment_mode,
+            "aspect_ratio_delta": float(aspect_ratio_delta),
+            "comparison_region": (
+                "center_crop_gt_to_result_aspect"
+                if aspect_ratio_delta > 0.01
+                else "full_frame"
+            ),
+        },
         "metrics": {
             "psnr_db": (
                 float(10 * np.log10((255**2) / float(np.mean(mse_values))))

@@ -12,6 +12,7 @@ from evaluator.au_compliance import (
     AU_PROFILE_SCHEMA,
     _add_auto_selection_scores,
     _combine_personal_au_scores,
+    _face_mesh_action_features,
     compare_temporal_events,
     dtw_similarity,
     fit_au_profile,
@@ -111,6 +112,35 @@ def _write_quality_au_csv(path: Path, sequence: np.ndarray) -> None:
 
 
 class AUComplianceTests(unittest.TestCase):
+    def test_face_mesh_gates_weak_mouth_motion(self) -> None:
+        points = np.zeros((8, 478, 2), dtype=np.float32)
+        points[:, 234] = [0.0, 0.5]
+        points[:, 454] = [1.0, 0.5]
+        points[:, 13] = [0.5, 0.50]
+        points[:, 14] = [0.5, 0.505]
+        points[:, 61] = [0.3, 0.5]
+        points[:, 291] = [0.7, 0.5]
+        points[:, 105] = [0.4, 0.35]
+        points[:, 334] = [0.6, 0.35]
+        points[:, 159] = [0.4, 0.42]
+        points[:, 145] = [0.4, 0.46]
+        points[:, 386] = [0.6, 0.42]
+        points[:, 374] = [0.6, 0.46]
+
+        result = _face_mesh_action_features(
+            {
+                "_landmarks_2d": points,
+                "landmark_indices": list(range(478)),
+            }
+        )
+
+        self.assertEqual(result["status"], "available")
+        self.assertEqual(result["mouth_open"]["salient_event_count"], 0)
+        self.assertEqual(
+            result["metrics"]["expression_confidence_0_1"],
+            0.0,
+        )
+
     def test_missing_requested_aus_are_nan_and_reported(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "partial.csv"
@@ -289,6 +319,27 @@ class AUComplianceTests(unittest.TestCase):
         self.assertEqual(result["selected_expression_class"], "smile")
         self.assertGreater(result["personal_au_score_0_1"], 0.5)
         self.assertEqual(payload["schema_version"], AU_PROFILE_SCHEMA)
+
+    def test_auto_selection_returns_neutral_for_weak_expression_signal(self) -> None:
+        expression = np.asarray(
+            [[0, 0, 1, 1, 0, 0], [0.1, 0, 0.9, 0.8, 0, 0.2]],
+            dtype=np.float32,
+        )
+        neutral = np.zeros((8, 6), dtype=np.float32)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            profile_path = root / "profile.json"
+            generated_path = root / "generated.csv"
+            fit_au_profile([("anger", expression)], profile_path)
+            _write_au_csv(generated_path, neutral)
+            result = score_au_compliance(profile_path, generated_path)
+
+        self.assertEqual(result["selected_expression_class"], "neutral")
+        self.assertIsNone(result["personal_au_score_0_1"])
+        self.assertEqual(
+            result["class_scores"]["neutral"]["selection_reason"],
+            "no_clear_expression",
+        )
 
     def test_auto_selection_does_not_favor_broader_class_threshold(self) -> None:
         class_scores = {
