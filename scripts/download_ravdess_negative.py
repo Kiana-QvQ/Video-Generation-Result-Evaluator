@@ -29,6 +29,11 @@ RAVDESS_SOURCE_URLS = {
     ),
 }
 VIDEO_SUFFIXES = {".mp4", ".mov", ".avi", ".mkv", ".webm", ".m4v"}
+
+
+def _project_path(value: str | Path) -> Path:
+    path = Path(value).expanduser()
+    return path if path.is_absolute() else PROJECT_ROOT / path
 RAVDESS_EMOTIONS = {
     "01": "neutral",
     "02": "calm",
@@ -289,7 +294,7 @@ def _copy_selected_members(
                 "person": f"ravdess_actor_{actor:02d}",
                 "performance": "ravdess_speech",
                 "relative_path": target.relative_to(output_root).as_posix(),
-                "local_path": str(target.resolve()),
+                "local_path": target.relative_to(output_root).as_posix(),
                 "source_archive": source_archive.name,
                 "source_member": selected_record["member_name"],
                 "ravdess_actor": actor,
@@ -387,8 +392,8 @@ def main() -> int:
     if invalid_emotions:
         raise SystemExit(f"Emotion codes must be in 1..8: {invalid_emotions}")
 
-    output_root = Path(args.output_root)
-    cache_root = Path(args.cache_root)
+    output_root = _project_path(args.output_root)
+    cache_root = _project_path(args.cache_root)
     archives: dict[int, Path] = {}
     all_members: list[dict[str, str]] = []
     for actor in actors:

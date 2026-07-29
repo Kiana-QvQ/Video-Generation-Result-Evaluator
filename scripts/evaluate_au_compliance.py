@@ -11,9 +11,11 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from evaluator.au_compliance import (
     fuse_compliance_scores,
+    fuse_wangxing_targeted_scores,
     score_au_compliance,
 )
 from evaluator.holistic_evaluator import evaluate_identity
+from evaluator.paths import project_path
 
 
 def main() -> int:
@@ -40,13 +42,35 @@ def main() -> int:
     parser.add_argument("--output")
     args = parser.parse_args()
 
+    generated_au = project_path(args.generated_au)
+    au_profile = project_path(args.au_profile)
+    driver_au = project_path(args.driver_au) if args.driver_au else None
+    leakage_classifier = (
+        project_path(args.leakage_classifier)
+        if args.leakage_classifier
+        else None
+    )
+    generated_video = (
+        project_path(args.generated_video)
+        if args.generated_video
+        else None
+    )
+    target_video = (
+        project_path(args.target_video)
+        if args.target_video
+        else None
+    )
+    target_images = [
+        project_path(value) for value in (args.target_image or [])
+    ]
+
     identity_score = None
     identity_result = None
-    if args.generated_video and (args.target_video or args.target_image):
+    if generated_video and (target_video or target_images):
         identity_result = evaluate_identity(
-            result_path=args.generated_video,
-            reference_image=args.target_image,
-            reference_video=args.target_video,
+            result_path=generated_video,
+            reference_image=target_images,
+            reference_video=target_video,
             ground_truth=None,
             max_frames=64,
             device=args.device,
@@ -58,11 +82,11 @@ def main() -> int:
         )
 
     au_result = score_au_compliance(
-        args.au_profile,
-        args.generated_au,
+        au_profile,
+        generated_au,
         expected_class=args.expected_class,
-        driver_au_path=args.driver_au,
-        leakage_classifier_path=args.leakage_classifier,
+        driver_au_path=driver_au,
+        leakage_classifier_path=leakage_classifier,
     )
     fused = fuse_compliance_scores(
         identity_score_0_1=identity_score,
@@ -78,10 +102,23 @@ def main() -> int:
         driver_expression_threshold=args.driver_expression_threshold,
         leakage_threshold=args.leakage_threshold,
     )
+    wangxing_targeted = fuse_wangxing_targeted_scores(
+        personal_au_score_0_1=au_result["personal_au_score_0_1"],
+        driver_expression_score_0_1=au_result[
+            "driver_expression_score_0_1"
+        ],
+        leakage_risk_0_1=au_result[
+            "driver_identity_leakage_risk_0_1"
+        ],
+        personal_au_threshold=args.personal_au_threshold,
+        driver_expression_threshold=args.driver_expression_threshold,
+        leakage_threshold=args.leakage_threshold,
+    )
     result = {
         "status": "available",
         "identity_preservation": identity_result,
         "au_compliance": au_result,
+        "wangxing_targeted": wangxing_targeted,
         "fusion": fused,
         "threshold_note": (
             "Calibrate hard thresholds on held-out human annotations "
@@ -90,7 +127,9 @@ def main() -> int:
     }
     serialized = json.dumps(result, ensure_ascii=False, indent=2)
     if args.output:
-        Path(args.output).write_text(
+        output = project_path(args.output)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(
             serialized + "\n",
             encoding="utf-8",
         )

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import shutil
 import tempfile
 from pathlib import Path
@@ -29,6 +30,9 @@ class WebAppTests(unittest.TestCase):
         self.assertIn("preflight-list", response.text)
         self.assertIn("process-queue", response.text)
         self.assertIn("new-evaluation", response.text)
+        self.assertIn("wangxing-au-card", response.text)
+        self.assertIn("wangxing_expected_class", response.text)
+        self.assertIn("wangxing-result", response.text)
         self.assertIn('<option value="cuda" selected>', response.text)
         self.assertIn("KEY EVIDENCE", response.text)
         self.assertIn("关键证据", response.text)
@@ -66,6 +70,103 @@ class WebAppTests(unittest.TestCase):
             payload["recommendation"]["id"],
             "qwen2_vl_2b_awq",
         )
+        self.assertIn("wangxing_au", payload)
+        self.assertIn("ready", payload["wangxing_au"])
+
+    def test_wangxing_au_runner_passes_identity_images_and_driver_video(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory) / "run"
+            run_dir.mkdir()
+            result_path = run_dir / "result.mp4"
+            reference_image = run_dir / "reference_01.png"
+            reference_video = run_dir / "reference_motion.mp4"
+            result_path.write_bytes(b"result")
+            reference_image.write_bytes(b"image")
+            reference_video.write_bytes(b"driver")
+
+            def fake_run(command: list[str], **_: object) -> None:
+                output_path = Path(command[command.index("--output") + 1])
+                output_path.write_text(
+                    json.dumps({"status": "available"}),
+                    encoding="utf-8",
+                )
+
+            with patch(
+                "web_app._wangxing_au_status",
+                return_value={"ready": True},
+            ), patch("web_app.subprocess.run", side_effect=fake_run) as run:
+                result = web_app._run_wangxing_au_assessment(
+                    result_path=result_path,
+                    reference_image_paths=[reference_image],
+                    reference_video_path=reference_video,
+                    expected_class="smile",
+                    device="cpu",
+                    run_dir=run_dir,
+                )
+
+            command = run.call_args.args[0]
+            self.assertEqual(result["status"], "available")
+            self.assertIn("--target-image", command)
+            self.assertIn(str(reference_image), command)
+            self.assertEqual(
+                command[command.index("--driver-video") + 1],
+                str(reference_video),
+            )
+            self.assertEqual(
+                command[command.index("--expected-class") + 1],
+                "smile",
+            )
+
+    def test_sync_evaluation_can_disable_wangxing_au(self) -> None:
+        video_path = Path("outputs/test_result.mp4")
+        base_result = {
+            "summary": [],
+            "frame_records": [],
+            "categories": {},
+            "weighted_score_0_100": 0.0,
+            "coverage": "0/5",
+        }
+        with patch("web_app.evaluate_all", return_value=base_result), patch(
+            "web_app._run_wangxing_au_assessment"
+        ) as runner:
+            with video_path.open("rb") as video:
+                response = self.client.post(
+                    "/api/evaluate",
+                    files={"result_video": ("result.mp4", video, "video/mp4")},
+                    data={
+                        "calculate_lpips": "false",
+                        "max_frames": "2",
+                        "device": "cpu",
+                        "wangxing_au_enabled": "false",
+                    },
+                )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json()["result"]["wangxing_au"]["status"],
+            "disabled",
+        )
+        runner.assert_not_called()
+
+    def test_invalid_wangxing_expression_class_is_rejected_before_queueing(
+        self,
+    ) -> None:
+        video_path = Path("outputs/test_result.mp4")
+        with patch("web_app._ensure_queue_worker"):
+            with video_path.open("rb") as video:
+                response = self.client.post(
+                    "/api/jobs",
+                    files={"result_video": ("result.mp4", video, "video/mp4")},
+                    data={
+                        "calculate_lpips": "false",
+                        "max_frames": "2",
+                        "device": "cpu",
+                        "wangxing_expected_class": "disgust",
+                    },
+                )
+
+        self.assertEqual(response.status_code, 422)
+        self.assertIn("wangxing_expected_class", response.json()["detail"])
 
     def test_run_file_path_is_sandboxed(self) -> None:
         response = self.client.get("/api/runs/../requirements.txt")
@@ -121,6 +222,11 @@ class WebAppTests(unittest.TestCase):
             job_id = job["job_id"]
             job_dir = Path("outputs/web_runs") / job_id
             self.assertEqual(job["original_files"]["result_video"], "result.mp4")
+            self.assertTrue(job["parameters"]["wangxing_au_enabled"])
+            self.assertEqual(
+                job["parameters"]["wangxing_expected_class"],
+                "auto",
+            )
             self.assertTrue((job_dir / "status.json").is_file())
             self.assertTrue((job_dir / "params.json").is_file())
 

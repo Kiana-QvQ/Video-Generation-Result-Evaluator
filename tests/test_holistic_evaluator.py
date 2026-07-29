@@ -20,6 +20,7 @@ from evaluator.holistic_evaluator import (
     _face_box_jitter,
     _lower_tail,
     _motion_direction_similarity,
+    _read_reference_image,
     evaluate_aesthetics,
     evaluate_all,
 )
@@ -89,6 +90,21 @@ class HolisticEvaluatorTests(unittest.TestCase):
         self.assertEqual(result_indices.tolist(), [0, 10, 20, 30])
         self.assertEqual(gt_indices.tolist(), [0, 5, 10, 15])
         self.assertAlmostEqual(float(timestamps[-1]), 1.0, places=5)
+
+    def test_reference_image_reads_unicode_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            image_path = Path(directory) / "参考图.png"
+            image = np.zeros((12, 16, 3), dtype=np.uint8)
+            image[:, :, 1] = 180
+            success, encoded = cv2.imencode(".png", image)
+            self.assertTrue(success)
+            image_path.write_bytes(encoded.tobytes())
+
+            frames = _read_reference_image(image_path)
+
+        self.assertEqual(len(frames), 1)
+        self.assertEqual(frames[0].shape, (12, 16, 3))
+        self.assertEqual(int(frames[0][0, 0, 1]), 180)
 
     def test_time_sampling_uses_fixed_rate_before_max_frame_cap(self) -> None:
         timestamps = _sample_timestamps(5.0, 256, sample_fps=8.0)

@@ -20,7 +20,7 @@ For a generated video or a driver video outside the dataset:
 
 ```powershell
 .\.venv\Scripts\python.exe scripts\extract_libreface_au.py `
-    --input D:\path\generated.mp4 `
+    --input .\generated.mp4 `
     --output-root data\au\generated `
     --device cpu
 ```
@@ -131,7 +131,7 @@ agreement process and use the official ZIP received from EURECOM:
 ```powershell
 .\scripts\run_au_training_pipeline.ps1 `
     -NegativeDataset MetaHuman `
-    -MetaHumanArchive D:\licensed\SynthesizedMetaHuman.zip `
+    -MetaHumanArchive .\licenses\SynthesizedMetaHuman.zip `
     -Device cuda
 ```
 
@@ -145,11 +145,34 @@ The one-click script:
 
 It does not bypass the dataset agreement or download an unapproved archive.
 
+## 4.1 One-command evaluation
+
+After the AU profile and leakage classifier have been trained, evaluate a
+generated video with one command. The wrapper extracts the generated video's
+AU CSV automatically, loads the two JSON model artifacts, and writes the
+final evaluation report.
+
+```powershell
+.\.venv\Scripts\python.exe scripts\evaluate_generated_video.py `
+    --generated-video .\generated.mp4 `
+    --au-profile data\au\wangxing_au_profile.json `
+    --leakage-classifier data\au\au_leakage_classifier.json `
+    --expected-class smile `
+    --target-image .\target.png `
+    --output outputs\wangxing_au_compliance.json `
+    --device cuda
+```
+
+If a driver video is available, add `--driver-video .\driver.mp4`.
+The wrapper extracts its AU CSV and includes the driver-expression score.
+The generated AU CSV is cached under `data/au/generated`; rerunning the
+command reuses it unless `--force` is supplied.
+
 ## 4. Evaluate one generated result
 
 ```powershell
 .\.venv\Scripts\python.exe scripts\evaluate_au_compliance.py `
-    --generated-video D:\path\generated.mp4 `
+    --generated-video .\generated.mp4 `
     --generated-au data\au\generated\generated.csv `
     --driver-au data\au\driver\driver.csv `
     --au-profile data\au\wangxing_au_profile.json `
@@ -167,6 +190,12 @@ The output contains:
 - driver identity leakage risk;
 - combined person-likeness score;
 - anomalous AU frame indices.
+
+For the Wang Xing-specific objective, use the `wangxing_targeted` section in
+the report as the primary decision. It uses the Wang Xing AU profile as the
+main evidence; identity images and driver videos are optional. The general
+`fusion` section is a broader person-likeness decision and may remain
+`review` when identity or driver evidence is not supplied.
 
 Hard thresholds should be calibrated on held-out human annotations before
 using the result as an automatic block/allow decision.

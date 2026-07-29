@@ -307,7 +307,15 @@ def _read_reference_image(
     paths = [path] if isinstance(path, (str, Path)) else list(path)
     frames: list[np.ndarray] = []
     for image_path in paths:
-        image = cv2.imread(str(image_path))
+        try:
+            encoded = np.fromfile(str(image_path), dtype=np.uint8)
+        except (OSError, ValueError):
+            continue
+        image = (
+            cv2.imdecode(encoded, cv2.IMREAD_COLOR)
+            if encoded.size
+            else None
+        )
         if image is not None:
             frames.append(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
     return frames

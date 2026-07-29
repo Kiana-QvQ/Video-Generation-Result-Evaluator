@@ -122,9 +122,9 @@ def classify_performance(performance: str) -> str:
 
 def _relative_clip_path(clip_path: str) -> str:
     normalized = str(clip_path).replace("\\", "/")
-    marker = f"{PATH_MARKER}/"
-    if marker in normalized:
-        return normalized.split(marker, 1)[1]
+    for marker in (f"{PATH_MARKER}/", "data/video/"):
+        if marker in normalized:
+            return normalized.split(marker, 1)[1]
     return Path(normalized).name
 
 
@@ -168,7 +168,7 @@ def build_expression_manifest(root: str | Path) -> dict[str, Any]:
                 ),
                 "person": item.get("person", "wangxing"),
                 "relative_path": relative_path,
-                "local_path": str(local_path),
+                "local_path": relative_path,
                 "exists": local_path.is_file(),
                 "phase1_usable": (
                     local_path.is_file()
@@ -229,7 +229,7 @@ def build_expression_manifest(root: str | Path) -> dict[str, Any]:
                 "clip_id": f"{performance}/{local_path.stem}",
                 "person": "wangxing",
                 "relative_path": relative_path,
-                "local_path": str(local_path),
+                "local_path": relative_path,
                 "exists": True,
                 "phase1_usable": class_name in ALL_TAXONOMY,
                 "performance": performance,

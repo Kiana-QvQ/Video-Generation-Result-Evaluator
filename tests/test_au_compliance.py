@@ -13,6 +13,7 @@ from evaluator.au_compliance import (
     dtw_similarity,
     fit_au_profile,
     fuse_compliance_scores,
+    fuse_wangxing_targeted_scores,
     load_au_table,
     score_au_compliance,
 )
@@ -101,3 +102,27 @@ class AUComplianceTests(unittest.TestCase):
         )
         self.assertEqual(result["decision"], "block")
         self.assertIn("driver_identity_leakage", result["decision_reasons"])
+
+    def test_wangxing_targeted_fit_does_not_require_identity_or_driver(self) -> None:
+        result = fuse_wangxing_targeted_scores(
+            personal_au_score_0_1=0.8,
+            driver_expression_score_0_1=None,
+            leakage_risk_0_1=0.1,
+        )
+        self.assertEqual(result["decision"], "allow")
+        self.assertAlmostEqual(
+            result["wangxing_expression_fit_score_0_1"],
+            0.8,
+        )
+
+    def test_wangxing_targeted_fit_reviews_low_personal_au(self) -> None:
+        result = fuse_wangxing_targeted_scores(
+            personal_au_score_0_1=0.3,
+            driver_expression_score_0_1=None,
+            leakage_risk_0_1=0.1,
+        )
+        self.assertEqual(result["decision"], "review")
+        self.assertIn(
+            "wangxing_au_below_threshold",
+            result["decision_reasons"],
+        )

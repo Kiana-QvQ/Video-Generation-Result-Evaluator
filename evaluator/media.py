@@ -20,7 +20,6 @@ def find_ffmpeg() -> str | None:
 
     candidates = [
         PROJECT_ROOT / "tools" / "ffmpeg" / "bin" / "ffmpeg.exe",
-        Path(r"D:\ffmpeg\ffmpeg-2025-08-11-git-3542260376-full_build\bin\ffmpeg.exe"),
     ]
     for candidate in candidates:
         if candidate.exists():

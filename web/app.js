@@ -14,6 +14,8 @@ const coverageRing = document.querySelector("#coverage-ring");
 const categoryList = document.querySelector("#category-list");
 const evidenceGrid = document.querySelector("#evidence-grid");
 const downloadRow = document.querySelector("#download-row");
+const wangxingResult = document.querySelector("#wangxing-result");
+const wangxingReadiness = document.querySelector("#wangxing-au-readiness");
 const processProgress = document.querySelector("#process-progress");
 const progressLabel = document.querySelector("#progress-label");
 const progressTime = document.querySelector("#progress-time");
@@ -263,11 +265,21 @@ function renderModels(payload) {
     .join("");
 }
 
+function renderWangxingReadiness(payload) {
+  if (!wangxingReadiness) return;
+  const ready = Boolean(payload?.ready);
+  wangxingReadiness.textContent = ready ? "READY" : "TRAIN FIRST";
+  wangxingReadiness.className = `au-readiness ${ready ? "ready" : "offline"}`;
+  wangxingReadiness.title = payload?.note ?? "";
+}
+
 async function loadModels() {
   try {
     const response = await fetch("/api/models");
     if (!response.ok) throw new Error("model endpoint unavailable");
-    renderModels(await response.json());
+    const payload = await response.json();
+    renderModels(payload);
+    renderWangxingReadiness(payload.wangxing_au);
   } catch (error) {
     modelTime.textContent = "model cache unavailable";
     modelList.innerHTML =
@@ -365,11 +377,79 @@ function renderEvidence(result) {
     .join("");
 }
 
+function renderWangxingResult(result) {
+  if (!wangxingResult) return;
+  const payload = result.wangxing_au;
+  if (!payload) {
+    wangxingResult.classList.add("is-hidden");
+    return;
+  }
+  if (payload.status !== "available") {
+    wangxingResult.classList.remove("is-hidden");
+    wangxingResult.innerHTML = `
+      <div class="wangxing-result-head">
+        <div>
+          <span class="wangxing-result-kicker">TARGET SPECIALIZATION / WANG XING AU</span>
+          <h3>王兴特化评估暂不可用</h3>
+        </div>
+        <span class="wangxing-result-status review">UNAVAILABLE</span>
+      </div>
+      <p class="wangxing-result-note">${escapeHtml(payload.reason ?? "AU 评估未运行。")}</p>
+    `;
+    return;
+  }
+  const targeted = payload.wangxing_targeted ?? {};
+  const au = payload.au_compliance ?? {};
+  const score = normalizeScore(
+    targeted.wangxing_expression_fit_score_0_1,
+  );
+  const decision = String(targeted.decision ?? "review");
+  const decisionLabel = {
+    allow: "ALLOW / 符合",
+    review: "REVIEW / 复核",
+    block: "BLOCK / 拦截",
+  }[decision] ?? "REVIEW / 复核";
+  const scoreText = score === null ? "—" : `${(score * 100).toFixed(1)}`;
+  const className = au.selected_expression_class ?? "auto";
+  const personal = normalizeScore(targeted.evidence?.personal_au);
+  const driver = normalizeScore(targeted.evidence?.driver_expression);
+  const leakage = normalizeScore(targeted.evidence?.leakage_risk);
+  const formatEvidence = (value) =>
+    value === null ? "—" : `${(value * 100).toFixed(1)}`;
+
+  wangxingResult.classList.remove("is-hidden");
+  wangxingResult.innerHTML = `
+    <div class="wangxing-result-head">
+      <div>
+        <span class="wangxing-result-kicker">TARGET SPECIALIZATION / WANG XING AU</span>
+        <h3>王兴会做出的动作与表情匹配度</h3>
+      </div>
+      <span class="wangxing-result-status ${escapeHtml(decision)}">${escapeHtml(decisionLabel)}</span>
+    </div>
+    <div class="wangxing-result-score">
+      <strong>${escapeHtml(scoreText)}</strong>
+      <span>/100 · ${escapeHtml(className)}</span>
+    </div>
+    <div class="wangxing-result-evidence">
+      <span><strong>${formatEvidence(personal)}</strong>王兴 AU 画像</span>
+      <span><strong>${formatEvidence(driver)}</strong>参考动作轨迹</span>
+      <span><strong>${formatEvidence(leakage)}</strong>身份偏离风险</span>
+    </div>
+    <p class="wangxing-result-note">
+      ${escapeHtml(
+        targeted.decision_reasons?.join(" / ") ||
+          "以王兴 AU 画像为主判据；身份图和参考动作视频为可选证据。",
+      )}
+    </p>
+  `;
+}
+
 function renderDownloads(downloads) {
   const links = [
     ["summary_csv", "summary.csv"],
     ["frame_csv", "frame_metrics.csv"],
     ["result_json", "result.json"],
+    ["wangxing_au_json", "wangxing_au_result.json"],
   ];
   downloadRow.innerHTML = links
     .filter(([key]) => downloads?.[key])
@@ -401,6 +481,7 @@ function renderResult(payload) {
   const covered = Number.parseInt(coverage, 10) || 0;
   coverageRing.style.setProperty("--coverage", `${(covered / 5) * 100}%`);
   renderRadar(result);
+  renderWangxingResult(result);
   renderCategories(result);
   renderEvidence(result);
   renderDownloads(payload.downloads);
@@ -479,6 +560,10 @@ form.addEventListener("submit", async (event) => {
       "calculate_lpips",
       form.querySelector('[name="calculate_lpips"]').checked ? "true" : "false",
     );
+    formData.set(
+      "wangxing_au_enabled",
+      form.querySelector('[name="wangxing_au_enabled"]').checked ? "true" : "false",
+    );
     const response = await fetch("/api/evaluate", {
       method: "POST",
       body: formData,
@@ -510,6 +595,7 @@ const queueStageLabels = {
   preparing: ["upload", "准备输入文件"],
   sampling: ["sample", "抽取关键帧"],
   models: ["models", "运行本地模型"],
+  wangxing_au: ["models", "王兴 AU 特化动作评估"],
   report: ["report", "整理评估报告"],
   completed: ["report", "评估完成"],
   failed: ["report", "评估失败"],
@@ -807,8 +893,16 @@ function syncFormWithJob(job) {
     '[name="manual_aesthetic_score"]',
     parameters.manual_aesthetic_score ?? "",
   );
+  setValue(
+    '[name="wangxing_expected_class"]',
+    parameters.wangxing_expected_class ?? "auto",
+  );
   const lpips = document.querySelector('[name="calculate_lpips"]');
   if (lpips) lpips.checked = parameters.calculate_lpips !== false;
+  const wangxingAu = document.querySelector('[name="wangxing_au_enabled"]');
+  if (wangxingAu) {
+    wangxingAu.checked = parameters.wangxing_au_enabled !== false;
+  }
 
   setStoredUpload(
     "result-video",
@@ -997,6 +1091,10 @@ form.addEventListener("submit", async (event) => {
     formData.set(
       "calculate_lpips",
       form.querySelector('[name="calculate_lpips"]').checked ? "true" : "false",
+    );
+    formData.set(
+      "wangxing_au_enabled",
+      form.querySelector('[name="wangxing_au_enabled"]').checked ? "true" : "false",
     );
     const response = await fetch("/api/jobs", {
       method: "POST",

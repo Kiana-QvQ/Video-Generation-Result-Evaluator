@@ -13,6 +13,7 @@ from evaluator.expression_dataset import (
     build_expression_manifest,
     validate_expression_manifest,
 )
+from evaluator.paths import project_path
 
 
 def main() -> int:
@@ -31,8 +32,8 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    root = Path(args.root)
-    output = Path(args.output)
+    root = project_path(args.root)
+    output = project_path(args.output)
     payload = build_expression_manifest(root)
     errors = validate_expression_manifest(payload)
     if errors:
