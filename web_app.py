@@ -126,8 +126,13 @@ def _json_safe(value: Any) -> Any:
         return _json_safe(value.tolist())
     if isinstance(value, np.generic):
         return _json_safe(value.item())
-    if isinstance(value, float) and (math.isnan(value) or math.isinf(value)):
-        return None
+    if isinstance(value, float):
+        if math.isnan(value):
+            return None
+        if math.isinf(value):
+            # JSON has no native representation for infinities. Keep the
+            # metric's meaning instead of turning a perfect PSNR into null.
+            return "inf" if value > 0 else "-inf"
     if isinstance(value, dict):
         return {str(key): _json_safe(child) for key, child in value.items()}
     if isinstance(value, (list, tuple)):
@@ -388,6 +393,9 @@ def _run_wangxing_au_assessment(
     if expected_class is not None:
         command.extend(["--expected-class", expected_class])
 
+    environment = os.environ.copy()
+    environment["PYTHONIOENCODING"] = "utf-8"
+    environment["PYTHONUTF8"] = "1"
     try:
         subprocess.run(
             command,
@@ -397,6 +405,7 @@ def _run_wangxing_au_assessment(
             text=True,
             encoding="utf-8",
             errors="replace",
+            env=environment,
         )
     except subprocess.CalledProcessError as exc:
         diagnostics = "\n".join(
@@ -406,6 +415,15 @@ def _run_wangxing_au_assessment(
         ).strip()
         normalized_diagnostics = diagnostics.lower()
         if (
+            "codec can't encode" in normalized_diagnostics
+            or "unicodeencodeerror" in normalized_diagnostics
+            or "unicode decode error" in normalized_diagnostics
+        ):
+            reason = (
+                "Wang Xing AU 子进程输出编码失败，已阻止本次评估结果生成。"
+                "请重试；如果问题持续，请检查 Python/LibreFace 的 UTF-8 环境。"
+            )
+        elif (
             "no face detected" in normalized_diagnostics
             or "no landmarks detected" in normalized_diagnostics
         ):

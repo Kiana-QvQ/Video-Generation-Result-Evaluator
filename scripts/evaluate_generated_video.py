@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import os
 import shutil
 import subprocess
 import sys
@@ -13,6 +14,24 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 PYTHON = Path(sys.executable)
 EXTRACTOR = PROJECT_ROOT / "scripts" / "extract_libreface_au.py"
 EVALUATOR = PROJECT_ROOT / "scripts" / "evaluate_au_compliance.py"
+
+
+def _configure_utf8_streams() -> None:
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:
+            continue
+        try:
+            reconfigure(encoding="utf-8", errors="replace")
+        except (OSError, ValueError):
+            continue
+
+
+def _utf8_environment() -> dict[str, str]:
+    environment = os.environ.copy()
+    environment["PYTHONIOENCODING"] = "utf-8"
+    environment["PYTHONUTF8"] = "1"
+    return environment
 
 
 def _csv_path(video_path: Path, output_root: Path) -> Path:
@@ -88,7 +107,12 @@ def _run_extraction(
     if force:
         command.append("--force")
     try:
-        subprocess.run(command, cwd=PROJECT_ROOT, check=True)
+        subprocess.run(
+            command,
+            cwd=PROJECT_ROOT,
+            check=True,
+            env=_utf8_environment(),
+        )
     except subprocess.CalledProcessError as exc:
         raise RuntimeError(
             f"AU extraction failed for {video_path}. "
@@ -177,6 +201,7 @@ def _existing_file(value: str | None, *, label: str) -> Path | None:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    _configure_utf8_streams()
     args = _build_parser().parse_args(argv)
     if args.batch_size <= 0:
         raise ValueError("--batch-size must be positive.")
@@ -281,6 +306,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             text=True,
             encoding="utf-8",
             errors="replace",
+            env=_utf8_environment(),
         )
     except subprocess.CalledProcessError as exc:
         raise RuntimeError(

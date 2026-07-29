@@ -14,6 +14,7 @@ const coverageRing = document.querySelector("#coverage-ring");
 const categoryList = document.querySelector("#category-list");
 const evidenceGrid = document.querySelector("#evidence-grid");
 const downloadRow = document.querySelector("#download-row");
+const qwenFeedback = document.querySelector("#qwen-feedback");
 const wangxingResult = document.querySelector("#wangxing-result");
 const wangxingReadiness = document.querySelector("#wangxing-au-readiness");
 const processProgress = document.querySelector("#process-progress");
@@ -71,6 +72,8 @@ function describeApiError(detail, status) {
 
 function formatNumber(value, digits = 3) {
   if (value === null || value === undefined || value === "") return "—";
+  if (value === "inf" || value === "+inf" || value === "Infinity") return "∞";
+  if (value === "-inf" || value === "-Infinity") return "-∞";
   const number = Number(value);
   if (!Number.isFinite(number)) return "—";
   return number.toFixed(digits);
@@ -318,6 +321,71 @@ function renderCategories(result) {
     .join("");
 }
 
+function renderQwenFeedback(result) {
+  if (!qwenFeedback) return;
+  const judge = result.etva_judge ?? {};
+  const feedback = judge.feedback ?? {};
+  const problems = Array.isArray(feedback.problems)
+    ? feedback.problems.filter(Boolean)
+    : [];
+  const suggestions = Array.isArray(feedback.suggestions)
+    ? feedback.suggestions.filter(Boolean)
+    : [];
+  const isAvailable = judge.status === "available";
+  const windowCount = Number(judge.metrics?.window_count);
+  const statusText = isAvailable
+    ? Number.isFinite(windowCount)
+      ? `Qwen2-VL-2B AWQ · 已分析 ${windowCount} 个时间窗口`
+      : "Qwen2-VL-2B AWQ · 已完成复核"
+    : "Qwen2-VL-2B AWQ · 当前未返回诊断";
+
+  qwenFeedback.classList.remove("is-hidden");
+  qwenFeedback.innerHTML = `
+    <div class="qwen-feedback-head">
+      <div>
+        <span class="qwen-feedback-kicker">QWEN2-VL-2B AWQ / VIDEO REVIEW</span>
+        <h3>视频问题与调整建议</h3>
+        <p>${escapeHtml(statusText)}</p>
+      </div>
+      <span class="qwen-feedback-badge ${isAvailable ? "ready" : "muted"}">
+        ${isAvailable ? "AI REVIEW" : "未连接"}
+      </span>
+    </div>
+    <div class="qwen-feedback-grid">
+      <div class="qwen-feedback-column problem">
+        <span class="qwen-feedback-label">模型发现的问题</span>
+        ${
+          problems.length
+            ? `<ul>${problems
+                .slice(0, 6)
+                .map((item) => `<li>${escapeHtml(item)}</li>`)
+                .join("")}</ul>`
+            : `<p class="qwen-feedback-empty">${
+                isAvailable
+                  ? "未发现明确问题。"
+                  : "Qwen 模型未返回文字诊断，请重新评估或检查 VLM 服务。"
+              }</p>`
+        }
+      </div>
+      <div class="qwen-feedback-column suggestion">
+        <span class="qwen-feedback-label">可以尝试的调整</span>
+        ${
+          suggestions.length
+            ? `<ul>${suggestions
+                .slice(0, 6)
+                .map((item) => `<li>${escapeHtml(item)}</li>`)
+                .join("")}</ul>`
+            : `<p class="qwen-feedback-empty">${
+                isAvailable
+                  ? "暂无额外调整建议。"
+                  : "连接 Qwen2-VL-2B AWQ 后，这里会显示具体调整方向。"
+              }</p>`
+        }
+      </div>
+    </div>
+  `;
+}
+
 function renderEvidence(result) {
   const categories = result.categories ?? {};
   const texture = categories.texture?.metrics ?? {};
@@ -325,6 +393,14 @@ function renderEvidence(result) {
   const expression = categories.expression?.metrics ?? {};
   const temporal = categories.temporal?.metrics ?? {};
   const aesthetics = categories.aesthetics?.metrics ?? {};
+  const identitySource = String(categories.identity?.reference_source ?? "");
+  const identityReferenceLabel = identitySource.includes("gt_video")
+    ? "ArcFace / 参考图 + 参考视频 + GT"
+    : identitySource.includes("reference_video")
+      ? "ArcFace / 参考图 + 参考视频"
+      : identitySource.includes("reference_image")
+        ? "ArcFace / 参考图"
+        : "ArcFace / 参考素材";
   const fullReference = categories.texture?.mode === "full_reference";
   const manualAesthetic = aesthetics.manual_score_0_to_1;
   const vbenchAesthetic = aesthetics.vbench_aesthetic_quality_0_to_1;
@@ -339,7 +415,7 @@ function renderEvidence(result) {
     ? "VBench aesthetic_quality"
     : "人工优先";
   const evidence = [
-    ["IDENTITY / MEAN", "身份一致性 / 均值", formatNumber(identity.mean_similarity), "ArcFace / 代理指标", "higher"],
+    ["IDENTITY / MEAN", "身份一致性 / 均值", formatNumber(identity.mean_similarity), identityReferenceLabel, "higher"],
     [fullReference ? "PSNR / dB" : "TEXTURE / SCORE", fullReference ? "峰值信噪比" : "纹理质量 / 分数", fullReference ? formatNumber(texture.psnr_db, 2) : formatNumber(texture.score_0_1), fullReference ? "GT 参考" : "无 GT", "higher"],
     [fullReference ? "SSIM" : "MANIQA", fullReference ? "结构相似性" : "图像质量评分", fullReference ? formatNumber(texture.ssim, 4) : formatNumber(texture.maniqa), fullReference ? "GT 参考" : "可选图像质量指标", "higher"],
     [fullReference ? "LPIPS" : "MUSIQ", fullReference ? "感知距离" : "无参考质量评分", fullReference ? formatNumber(texture.lpips, 4) : formatNumber(texture.musiq), fullReference ? "GT 参考" : "可选图像质量指标", fullReference ? "lower" : "higher"],
@@ -378,6 +454,216 @@ function renderEvidence(result) {
     .join("");
 }
 
+function clampUnit(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return null;
+  return Math.max(0, Math.min(1, number));
+}
+
+const expressionLabels = {
+  auto: "自动判断",
+  smile: "微笑",
+  anger: "愤怒",
+  annoyance: "烦躁",
+  surprise: "惊讶",
+  fear: "恐惧",
+  sadness: "悲伤",
+};
+
+function expressionLabel(value) {
+  const key = String(value ?? "").toLowerCase();
+  return expressionLabels[key] ?? (key || "未指定");
+}
+
+function describeAuActivity(auIds) {
+  const ids = new Set(auIds.map(Number));
+  const hasSmile = ids.has(6) || ids.has(12);
+  const hasOpenMouth = ids.has(25) || ids.has(26);
+  const hasTightEyes = ids.has(4) || ids.has(7);
+  const hasTightMouth = ids.has(15) || ids.has(17);
+  const hasRaisedBrows = ids.has(1) || ids.has(2) || ids.has(5);
+  const hasNoseWrinkle = ids.has(9);
+  const hasWideLips = ids.has(20);
+
+  if (hasTightEyes && hasTightMouth) {
+    return {
+      label: "眉眼收紧，嘴唇抿住",
+      detail: "面部更接近不悦或烦躁状态",
+    };
+  }
+  if (hasTightEyes) {
+    return {
+      label: "眉眼收紧",
+      detail: "眉毛下压，眼周显得更紧",
+    };
+  }
+  if (hasSmile && hasOpenMouth) {
+    return {
+      label: "微笑并张嘴",
+      detail: "嘴角上扬，脸颊提起，同时嘴巴张开",
+    };
+  }
+  if (hasSmile) {
+    return {
+      label: "微笑",
+      detail: "嘴角上扬，脸颊提起",
+    };
+  }
+  if (hasOpenMouth) {
+    return {
+      label: "张嘴",
+      detail: "嘴唇分开，下颌下落",
+    };
+  }
+  if (hasTightMouth) {
+    return {
+      label: "抿嘴或嘴角下压",
+      detail: "嘴部出现收紧或下压动作",
+    };
+  }
+  if (hasRaisedBrows) {
+    return {
+      label: "抬眉或睁大眼",
+      detail: "眉眼区域出现上提动作",
+    };
+  }
+  if (hasNoseWrinkle) {
+    return {
+      label: "鼻翼收紧",
+      detail: "鼻部出现轻微收紧动作",
+    };
+  }
+  if (hasWideLips) {
+    return {
+      label: "嘴唇拉宽",
+      detail: "嘴部横向拉伸",
+    };
+  }
+  return {
+    label: "轻微面部变化",
+    detail: "检测到的表情动作不明显",
+  };
+}
+
+function collectAuTemporalSegments(temporalEvents) {
+  const frameCount = Math.max(1, Number(temporalEvents?.frame_count) || 1);
+  const intervals = [];
+  Object.entries(temporalEvents?.per_au ?? {}).forEach(([auId, summary]) => {
+    (Array.isArray(summary?.events) ? summary.events : []).forEach((event) => {
+      const start = Number(event.start_frame);
+      const end = Number(event.end_frame);
+      if (
+        Number.isFinite(start) &&
+        Number.isFinite(end) &&
+        end >= start
+      ) {
+        intervals.push({ start, end, auId: Number(auId) });
+      }
+    });
+  });
+  if (!intervals.length) return [];
+
+  const mergeGap = Math.max(2, Math.round(frameCount * 0.04));
+  intervals.sort((left, right) => left.start - right.start || left.end - right.end);
+  const groups = [];
+  intervals.forEach((interval) => {
+    const current = groups[groups.length - 1];
+    if (!current || interval.start > current.end + mergeGap) {
+      groups.push({
+        start: interval.start,
+        end: interval.end,
+        auIds: new Set([interval.auId]),
+      });
+      return;
+    }
+    current.end = Math.max(current.end, interval.end);
+    current.auIds.add(interval.auId);
+  });
+
+  return groups.slice(0, 5).map((group) => ({
+    ...group,
+    activity: describeAuActivity([...group.auIds]),
+    startPosition: clampUnit(group.start / Math.max(frameCount - 1, 1)),
+    endPosition: clampUnit(group.end / Math.max(frameCount - 1, 1)),
+  }));
+}
+
+function formatTemporalRange(segment) {
+  const start = Number(segment.start);
+  const end = Number(segment.end);
+  const startPercent = Math.round((segment.startPosition ?? 0) * 100);
+  const endPercent = Math.round((segment.endPosition ?? 0) * 100);
+  const frameText =
+    start === end ? `第 ${start} 帧` : `第 ${start}–${end} 帧`;
+  return `${frameText} · 视频进度 ${startPercent}%–${endPercent}%`;
+}
+
+function renderAuTemporalEvidence(au) {
+  const temporalEvents = au.temporal_events ?? {};
+  const segments = collectAuTemporalSegments(temporalEvents);
+  const expectedClass = au.expected_expression_class;
+  const selectedClass = au.selected_expression_class ?? "auto";
+  const expressionContext = expectedClass
+    ? `目标表情：${expressionLabel(expectedClass)}`
+    : `模型自动归类：${expressionLabel(selectedClass)}`;
+  const overallIds = [
+    ...new Set(segments.flatMap((segment) => [...segment.auIds])),
+  ];
+  const overallActivity = describeAuActivity(overallIds);
+  const evidenceText = segments.length
+    ? `检测到 ${segments.length} 个主要时段`
+    : "未检测到明显表情变化";
+  return `
+    <div class="wangxing-result-temporal">
+      <div class="wangxing-result-section-head">
+        <span>AU TEMPORAL EVIDENCE / 表情时间段</span>
+        <small>${escapeHtml(
+          au.driver_au
+            ? "有参考动作视频 · 可比较节奏"
+            : "未提供参考动作视频 · 仅分析生成视频",
+        )}</small>
+      </div>
+      <div class="au-expression-summary">
+        <div>
+          <span class="au-expression-summary-label">视频中最明显的表情</span>
+          <strong>${escapeHtml(overallActivity.label)}</strong>
+          <p>${escapeHtml(overallActivity.detail)} · ${escapeHtml(expressionContext)}</p>
+        </div>
+        <span class="au-expression-summary-score">${escapeHtml(evidenceText)}</span>
+      </div>
+      ${
+        segments.length
+          ? `
+            <div class="au-expression-timeline">
+              ${segments
+                .map(
+                  (segment, index) => `
+                    <article class="au-expression-segment">
+                      <span class="au-expression-segment-index">0${index + 1}</span>
+                      <div>
+                        <strong>${escapeHtml(segment.activity.label)}</strong>
+                        <p>${escapeHtml(formatTemporalRange(segment))}</p>
+                        <small>${escapeHtml(segment.activity.detail)}</small>
+                      </div>
+                    </article>
+                  `,
+                )
+                .join("")}
+            </div>
+          `
+          : '<div class="au-expression-empty">未检测到明显的表情变化。</div>'
+      }
+      <p class="au-presence-note">
+        ${escapeHtml(
+          au.driver_au
+            ? "已提供参考动作视频，可进一步比较表情变化节奏。"
+            : "未提供参考动作视频，以上内容只说明生成视频中什么时候出现了什么表情。",
+        )}
+      </p>
+    </div>
+  `;
+}
+
 function renderWangxingResult(result) {
   if (!wangxingResult) return;
   const payload = result.wangxing_au;
@@ -402,8 +688,6 @@ function renderWangxingResult(result) {
   const targeted = payload.wangxing_targeted ?? {};
   const au = payload.au_compliance ?? {};
   const quality = au.quality?.generated ?? au.generated_au?.quality ?? {};
-  const temporal = au.temporal_events?.aggregate ?? {};
-  const timing = au.driver_temporal_alignment ?? {};
   const identity = normalizeScore(
     payload.identity_preservation?.metrics?.score_0_1,
   );
@@ -419,7 +703,13 @@ function renderWangxingResult(result) {
     block: "BLOCK / 拦截",
   }[decision] ?? "REVIEW / 复核";
   const scoreText = score === null ? "—" : `${(score * 100).toFixed(1)}`;
-  const className = au.selected_expression_class ?? "auto";
+  const selectedClass = au.selected_expression_class ?? "auto";
+  const expectedClass =
+    au.expected_expression_class ??
+    targeted.expected_expression_class;
+  const classContext = expectedClass
+    ? `目标：${expressionLabel(expectedClass)}`
+    : `自动归类：${expressionLabel(selectedClass)}`;
   const personal = normalizeScore(targeted.evidence?.personal_au);
   const driver = normalizeScore(targeted.evidence?.driver_expression);
   const eventAlignment = normalizeScore(
@@ -458,17 +748,6 @@ function renderWangxingResult(result) {
     .join(" / ");
   const formatEvidence = (value) =>
     value === null ? "—" : `${(value * 100).toFixed(1)}`;
-  const formatFrameCount = (value) =>
-    Number.isFinite(Number(value)) ? String(value) : "—";
-  const formatPosition = (value) =>
-    normalizeScore(value) === null ? "—" : `${(Number(value) * 100).toFixed(0)}%`;
-  const eventText = `${formatFrameCount(temporal.event_count)} events · peak ${formatPosition(
-    temporal.peak_position,
-  )} · active ${formatEvidence(normalizeScore(temporal.active_ratio))}`;
-  const timingText =
-    eventAlignment === null
-      ? "未提供参考动作视频"
-      : `时间对齐 ${formatEvidence(eventAlignment)} /100`;
   const identityText =
     identity === null ? "未提供身份参考图" : "ArcFace 身份证据";
 
@@ -483,7 +762,7 @@ function renderWangxingResult(result) {
     </div>
     <div class="wangxing-result-score">
       <strong>${escapeHtml(scoreText)}</strong>
-      <span>/100 · ${escapeHtml(className)}</span>
+      <span>/100 · ${escapeHtml(classContext)}</span>
     </div>
     <div class="wangxing-result-evidence">
       <span><strong>${formatEvidence(personal)}</strong>王兴 AU 画像</span>
@@ -501,13 +780,10 @@ function renderWangxingResult(result) {
         <span style="width: ${confidence === null ? 0 : confidence * 100}%"></span>
       </div>
       <p>
-        有效人脸帧 ${formatEvidence(validFrameRatio)} · ${escapeHtml(eventText)}
+        有效人脸帧 ${formatEvidence(validFrameRatio)}
       </p>
     </div>
-    <div class="wangxing-result-timing">
-      <span class="wangxing-result-timing-label">TEMPORAL EVIDENCE</span>
-      <strong>${escapeHtml(timingText)}</strong>
-    </div>
+    ${renderAuTemporalEvidence(au)}
     <p class="wangxing-result-note">
       ${escapeHtml(
         reasons ||
@@ -560,6 +836,7 @@ function renderResult(payload) {
   renderRadar(result);
   renderWangxingResult(result);
   renderCategories(result);
+  renderQwenFeedback(result);
   renderEvidence(result);
   renderDownloads(payload.downloads);
   document.querySelector("#report-panel").scrollIntoView({ behavior: "smooth", block: "start" });

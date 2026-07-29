@@ -132,6 +132,60 @@ def _parse_result(text: str) -> tuple[float | None, list[float]]:
     return (float(np.mean(values)) if values else None), values
 
 
+def _feedback_items(value: Any) -> list[str]:
+    if isinstance(value, str):
+        values = [value]
+    elif isinstance(value, list):
+        values = [
+            item.get("text", "")
+            if isinstance(item, dict)
+            else str(item)
+            for item in value
+        ]
+    else:
+        values = []
+    return [
+        item.strip()
+        for item in values
+        if isinstance(item, str) and item.strip()
+    ]
+
+
+def _parse_feedback(text: str) -> tuple[list[str], list[str]]:
+    try:
+        payload = json.loads(text)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return [], []
+    if not isinstance(payload, dict):
+        return [], []
+    problems = _feedback_items(
+        payload.get("problems")
+        or payload.get("issues")
+        or payload.get("problem"),
+    )
+    suggestions = _feedback_items(
+        payload.get("suggestions")
+        or payload.get("recommendations")
+        or payload.get("adjustments")
+        or payload.get("suggestion"),
+    )
+    return problems[:3], suggestions[:3]
+
+
+def _unique_feedback(items: list[str], limit: int = 6) -> list[str]:
+    unique: list[str] = []
+    seen: set[str] = set()
+    for item in items:
+        normalized = " ".join(item.split())
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        unique.append(normalized[:240])
+        if len(unique) >= limit:
+            break
+    return unique
+
+
 def _aggregate_window_scores(
     scores: list[float],
     tail_weight: float = 0.2,
@@ -202,6 +256,8 @@ def evaluate_etva_judge(
         question_scores: list[float] = []
         raw_responses: list[str] = []
         window_records: list[dict[str, Any]] = []
+        feedback_problems: list[str] = []
+        feedback_suggestions: list[str] = []
         warnings: list[str] = []
         for window in windows:
             result_frames = window.get("result_frames", window.get("frames", []))
@@ -211,13 +267,21 @@ def evaluate_etva_judge(
                     "type": "text",
                     "text": (
                         "You are an evaluation judge for a generated human video. "
-                        "Return JSON only with this schema: "
-                        '{"scores":[0,0.5,1],"overall":0.5}. '
                         "Each score must be exactly 0, 0.5, or 1. "
                         "Score whether the generated frames match the requested "
                         "prompt and preserve the intended expression/action. "
+                        "Also inspect visible identity/appearance drift, facial "
+                        "expression, motion timing, flicker/deformation, framing, "
+                        "lighting, and sharpness. "
                         "Use 1 for clear match, 0.5 for partial/uncertain, and 0 "
-                        "for mismatch. "
+                        "for mismatch. Also return up to 3 concise problems and "
+                        "up to 3 practical suggestions in Simplified Chinese. "
+                        "Only mention issues visible in the frames or supported "
+                        "by the prompt/reference; return an empty list when there "
+                        "is no clear issue. "
+                        "Return exactly this JSON schema: "
+                        '{"scores":[0,0.5,1],"overall":0.5,'
+                        '"problems":[],"suggestions":[]}. '
                         f"Prompt: {prompt or '(compare against the reference video)'}"
                     ),
                 },
@@ -262,9 +326,12 @@ def evaluate_etva_judge(
                 continue
 
             normalized_score = float(max(0.0, min(1.0, score)))
+            problems, suggestions = _parse_feedback(raw)
             window_scores.append(normalized_score)
             question_scores.extend(scores)
             raw_responses.append(raw)
+            feedback_problems.extend(problems)
+            feedback_suggestions.extend(suggestions)
             window_records.append(
                 {
                     "window_index": int(window["window_index"]),
@@ -272,6 +339,8 @@ def evaluate_etva_judge(
                     "window_end_seconds": window["end_seconds"],
                     "score_0_1": normalized_score,
                     "question_scores": scores,
+                    "problems": problems,
+                    "suggestions": suggestions,
                 }
             )
 
@@ -294,6 +363,10 @@ def evaluate_etva_judge(
                 "requested_window_count": len(windows),
             },
             "window_records": window_records,
+            "feedback": {
+                "problems": _unique_feedback(feedback_problems),
+                "suggestions": _unique_feedback(feedback_suggestions),
+            },
             "warnings": warnings,
         }
     except (OSError, ValueError, KeyError, json.JSONDecodeError, urllib.error.URLError) as exc:

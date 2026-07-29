@@ -12,7 +12,7 @@ import numpy as np
 
 AU_PROFILE_SCHEMA = "wangxing_au_profile_v2"
 AU_CLASSIFIER_SCHEMA = "au_leakage_classifier_v2"
-AU_EVALUATOR_VERSION = "wangxing_au_eval_v3"
+AU_EVALUATOR_VERSION = "wangxing_au_eval_v5"
 AU_QUALITY_SCHEMA = "face_quality_gate_v1"
 DEFAULT_INTENSITY_AU_IDS = (
     1,
@@ -50,6 +50,13 @@ DEFAULT_WINDOW_SIZE = 32
 DEFAULT_WINDOW_STRIDE = 16
 DEFAULT_FACE_QUALITY_THRESHOLD = 0.30
 DEFAULT_FACE_VALID_RATIO_THRESHOLD = 0.35
+INTENSITY_PERSONAL_SCORE_WEIGHT = 0.55
+PRESENCE_PERSONAL_SCORE_WEIGHT = 0.45
+COMPLIANCE_COMPONENT_WEIGHTS = {
+    "identity": 0.40,
+    "personal_au": 0.40,
+    "driver_expression": 0.20,
+}
 DEFAULT_COACTIVATION_PAIRS = (
     (1, 2),
     (1, 4),
@@ -106,6 +113,32 @@ def _parse_float(value: Any) -> float:
     except (TypeError, ValueError):
         return 0.0
     return parsed if math.isfinite(parsed) else 0.0
+
+
+def _optional_float(value: Any) -> float | None:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if math.isfinite(parsed) else None
+
+
+def _parse_int(value: Any, default: int) -> int:
+    parsed = _optional_float(value)
+    if parsed is None:
+        return int(default)
+    return int(round(parsed))
+
+
+def _field_name(
+    fieldnames: Iterable[str],
+    *candidates: str,
+) -> str | None:
+    wanted = {candidate.lower() for candidate in candidates}
+    for name in fieldnames:
+        if str(name).lower() in wanted:
+            return name
+    return None
 
 
 def _landmark_columns(fieldnames: Iterable[str]) -> tuple[list[str], list[str]]:
@@ -207,6 +240,18 @@ def load_au_table(
         delimiter = "\t" if "\t" in sample.splitlines()[0] else ","
         reader = csv.DictReader(handle, delimiter=delimiter)
         fieldnames = reader.fieldnames or []
+        frame_index_field = _field_name(
+            fieldnames,
+            "frame_idx",
+            "frame_index",
+            "frame",
+        )
+        frame_time_field = _field_name(
+            fieldnames,
+            "frame_time_in_ms",
+            "timestamp_ms",
+            "frame_time_ms",
+        )
         landmark_x_columns, landmark_y_columns = _landmark_columns(fieldnames)
         quality_available = bool(
             landmark_x_columns
@@ -257,7 +302,9 @@ def load_au_table(
 
         rows: list[list[float]] = []
         frame_quality: list[float] = []
-        for row in reader:
+        frame_indices: list[int] = []
+        frame_times_seconds: list[float | None] = []
+        for row_index, row in enumerate(reader):
             values = [
                 (
                     _parse_float(row.get(selected[au_id]))
@@ -267,6 +314,20 @@ def load_au_table(
                 for au_id in requested
             ]
             rows.append(values)
+            frame_indices.append(
+                _parse_int(
+                    row.get(frame_index_field) if frame_index_field else None,
+                    row_index,
+                )
+            )
+            raw_time = (
+                _optional_float(row.get(frame_time_field))
+                if frame_time_field
+                else None
+            )
+            frame_times_seconds.append(
+                raw_time / 1000.0 if raw_time is not None else None
+            )
             frame_quality.append(
                 _frame_quality(
                     row,
@@ -301,6 +362,8 @@ def load_au_table(
         "supported_au_ids": list(supported),
         "missing_au_ids": list(missing),
         "available_au_ids": sorted(available_candidates),
+        "frame_indices": frame_indices,
+        "frame_times_seconds": frame_times_seconds,
         "quality": _quality_metadata(
             frame_quality_array,
             available=quality_available,
@@ -346,10 +409,16 @@ def _summary_feature_indices(
     block_size = len(full_au_ids)
     for block in range(3):
         indices.extend(block * block_size + positions[au_id] for au_id in full_au_ids if au_id in positions)
-    pairs = _summary_pairs(full_au_ids)
-    for pair_index, (left, right) in enumerate(pairs):
-        if left in supported and right in supported:
-            indices.append(block_size * 3 + pair_index)
+    full_pairs = _summary_pairs(full_au_ids)
+    supported_pairs = [
+        pair
+        for pair in full_pairs
+        if pair[0] in supported and pair[1] in supported
+    ]
+    indices.extend(
+        block_size * 3 + full_pairs.index(pair)
+        for pair in supported_pairs
+    )
     return indices
 
 
@@ -358,6 +427,7 @@ def au_summary(
     *,
     au_ids: Iterable[int] | None = None,
     active_threshold: float = DEFAULT_ACTIVE_THRESHOLD,
+    coactivation_pairs: Iterable[tuple[int, int]] | None = None,
 ) -> np.ndarray:
     """Return robust low-dimensional AU distribution features."""
     sequence = np.asarray(sequence, dtype=np.float32)
@@ -371,7 +441,19 @@ def au_summary(
     if len(au_ids) != sequence.shape[1]:
         raise ValueError("AU ids do not match the sequence width.")
     active = sequence >= float(active_threshold)
-    pairs = _summary_pairs(au_ids)
+    pairs = (
+        [
+            (int(left), int(right))
+            for left, right in coactivation_pairs
+        ]
+        if coactivation_pairs is not None
+        else _summary_pairs(au_ids)
+    )
+    if any(
+        left not in au_ids or right not in au_ids
+        for left, right in pairs
+    ):
+        raise ValueError("Coactivation pairs must use the supplied AU ids.")
     cooccurrence = np.asarray(
         [
             float(np.mean(active[:, left] & active[:, right]))
@@ -537,8 +619,12 @@ def fit_au_profile(
     profile = {
         "schema_version": AU_PROFILE_SCHEMA,
         "au_ids": list(au_ids),
+        "supported_au_ids": list(au_ids),
+        "missing_au_ids": [],
         "feature_type": "intensity",
         "presence_au_ids": list(presence_au_ids),
+        "supported_presence_au_ids": list(presence_au_ids),
+        "missing_presence_au_ids": [],
         "presence_classes": presence_models,
         "summary_layout": {
             "blocks": ["median", "mad", "active_ratio"],
@@ -629,13 +715,73 @@ def _smooth_signal(signal: np.ndarray, window: int = 3) -> np.ndarray:
     return np.convolve(padded, kernel, mode="valid").astype(np.float32)
 
 
+def _smooth_signal_on_valid_runs(
+    signal: np.ndarray,
+    valid_mask: np.ndarray,
+    window: int = 3,
+) -> np.ndarray:
+    signal = np.asarray(signal, dtype=np.float32).reshape(-1)
+    valid_mask = np.asarray(valid_mask, dtype=bool).reshape(-1)
+    if len(signal) != len(valid_mask):
+        raise ValueError("Signal and valid mask must have the same length.")
+    smoothed = np.full(len(signal), np.nan, dtype=np.float32)
+    valid_indices = np.flatnonzero(valid_mask)
+    if len(valid_indices) == 0:
+        return smoothed
+
+    run_start = int(valid_indices[0])
+    previous = run_start
+    for current in valid_indices[1:]:
+        current = int(current)
+        if current != previous + 1:
+            smoothed[run_start:previous + 1] = _smooth_signal(
+                signal[run_start:previous + 1],
+                window=window,
+            )
+            run_start = current
+        previous = current
+    smoothed[run_start:previous + 1] = _smooth_signal(
+        signal[run_start:previous + 1],
+        window=window,
+    )
+    return smoothed
+
+
 def _event_summary(
     signal: np.ndarray,
     *,
     active_threshold: float,
+    valid_mask: np.ndarray | None = None,
+    frame_indices: np.ndarray | None = None,
 ) -> dict[str, Any]:
-    signal = _smooth_signal(signal)
+    signal = np.asarray(signal, dtype=np.float32).reshape(-1)
     frame_count = len(signal)
+    if valid_mask is None:
+        valid_mask = np.ones(frame_count, dtype=bool)
+    else:
+        valid_mask = np.asarray(valid_mask, dtype=bool).reshape(-1)
+        if len(valid_mask) != frame_count:
+            raise ValueError("Signal and valid mask must have the same length.")
+    if frame_indices is None:
+        frame_indices = np.arange(frame_count, dtype=np.int64)
+    else:
+        frame_indices = np.asarray(frame_indices, dtype=np.int64).reshape(-1)
+        if len(frame_indices) != frame_count:
+            raise ValueError(
+                "Signal and frame indices must have the same length."
+            )
+
+    smoothed = (
+        _smooth_signal(signal)
+        if bool(np.all(valid_mask))
+        else _smooth_signal_on_valid_runs(signal, valid_mask)
+    )
+    signal = np.nan_to_num(
+        smoothed,
+        nan=0.0,
+        posinf=1.0,
+        neginf=0.0,
+    )
     if frame_count == 0:
         return {
             "active_ratio": 0.0,
@@ -645,9 +791,10 @@ def _event_summary(
             "onset_position": None,
             "peak_position": None,
             "peak_intensity": 0.0,
+            "events": [],
         }
 
-    active = signal >= float(active_threshold)
+    active = (signal >= float(active_threshold)) & valid_mask
     starts = np.flatnonzero(active & ~np.r_[False, active[:-1]])
     ends = np.flatnonzero(active & ~np.r_[active[1:], False])
     durations = (
@@ -655,27 +802,83 @@ def _event_summary(
         if len(starts)
         else np.asarray([], dtype=np.int64)
     )
-    peak_index = int(np.argmax(signal))
+    valid_indices = np.flatnonzero(valid_mask)
+    peak_index = (
+        int(valid_indices[np.argmax(signal[valid_indices])])
+        if len(valid_indices)
+        else None
+    )
+    frame_start = int(frame_indices[0]) if frame_count else 0
+    frame_span = (
+        max(int(frame_indices[-1]) - frame_start, 1)
+        if frame_count
+        else 1
+    )
+
+    def position(index: int) -> float:
+        return float(
+            (int(frame_indices[index]) - frame_start) / frame_span
+        )
+
+    events: list[dict[str, Any]] = []
+    for start, end in zip(starts, ends):
+        start = int(start)
+        end = int(end)
+        segment = signal[start:end + 1]
+        peak_offset = int(np.argmax(segment))
+        event_peak_frame = start + peak_offset
+        duration_frames = int(
+            frame_indices[end] - frame_indices[start] + 1
+        )
+        events.append(
+            {
+                "start_frame": int(frame_indices[start]),
+                "end_frame": int(frame_indices[end]),
+                "start_position": position(start),
+                "end_position": position(end),
+                "duration_frames": duration_frames,
+                "duration_ratio": float(
+                    duration_frames / max(frame_span + 1, 1)
+                ),
+                "peak_frame": int(frame_indices[event_peak_frame]),
+                "peak_position": position(event_peak_frame),
+                "peak_intensity": float(signal[event_peak_frame]),
+                "mean_intensity": float(np.mean(segment)),
+            }
+        )
     return {
         "active_ratio": float(np.mean(active)),
         "event_count": int(len(durations)),
         "longest_event_ratio": (
-            float(np.max(durations) / frame_count)
+            float(np.max(durations) / max(frame_span + 1, 1))
             if len(durations)
             else 0.0
         ),
         "mean_event_ratio": (
-            float(np.mean(durations) / frame_count)
+            float(
+                np.mean(
+                    [
+                        int(frame_indices[end] - frame_indices[start] + 1)
+                        for start, end in zip(starts, ends)
+                    ]
+                )
+                / max(frame_span + 1, 1)
+            )
             if len(durations)
             else 0.0
         ),
         "onset_position": (
-            float(starts[0] / max(frame_count - 1, 1))
+            position(int(starts[0]))
             if len(starts)
             else None
         ),
-        "peak_position": float(peak_index / max(frame_count - 1, 1)),
-        "peak_intensity": float(signal[peak_index]),
+        "peak_position": (
+            position(peak_index) if peak_index is not None else None
+        ),
+        "peak_intensity": (
+            float(signal[peak_index]) if peak_index is not None else 0.0
+        ),
+        "events": events,
     }
 
 
@@ -684,6 +887,8 @@ def temporal_event_features(
     *,
     au_ids: Iterable[int] = DEFAULT_AU_IDS,
     active_threshold: float = DEFAULT_ACTIVE_THRESHOLD,
+    valid_mask: np.ndarray | None = None,
+    frame_indices: Iterable[int] | None = None,
 ) -> dict[str, Any]:
     """Summarize AU onset, peak, duration and active periods."""
     sequence = np.asarray(sequence, dtype=np.float32)
@@ -697,10 +902,31 @@ def temporal_event_features(
         au_ids = LEGACY_AU_IDS
     if sequence.shape[1] != len(au_ids):
         raise ValueError("AU ids do not match the sequence width.")
+    if valid_mask is None:
+        valid_mask = np.ones(sequence.shape[0], dtype=bool)
+    else:
+        valid_mask = np.asarray(valid_mask, dtype=bool).reshape(-1)
+        if len(valid_mask) != len(sequence):
+            raise ValueError(
+                "Sequence and valid mask must have the same length."
+            )
+    if frame_indices is None:
+        frame_indices = np.arange(sequence.shape[0], dtype=np.int64)
+    else:
+        frame_indices = np.asarray(
+            tuple(int(value) for value in frame_indices),
+            dtype=np.int64,
+        )
+        if len(frame_indices) != len(sequence):
+            raise ValueError(
+                "Sequence and frame indices must have the same length."
+            )
     per_au = {
         str(au_id): _event_summary(
             sequence[:, index],
             active_threshold=active_threshold,
+            valid_mask=valid_mask,
+            frame_indices=frame_indices,
         )
         for index, au_id in enumerate(au_ids)
     }
@@ -708,10 +934,17 @@ def temporal_event_features(
         "frame_count": int(sequence.shape[0]),
         "active_threshold": float(active_threshold),
         "aggregate": _event_summary(
-            sequence.mean(axis=1),
+            np.nan_to_num(
+                np.nanmean(sequence, axis=1),
+                nan=0.0,
+            ),
             active_threshold=active_threshold,
+            valid_mask=valid_mask,
+            frame_indices=frame_indices,
         ),
         "per_au": per_au,
+        "valid_frame_count": int(np.sum(valid_mask)),
+        "valid_frame_ratio": float(np.mean(valid_mask)),
     }
 
 
@@ -740,6 +973,105 @@ def _event_similarity(
     }
 
 
+def _event_sequence_similarity(
+    generated_events: list[dict[str, Any]],
+    driver_events: list[dict[str, Any]],
+) -> dict[str, Any]:
+    if not generated_events and not driver_events:
+        return {
+            "event_count_difference": 0,
+            "matched_event_count": 0,
+            "event_count_similarity_0_1": 1.0,
+            "event_sequence_similarity_0_1": 1.0,
+            "event_pairs": [],
+        }
+    if not generated_events or not driver_events:
+        return {
+            "event_count_difference": abs(
+                len(generated_events) - len(driver_events)
+            ),
+            "matched_event_count": 0,
+            "event_count_similarity_0_1": 0.0,
+            "event_sequence_similarity_0_1": 0.0,
+            "event_pairs": [],
+        }
+
+    pair_count = min(len(generated_events), len(driver_events))
+    event_pairs: list[dict[str, Any]] = []
+    pair_scores: list[float] = []
+    for index in range(pair_count):
+        generated_event = generated_events[index]
+        driver_event = driver_events[index]
+        similarities = {
+            "start_position_similarity_0_1": max(
+                0.0,
+                1.0
+                - abs(
+                    float(generated_event["start_position"])
+                    - float(driver_event["start_position"])
+                ),
+            ),
+            "end_position_similarity_0_1": max(
+                0.0,
+                1.0
+                - abs(
+                    float(generated_event["end_position"])
+                    - float(driver_event["end_position"])
+                ),
+            ),
+            "duration_similarity_0_1": max(
+                0.0,
+                1.0
+                - abs(
+                    float(generated_event["duration_ratio"])
+                    - float(driver_event["duration_ratio"])
+                ),
+            ),
+            "peak_position_similarity_0_1": max(
+                0.0,
+                1.0
+                - abs(
+                    float(generated_event["peak_position"])
+                    - float(driver_event["peak_position"])
+                ),
+            ),
+            "peak_intensity_similarity_0_1": max(
+                0.0,
+                1.0
+                - abs(
+                    float(generated_event["peak_intensity"])
+                    - float(driver_event["peak_intensity"])
+                ),
+            ),
+        }
+        score = float(np.mean(list(similarities.values())))
+        pair_scores.append(score)
+        event_pairs.append(
+            {
+                "generated_index": index,
+                "driver_index": index,
+                "score_0_1": score,
+                **similarities,
+            }
+        )
+
+    count_similarity = float(
+        pair_count / max(len(generated_events), len(driver_events))
+    )
+    sequence_similarity = float(
+        np.mean(pair_scores) * count_similarity
+    )
+    return {
+        "event_count_difference": abs(
+            len(generated_events) - len(driver_events)
+        ),
+        "matched_event_count": pair_count,
+        "event_count_similarity_0_1": count_similarity,
+        "event_sequence_similarity_0_1": sequence_similarity,
+        "event_pairs": event_pairs,
+    }
+
+
 def compare_temporal_events(
     generated: dict[str, Any],
     driver: dict[str, Any],
@@ -748,6 +1080,12 @@ def compare_temporal_events(
     aggregate = _event_similarity(
         generated.get("aggregate", {}),
         driver.get("aggregate", {}),
+    )
+    aggregate.update(
+        _event_sequence_similarity(
+            generated.get("aggregate", {}).get("events", []),
+            driver.get("aggregate", {}).get("events", []),
+        )
     )
     generated_per_au = generated.get("per_au", {})
     driver_per_au = driver.get("per_au", {})
@@ -762,6 +1100,12 @@ def compare_temporal_events(
             int(generated_per_au[au_id].get("event_count", 0))
             - int(driver_per_au[au_id].get("event_count", 0))
         )
+        similarity.update(
+            _event_sequence_similarity(
+                generated_per_au[au_id].get("events", []),
+                driver_per_au[au_id].get("events", []),
+            )
+        )
         per_au[au_id] = similarity
         scores.append(
             float(
@@ -771,11 +1115,22 @@ def compare_temporal_events(
                         similarity["duration_similarity_0_1"],
                         similarity["onset_similarity_0_1"],
                         similarity["peak_position_similarity_0_1"],
+                        similarity["event_sequence_similarity_0_1"],
                     ]
                 )
             )
         )
-    aggregate_score = float(np.mean(list(aggregate.values())))
+    aggregate_score = float(
+        np.mean(
+            [
+                aggregate["active_ratio_similarity_0_1"],
+                aggregate["duration_similarity_0_1"],
+                aggregate["onset_similarity_0_1"],
+                aggregate["peak_position_similarity_0_1"],
+                aggregate["event_sequence_similarity_0_1"],
+            ]
+        )
+    )
     overall_score = float(np.mean([aggregate_score, *scores]))
     return {
         "event_alignment_score_0_1": max(0.0, min(1.0, overall_score)),
@@ -819,7 +1174,16 @@ def _profile_model_score(
         frame_mean,
         frame_covariance,
     )
-    summary = au_summary(sequence, au_ids=supported_au_ids)
+    summary_pairs = [
+        pair
+        for pair in _summary_pairs(full_au_ids)
+        if pair[0] in supported_au_ids and pair[1] in supported_au_ids
+    ]
+    summary = au_summary(
+        sequence,
+        au_ids=supported_au_ids,
+        coactivation_pairs=summary_pairs,
+    )
     summary_indices = _summary_feature_indices(
         full_au_ids,
         supported_au_ids,
@@ -865,18 +1229,42 @@ def _public_au_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
     return metadata
 
 
+def _quality_mask(
+    sequence: np.ndarray,
+    metadata: dict[str, Any],
+) -> np.ndarray:
+    frame_quality = np.asarray(
+        metadata.get("_frame_quality", np.ones(len(sequence))),
+        dtype=np.float32,
+    )
+    if len(frame_quality) != len(sequence):
+        raise ValueError(
+            "AU frame-quality metadata does not match the sequence length."
+        )
+    quality = metadata.get("quality", {})
+    if not bool(quality.get("available")):
+        return np.ones(len(sequence), dtype=bool)
+    return frame_quality >= DEFAULT_FACE_QUALITY_THRESHOLD
+
+
+def _frame_indices(metadata: dict[str, Any], length: int) -> np.ndarray:
+    values = metadata.get("frame_indices")
+    if values is None or len(values) != length:
+        return np.arange(length, dtype=np.int64)
+    return np.asarray(values, dtype=np.int64)
+
+
 def _quality_filtered_sequence(
     sequence: np.ndarray,
     metadata: dict[str, Any],
 ) -> tuple[np.ndarray, np.ndarray]:
     frame_quality = np.asarray(
-        metadata.pop("_frame_quality", np.ones(len(sequence))),
+        metadata.get("_frame_quality", np.ones(len(sequence))),
         dtype=np.float32,
     )
-    quality = metadata.get("quality", {})
-    usable = frame_quality >= DEFAULT_FACE_QUALITY_THRESHOLD
+    usable = _quality_mask(sequence, metadata)
     if (
-        bool(quality.get("available"))
+        bool(metadata.get("quality", {}).get("available"))
         and int(np.sum(usable)) >= 3
     ):
         return sequence[usable], frame_quality
@@ -891,13 +1279,22 @@ def _presence_report(
     selected_class: str,
     *,
     active_threshold: float,
+    valid_mask: np.ndarray | None = None,
 ) -> dict[str, Any]:
     supported = tuple(
         int(value) for value in metadata.get("supported_au_ids", [])
     )
+    if valid_mask is None:
+        valid_mask = np.ones(len(sequence), dtype=bool)
+    else:
+        valid_mask = np.asarray(valid_mask, dtype=bool)
+        if len(valid_mask) != len(sequence):
+            raise ValueError(
+                "Presence sequence and valid mask must have the same length."
+            )
     activation_ratio: dict[str, float | None] = {}
     for index, au_id in enumerate(au_ids):
-        values = sequence[:, index]
+        values = sequence[valid_mask, index]
         finite = values[np.isfinite(values)]
         activation_ratio[str(au_id)] = (
             float(np.mean(finite >= active_threshold))
@@ -953,7 +1350,71 @@ def _presence_report(
         "activation_ratio": activation_ratio,
         "fit_score_0_1": fit_score,
         "quality": metadata.get("quality"),
+        "valid_frame_count": int(np.sum(valid_mask)),
+        "valid_frame_ratio": float(np.mean(valid_mask)),
     }
+
+
+def _combine_personal_au_scores(
+    class_scores: dict[str, dict[str, Any]],
+    presence_scores: dict[str, float | None],
+) -> None:
+    """Fuse intensity and presence evidence when both are available."""
+    for class_name, score in class_scores.items():
+        intensity_score = float(score["personal_au_score_0_1"])
+        presence_score = presence_scores.get(class_name)
+        score["intensity_personal_au_score_0_1"] = intensity_score
+        score["presence_fit_score_0_1"] = presence_score
+        if presence_score is None or not math.isfinite(float(presence_score)):
+            continue
+        score["personal_au_score_0_1"] = float(
+            max(
+                0.0,
+                min(
+                    1.0,
+                    INTENSITY_PERSONAL_SCORE_WEIGHT * intensity_score
+                    + PRESENCE_PERSONAL_SCORE_WEIGHT * float(presence_score),
+                ),
+            )
+        )
+        score["personal_au_score_aggregation"] = (
+            f"{INTENSITY_PERSONAL_SCORE_WEIGHT:.2f} * intensity + "
+            f"{PRESENCE_PERSONAL_SCORE_WEIGHT:.2f} * presence"
+        )
+
+
+def _add_auto_selection_scores(
+    class_scores: dict[str, dict[str, Any]],
+) -> None:
+    """Create a cross-class score that is not biased by class thresholds."""
+    if not class_scores:
+        return
+    logits = np.asarray(
+        [
+            -float(score["summary_distance"])
+            - 0.5 * float(score["frame_anomaly_ratio"])
+            for score in class_scores.values()
+        ],
+        dtype=np.float64,
+    )
+    logits -= float(np.max(logits))
+    probabilities = np.exp(logits)
+    probabilities /= max(float(np.sum(probabilities)), 1e-12)
+    has_presence = any(
+        score.get("presence_fit_score_0_1") is not None
+        for score in class_scores.values()
+    )
+    for probability, score in zip(probabilities, class_scores.values()):
+        intensity_rank = float(probability)
+        presence_score = score.get("presence_fit_score_0_1")
+        score["auto_intensity_rank_score_0_1"] = intensity_rank
+        if has_presence and presence_score is not None:
+            score["auto_selection_score_0_1"] = float(
+                INTENSITY_PERSONAL_SCORE_WEIGHT * intensity_rank
+                + PRESENCE_PERSONAL_SCORE_WEIGHT * float(presence_score)
+            )
+        else:
+            score["auto_selection_score_0_1"] = intensity_rank
 
 
 def _au_time_curve(
@@ -961,8 +1422,29 @@ def _au_time_curve(
     au_ids: tuple[int, ...],
     *,
     max_points: int = 96,
+    frame_indices: Iterable[int] | None = None,
+    valid_mask: np.ndarray | None = None,
 ) -> list[dict[str, Any]]:
     sequence = np.asarray(sequence, dtype=np.float32)
+    if frame_indices is None:
+        frame_indices_array = np.arange(len(sequence), dtype=np.int64)
+    else:
+        frame_indices_array = np.asarray(
+            tuple(int(value) for value in frame_indices),
+            dtype=np.int64,
+        )
+    if len(frame_indices_array) != len(sequence):
+        raise ValueError(
+            "Sequence and time-curve frame indices must have the same length."
+        )
+    if valid_mask is None:
+        valid_mask_array = np.ones(len(sequence), dtype=bool)
+    else:
+        valid_mask_array = np.asarray(valid_mask, dtype=bool)
+    if len(valid_mask_array) != len(sequence):
+        raise ValueError(
+            "Sequence and time-curve valid mask must have the same length."
+        )
     if len(sequence) <= max_points:
         indices = np.arange(len(sequence), dtype=np.int64)
     else:
@@ -971,8 +1453,19 @@ def _au_time_curve(
         ).astype(np.int64)
     return [
         {
-            "frame_index": int(index),
-            "position": float(index / max(len(sequence) - 1, 1)),
+            "frame_index": int(frame_indices_array[index]),
+            "position": float(
+                (
+                    int(frame_indices_array[index])
+                    - int(frame_indices_array[0])
+                )
+                / max(
+                    int(frame_indices_array[-1])
+                    - int(frame_indices_array[0]),
+                    1,
+                )
+            ),
+            "valid": bool(valid_mask_array[index]),
             "values": {
                 str(au_id): float(sequence[index, column])
                 for column, au_id in enumerate(au_ids)
@@ -1000,26 +1493,25 @@ def _legacy_score_au_compliance(
     if generated_ids != au_ids:
         raise ValueError("Generated AU columns do not match the profile.")
 
-    generated_frame_quality = np.asarray(
-        generated_meta.pop("_frame_quality", np.ones(len(generated))),
-        dtype=np.float32,
-    )
     generated_quality = generated_meta.get("quality", {})
-    generated_usable = (
-        generated_frame_quality >= DEFAULT_FACE_QUALITY_THRESHOLD
+    generated_quality_mask = _quality_mask(
+        generated,
+        generated_meta,
     )
     generated_scored = (
-        generated[generated_usable]
+        generated[generated_quality_mask]
         if bool(generated_quality.get("available"))
-        and int(np.sum(generated_usable)) >= 3
+        and int(np.sum(generated_quality_mask)) >= 3
         else generated
     )
     generated_temporal = temporal_event_features(
-        generated_scored,
+        generated,
         au_ids=au_ids,
         active_threshold=float(
             profile.get("active_threshold", DEFAULT_ACTIVE_THRESHOLD)
         ),
+        valid_mask=generated_quality_mask,
+        frame_indices=_frame_indices(generated_meta, len(generated)),
     )
 
     classes = profile["classes"]
@@ -1052,16 +1544,12 @@ def _legacy_score_au_compliance(
         )
         if driver_ids != au_ids:
             raise ValueError("Driver AU columns do not match the profile.")
-        driver_frame_quality = np.asarray(
-            driver_meta.pop("_frame_quality", np.ones(len(driver))),
-            dtype=np.float32,
-        )
         driver_quality = driver_meta.get("quality", {})
-        driver_usable = driver_frame_quality >= DEFAULT_FACE_QUALITY_THRESHOLD
+        driver_quality_mask = _quality_mask(driver, driver_meta)
         driver_scored = (
-            driver[driver_usable]
+            driver[driver_quality_mask]
             if bool(driver_quality.get("available"))
-            and int(np.sum(driver_usable)) >= 3
+            and int(np.sum(driver_quality_mask)) >= 3
             else driver
         )
         driver_expression_score = dtw_similarity(
@@ -1069,11 +1557,13 @@ def _legacy_score_au_compliance(
             driver_scored,
         )
         driver_temporal = temporal_event_features(
-            driver_scored,
+            driver,
             au_ids=au_ids,
             active_threshold=float(
                 profile.get("active_threshold", DEFAULT_ACTIVE_THRESHOLD)
             ),
+            valid_mask=driver_quality_mask,
+            frame_indices=_frame_indices(driver_meta, len(driver)),
         )
         driver_temporal_alignment = compare_temporal_events(
             generated_temporal,
@@ -1145,8 +1635,8 @@ def _legacy_score_au_compliance(
 
     quality_status = str(generated_quality.get("status", "not_available"))
     evidence_quality_status = (
-        "uncertain"
-        if quality_status == "uncertain"
+        quality_status
+        if quality_status in {"pass", "partial", "uncertain"}
         else "available"
     )
     quality_confidence = (
@@ -1187,7 +1677,7 @@ def _legacy_score_au_compliance(
         "evidence_confidence_0_1": quality_confidence,
         "uncertainty_reasons": (
             ["face_quality_low"]
-            if evidence_quality_status == "uncertain"
+            if evidence_quality_status in {"partial", "uncertain"}
             else []
         ),
         "quality": {
@@ -1236,6 +1726,14 @@ def score_au_compliance(
         au_ids.index(au_id) for au_id in generated_supported
     ]
     generated_sequence = generated[:, generated_indices]
+    generated_quality_mask = _quality_mask(
+        generated_sequence,
+        generated_meta,
+    )
+    generated_frame_indices = _frame_indices(
+        generated_meta,
+        len(generated_sequence),
+    )
     generated_scored, _ = _quality_filtered_sequence(
         generated_sequence,
         generated_meta,
@@ -1245,9 +1743,11 @@ def score_au_compliance(
         profile.get("active_threshold", DEFAULT_ACTIVE_THRESHOLD)
     )
     generated_temporal = temporal_event_features(
-        generated_scored,
+        generated_sequence,
         au_ids=generated_supported,
         active_threshold=active_threshold,
+        valid_mask=generated_quality_mask,
+        frame_indices=generated_frame_indices,
     )
 
     classes = profile["classes"]
@@ -1260,6 +1760,46 @@ def score_au_compliance(
         )
         for class_name, model in classes.items()
     }
+    presence_au_ids = tuple(
+        int(value) for value in profile.get(
+            "presence_au_ids",
+            DEFAULT_PRESENCE_AU_IDS,
+        )
+    )
+    presence_reports: dict[str, dict[str, Any]] = {}
+    try:
+        generated_presence, _, generated_presence_meta = load_au_table(
+            generated_au_path,
+            presence_au_ids,
+            feature_type="presence",
+            strict=False,
+            intensity_scale=1.0,
+        )
+        generated_presence_quality_mask = _quality_mask(
+            generated_presence,
+            generated_presence_meta,
+        )
+        for class_name in classes:
+            presence_reports[class_name] = _presence_report(
+                generated_presence,
+                presence_au_ids,
+                generated_presence_meta,
+                profile,
+                class_name,
+                active_threshold=active_threshold,
+                valid_mask=generated_presence_quality_mask,
+            )
+    except ValueError:
+        presence_reports = {}
+
+    _combine_personal_au_scores(
+        class_scores,
+        {
+            class_name: report.get("fit_score_0_1")
+            for class_name, report in presence_reports.items()
+        },
+    )
+    _add_auto_selection_scores(class_scores)
     if expected_class:
         if expected_class not in class_scores:
             raise ValueError(
@@ -1269,33 +1809,11 @@ def score_au_compliance(
     else:
         selected_class = max(
             class_scores,
-            key=lambda name: class_scores[name]["personal_au_score_0_1"],
+            key=lambda name: class_scores[name]["auto_selection_score_0_1"],
         )
     selected = class_scores[selected_class]
-
-    presence_au_ids = tuple(
-        int(value) for value in profile.get(
-            "presence_au_ids",
-            DEFAULT_PRESENCE_AU_IDS,
-        )
-    )
-    try:
-        generated_presence, _, generated_presence_meta = load_au_table(
-            generated_au_path,
-            presence_au_ids,
-            feature_type="presence",
-            strict=False,
-            intensity_scale=1.0,
-        )
-        generated_presence_report = _presence_report(
-            generated_presence,
-            presence_au_ids,
-            generated_presence_meta,
-            profile,
-            selected_class,
-            active_threshold=active_threshold,
-        )
-    except ValueError:
+    generated_presence_report = presence_reports.get(selected_class)
+    if generated_presence_report is None:
         generated_presence_report = {
             "feature_type": "presence",
             "supported_au_ids": [],
@@ -1315,7 +1833,10 @@ def score_au_compliance(
     driver_similarity_proxy: float | None = None
     driver_sequence: np.ndarray | None = None
     driver_scored: np.ndarray | None = None
+    driver_quality_mask: np.ndarray | None = None
+    driver_frame_indices: np.ndarray | None = None
     driver_supported: tuple[int, ...] = ()
+    common_driver_au_ids: tuple[int, ...] = ()
     if driver_au_path:
         driver, driver_ids, driver_meta = load_au_table(
             driver_au_path,
@@ -1334,39 +1855,64 @@ def score_au_compliance(
             if au_id in driver_supported
         )
         if common_driver_au_ids:
+            generated_driver_indices = [
+                generated_supported.index(au_id)
+                for au_id in common_driver_au_ids
+            ]
             driver_indices = [
                 au_ids.index(au_id) for au_id in common_driver_au_ids
             ]
+            generated_driver_sequence = generated_sequence[
+                :, generated_driver_indices
+            ]
+            generated_driver_scored = generated_scored[
+                :, generated_driver_indices
+            ]
+            generated_driver_quality_mask = generated_quality_mask
             driver_sequence = driver[:, driver_indices]
+            driver_quality_mask = _quality_mask(driver_sequence, driver_meta)
+            driver_frame_indices = _frame_indices(
+                driver_meta,
+                len(driver_sequence),
+            )
             driver_scored, _ = _quality_filtered_sequence(
                 driver_sequence,
                 driver_meta,
             )
             driver_dtw_score = dtw_similarity(
-                generated_scored,
+                generated_driver_scored,
                 driver_scored,
             )
             driver_velocity_score = velocity_similarity(
-                generated_scored,
+                generated_driver_scored,
                 driver_scored,
             )
             driver_expression_score = float(
                 np.mean([driver_dtw_score, driver_velocity_score])
             )
             driver_temporal = temporal_event_features(
-                driver_scored,
+                driver_sequence,
                 au_ids=common_driver_au_ids,
                 active_threshold=active_threshold,
+                valid_mask=driver_quality_mask,
+                frame_indices=driver_frame_indices,
+            )
+            generated_driver_temporal = temporal_event_features(
+                generated_driver_sequence,
+                au_ids=common_driver_au_ids,
+                active_threshold=active_threshold,
+                valid_mask=generated_driver_quality_mask,
+                frame_indices=generated_frame_indices,
             )
             driver_temporal_alignment = compare_temporal_events(
-                generated_temporal,
+                generated_driver_temporal,
                 driver_temporal,
             )
             driver_temporal_alignment_score = float(
                 driver_temporal_alignment["event_alignment_score_0_1"]
             )
             generated_summary = au_summary(
-                generated_scored,
+                generated_driver_scored,
                 au_ids=common_driver_au_ids,
             )
             driver_summary = au_summary(
@@ -1419,11 +1965,18 @@ def score_au_compliance(
                 for au_id in common_classifier_au_ids
             ]
             classifier_sequence = generated_scored[:, classifier_indices]
+            classifier_pairs = [
+                pair
+                for pair in _summary_pairs(classifier_au_ids)
+                if pair[0] in common_classifier_au_ids
+                and pair[1] in common_classifier_au_ids
+            ]
             classifier_risk = score_leakage_classifier(
                 classifier,
                 au_summary(
                     classifier_sequence,
                     au_ids=common_classifier_au_ids,
+                    coactivation_pairs=classifier_pairs,
                 ),
                 feature_indices=_summary_feature_indices(
                     classifier_au_ids,
@@ -1458,12 +2011,14 @@ def score_au_compliance(
         au_id for au_id in au_ids if au_id not in generated_supported
     ]
     uncertainty_reasons: list[str] = []
-    if quality_status == "uncertain":
+    if quality_status in {"partial", "uncertain"}:
         uncertainty_reasons.append("face_quality_low")
     if missing_intensity_au_ids:
         uncertainty_reasons.append("missing_intensity_au")
     evidence_quality_status = (
-        "uncertain" if uncertainty_reasons else "available"
+        quality_status
+        if quality_status in {"pass", "partial", "uncertain"}
+        else ("uncertain" if uncertainty_reasons else "available")
     )
     support_ratio = len(generated_supported) / max(len(au_ids), 1)
     base_confidence = (
@@ -1531,11 +2086,30 @@ def score_au_compliance(
         "driver_temporal_alignment": driver_temporal_alignment,
         "time_curve": {
             "au_ids": list(generated_supported),
+            "driver_supported_au_ids": list(driver_supported),
+            "comparison_au_ids": list(common_driver_au_ids),
             "generated": _au_time_curve(
                 generated_sequence,
                 generated_supported,
+                frame_indices=generated_frame_indices,
+                valid_mask=generated_quality_mask,
             ),
-            "driver": driver_curve,
+            "driver": (
+                _au_time_curve(
+                    driver_sequence,
+                    tuple(
+                        au_id
+                        for au_id in generated_supported
+                        if au_id in driver_supported
+                    ),
+                    frame_indices=driver_frame_indices,
+                    valid_mask=driver_quality_mask,
+                )
+                if driver_sequence is not None
+                and driver_frame_indices is not None
+                and driver_quality_mask is not None
+                else driver_curve
+            ),
         },
         "generated_au": generated_meta,
         "driver_au": driver_meta,
@@ -1605,6 +2179,8 @@ def fit_leakage_classifier(
     model = {
         "schema_version": AU_CLASSIFIER_SCHEMA,
         "au_ids": list(au_ids),
+        "supported_au_ids": list(au_ids),
+        "missing_au_ids": [],
         "feature_type": "intensity",
         "summary_layout": {
             "blocks": ["median", "mad", "active_ratio"],
@@ -1660,9 +2236,18 @@ def fuse_compliance_scores(
 ) -> dict[str, Any]:
     """Fuse scores without hiding unavailable evidence."""
     components = [
-        (0.40, identity_score_0_1),
-        (0.40, personal_au_score_0_1),
-        (0.20, driver_expression_score_0_1),
+        (
+            COMPLIANCE_COMPONENT_WEIGHTS["identity"],
+            identity_score_0_1,
+        ),
+        (
+            COMPLIANCE_COMPONENT_WEIGHTS["personal_au"],
+            personal_au_score_0_1,
+        ),
+        (
+            COMPLIANCE_COMPONENT_WEIGHTS["driver_expression"],
+            driver_expression_score_0_1,
+        ),
     ]
     valid = [
         (weight, float(score))
@@ -1716,6 +2301,7 @@ def fuse_compliance_scores(
         "person_likeness_score_0_1": likeness,
         "score_weight_coverage": weight_sum,
         "leakage_risk_0_1": leakage_risk_0_1,
+        "weights": COMPLIANCE_COMPONENT_WEIGHTS,
         "decision": decision,
         "decision_reasons": reasons,
         "missing_evidence": missing_evidence,
@@ -1789,7 +2375,7 @@ def fuse_wangxing_targeted_scores(
     for reason in uncertainty_reasons:
         if reason not in reasons:
             reasons.append(str(reason))
-    if evidence_quality_status == "uncertain":
+    if evidence_quality_status in {"partial", "uncertain"}:
         if "evidence_quality_low" not in reasons:
             reasons.append("evidence_quality_low")
 
@@ -1797,7 +2383,7 @@ def fuse_wangxing_targeted_scores(
         decision = "block"
     elif personal_au_score_0_1 is None:
         decision = "review"
-    elif evidence_quality_status == "uncertain":
+    elif evidence_quality_status in {"partial", "uncertain"}:
         decision = "review"
     elif reasons:
         decision = "review"
@@ -1817,6 +2403,10 @@ def fuse_wangxing_targeted_scores(
         },
         "evidence_quality_status": evidence_quality_status,
         "evidence_confidence_0_1": evidence_confidence_0_1,
+        "aggregation": (
+            "mean of available personal AU, driver expression, and "
+            "temporal alignment evidence; no fixed identity weight"
+        ),
         "thresholds": {
             "personal_au": personal_au_threshold,
             "driver_expression": driver_expression_threshold,

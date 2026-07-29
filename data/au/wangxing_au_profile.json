@@ -14,6 +14,21 @@
     25,
     26
   ],
+  "supported_au_ids": [
+    1,
+    2,
+    4,
+    5,
+    6,
+    9,
+    12,
+    15,
+    17,
+    20,
+    25,
+    26
+  ],
+  "missing_au_ids": [],
   "feature_type": "intensity",
   "presence_au_ids": [
     1,
@@ -29,6 +44,21 @@
     23,
     24
   ],
+  "supported_presence_au_ids": [
+    1,
+    2,
+    4,
+    6,
+    7,
+    10,
+    12,
+    14,
+    15,
+    17,
+    23,
+    24
+  ],
+  "missing_presence_au_ids": [],
   "presence_classes": {
     "sadness": {
       "sequence_count": 10,

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import os
 import tempfile
 import unittest
@@ -23,6 +24,7 @@ from evaluator.holistic_evaluator import (
     _read_reference_image,
     evaluate_aesthetics,
     evaluate_all,
+    evaluate_full_reference,
 )
 from evaluator.video_metrics import (
     VideoInfo,
@@ -90,6 +92,21 @@ class HolisticEvaluatorTests(unittest.TestCase):
         self.assertEqual(result_indices.tolist(), [0, 10, 20, 30])
         self.assertEqual(gt_indices.tolist(), [0, 5, 10, 15])
         self.assertAlmostEqual(float(timestamps[-1]), 1.0, places=5)
+
+    def test_reference_sampling_never_uses_frame_after_video_end(self) -> None:
+        result_info = VideoInfo("result", 30.0, 210, 64, 64, 7.0)
+        gt_info = VideoInfo("gt", 30.0, 210, 64, 64, 7.0)
+
+        count, result_indices, gt_indices, timestamps = _aligned_sample_indices(
+            result_info,
+            gt_info,
+            max_frames=64,
+        )
+
+        self.assertEqual(count, len(timestamps))
+        self.assertLessEqual(int(result_indices.max()), 209)
+        self.assertLessEqual(int(gt_indices.max()), 209)
+        self.assertLessEqual(float(timestamps.max()), 209 / 30)
 
     def test_reference_image_reads_unicode_paths(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -389,6 +406,22 @@ class HolisticEvaluatorTests(unittest.TestCase):
             self.assertGreater(len(result["frame_records"]), 0)
             self.assertIn("weighted_score_0_1", result)
             self.assertIn("gt_frame", result["frame_records"][0])
+
+    def test_identical_videos_have_infinite_psnr(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            result_path = Path(directory) / "result.mp4"
+            _write_video(result_path)
+
+            result = evaluate_full_reference(
+                result_path,
+                result_path,
+                max_frames=4,
+                calculate_lpips=False,
+                device="cpu",
+            )
+
+        self.assertTrue(math.isinf(result["metrics"]["psnr_db"]))
+        self.assertGreater(result["metrics"]["psnr_db"], 0)
 
     def test_empty_manual_aesthetic_score_uses_vbench(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

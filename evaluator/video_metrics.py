@@ -125,6 +125,7 @@ def _sample_timestamps(
             step,
             dtype=np.float64,
         )
+        timestamps = np.minimum(timestamps, end_seconds)
         if timestamps.size == 0 or timestamps[-1] < end_seconds - 1e-8:
             timestamps = np.append(timestamps, end_seconds)
     else:
@@ -186,6 +187,16 @@ def _aligned_sample_indices(
         ground_truth_indices = np.rint(
             timestamps * ground_truth_info.fps
         ).astype(np.int64)
+        result_indices = np.clip(
+            result_indices,
+            0,
+            max(result_info.frame_count - 1, 0),
+        )
+        ground_truth_indices = np.clip(
+            ground_truth_indices,
+            0,
+            max(ground_truth_info.frame_count - 1, 0),
+        )
         return sample_count, result_indices, ground_truth_indices, timestamps
 
     result_indices = _sample_indices(result_info.frame_count, sample_count)
