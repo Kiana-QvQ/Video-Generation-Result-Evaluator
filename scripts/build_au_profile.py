@@ -9,7 +9,12 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from evaluator.au_compliance import DEFAULT_AU_IDS, fit_au_profile, load_au_table
+from evaluator.au_compliance import (
+    DEFAULT_AU_IDS,
+    DEFAULT_PRESENCE_AU_IDS,
+    fit_au_profile,
+    load_au_table,
+)
 from evaluator.paths import project_path
 
 
@@ -44,6 +49,7 @@ def main() -> int:
     au_root = project_path(args.au_root)
     output = project_path(args.output)
     labeled_sequences: list[tuple[str, object]] = []
+    presence_sequences: list[tuple[str, object]] = []
     missing: list[str] = []
     for record in manifest["records"]:
         if (
@@ -55,9 +61,27 @@ def main() -> int:
         if au_path is None:
             missing.append(record["relative_path"])
             continue
-        sequence, _, _ = load_au_table(au_path, DEFAULT_AU_IDS)
+        sequence, _, _ = load_au_table(
+            au_path,
+            DEFAULT_AU_IDS,
+            feature_type="intensity",
+            strict=True,
+        )
         labeled_sequences.append(
             (record["expression_class"], sequence)
+        )
+        try:
+            presence, _, _ = load_au_table(
+                au_path,
+                DEFAULT_PRESENCE_AU_IDS,
+                feature_type="presence",
+                strict=True,
+                intensity_scale=1.0,
+            )
+        except ValueError:
+            continue
+        presence_sequences.append(
+            (record["expression_class"], presence)
         )
 
     if missing:
@@ -69,7 +93,13 @@ def main() -> int:
             "No labeled AU files found. Run a mature AU extractor first."
         )
 
-    profile = fit_au_profile(labeled_sequences, output)
+    profile = fit_au_profile(
+        labeled_sequences,
+        output,
+        au_ids=DEFAULT_AU_IDS,
+        presence_labeled_sequences=presence_sequences,
+        presence_au_ids=DEFAULT_PRESENCE_AU_IDS,
+    )
     print(json.dumps({
         "classes": {
             name: model["sample_count"]

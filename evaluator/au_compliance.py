@@ -5,21 +5,65 @@ import json
 import math
 import re
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Iterable, Literal
 
 import numpy as np
 
 
-AU_PROFILE_SCHEMA = "wangxing_au_profile_v1"
-AU_CLASSIFIER_SCHEMA = "au_leakage_classifier_v1"
-AU_EVALUATOR_VERSION = "wangxing_au_eval_v2"
+AU_PROFILE_SCHEMA = "wangxing_au_profile_v2"
+AU_CLASSIFIER_SCHEMA = "au_leakage_classifier_v2"
+AU_EVALUATOR_VERSION = "wangxing_au_eval_v3"
 AU_QUALITY_SCHEMA = "face_quality_gate_v1"
-DEFAULT_AU_IDS = (1, 4, 6, 12, 15, 25)
+DEFAULT_INTENSITY_AU_IDS = (
+    1,
+    2,
+    4,
+    5,
+    6,
+    9,
+    12,
+    15,
+    17,
+    20,
+    25,
+    26,
+)
+DEFAULT_PRESENCE_AU_IDS = (
+    1,
+    2,
+    4,
+    6,
+    7,
+    10,
+    12,
+    14,
+    15,
+    17,
+    23,
+    24,
+)
+LEGACY_AU_IDS = (1, 4, 6, 12, 15, 25)
+# Backwards-compatible alias for callers that mean the primary intensity set.
+DEFAULT_AU_IDS = DEFAULT_INTENSITY_AU_IDS
 DEFAULT_ACTIVE_THRESHOLD = 0.20
 DEFAULT_WINDOW_SIZE = 32
 DEFAULT_WINDOW_STRIDE = 16
 DEFAULT_FACE_QUALITY_THRESHOLD = 0.30
 DEFAULT_FACE_VALID_RATIO_THRESHOLD = 0.35
+DEFAULT_COACTIVATION_PAIRS = (
+    (1, 2),
+    (1, 4),
+    (1, 6),
+    (2, 4),
+    (4, 6),
+    (4, 7),
+    (6, 12),
+    (9, 12),
+    (12, 15),
+    (12, 25),
+    (17, 20),
+    (20, 26),
+)
 
 
 def _canonical_au_id(value: str) -> int | None:
@@ -36,11 +80,24 @@ def _canonical_au_id(value: str) -> int | None:
 
 def _column_priority(name: str) -> int:
     normalized = str(name).lower().replace(" ", "")
-    if "_r" in normalized or "intensity" in normalized:
+    if _column_kind(name) == "intensity":
         return 0
-    if normalized.endswith("_c") or "presence" in normalized:
-        return 2
+    if _column_kind(name) == "presence":
+        return 0
     return 1
+
+
+def _column_kind(name: str) -> Literal["intensity", "presence", "unknown"]:
+    normalized = str(name).lower().replace(" ", "")
+    if "intensity" in normalized or normalized.endswith("_r"):
+        return "intensity"
+    if (
+        normalized.endswith("_c")
+        or "presence" in normalized
+        or re.fullmatch(r"au[_-]*0*\d{1,2}", normalized)
+    ):
+        return "presence"
+    return "unknown"
 
 
 def _parse_float(value: Any) -> float:
@@ -136,11 +193,13 @@ def _quality_metadata(
 
 def load_au_table(
     path: str | Path,
-    au_ids: Iterable[int] = DEFAULT_AU_IDS,
+    au_ids: Iterable[int] | None = None,
     *,
+    feature_type: Literal["intensity", "presence"] = "intensity",
+    strict: bool = False,
     intensity_scale: float = 5.0,
 ) -> tuple[np.ndarray, tuple[int, ...], dict[str, Any]]:
-    """Load AU intensities from LibreFace/OpenFace-like CSV or TSV output."""
+    """Load one AU task while preserving unsupported columns as NaN."""
     path = Path(path)
     with path.open("r", encoding="utf-8-sig", newline="") as handle:
         sample = handle.read(8192)
@@ -155,32 +214,56 @@ def load_au_table(
             and "pitch" in fieldnames
             and "yaw" in fieldnames
         )
-        candidates: dict[int, list[tuple[int, str]]] = {}
+        candidates: dict[str, dict[int, list[tuple[int, str]]]] = {
+            "intensity": {},
+            "presence": {},
+        }
         for name in fieldnames:
             au_id = _canonical_au_id(name)
-            if au_id is None:
+            kind = _column_kind(name)
+            if au_id is None or kind == "unknown":
                 continue
-            candidates.setdefault(au_id, []).append(
+            candidates[kind].setdefault(au_id, []).append(
                 (_column_priority(name), name)
             )
 
-        requested = tuple(int(au_id) for au_id in au_ids)
+        available_candidates = candidates[feature_type]
+        requested = (
+            tuple(int(au_id) for au_id in au_ids)
+            if au_ids is not None
+            else tuple(sorted(available_candidates))
+        )
         selected: dict[int, str] = {}
         for au_id in requested:
-            choices = sorted(candidates.get(au_id, []))
+            choices = sorted(available_candidates.get(au_id, []))
             if choices:
                 selected[au_id] = choices[0][1]
-        if not selected:
+        supported = tuple(
+            au_id for au_id in requested if au_id in selected
+        )
+        missing = tuple(
+            au_id for au_id in requested if au_id not in selected
+        )
+        if not supported:
             raise ValueError(
-                f"No AU intensity columns found in {path}. "
-                "Expected names such as AU01_r, AU12_r, AU25."
+                f"No AU {feature_type} columns found in {path}."
+            )
+        if strict and missing:
+            raise ValueError(
+                f"Missing AU {feature_type} columns in {path}: "
+                f"{', '.join(map(str, missing))}. "
+                f"Supported: {', '.join(map(str, supported))}."
             )
 
         rows: list[list[float]] = []
         frame_quality: list[float] = []
         for row in reader:
             values = [
-                _parse_float(row.get(selected[au_id], 0.0))
+                (
+                    _parse_float(row.get(selected[au_id]))
+                    if au_id in selected
+                    else float("nan")
+                )
                 for au_id in requested
             ]
             rows.append(values)
@@ -197,7 +280,13 @@ def load_au_table(
     if not rows:
         raise ValueError(f"AU file contains no rows: {path}")
     matrix = np.asarray(rows, dtype=np.float32)
-    if intensity_scale > 1.0 and float(np.max(matrix)) > 1.0 + 1e-6:
+    finite_values = matrix[np.isfinite(matrix)]
+    if (
+        feature_type == "intensity"
+        and intensity_scale > 1.0
+        and len(finite_values)
+        and float(np.max(finite_values)) > 1.0 + 1e-6
+    ):
         matrix = matrix / float(intensity_scale)
     matrix = np.clip(matrix, 0.0, 1.0)
     frame_quality_array = np.asarray(frame_quality, dtype=np.float32)
@@ -207,46 +296,102 @@ def load_au_table(
         "selected_columns": {
             str(au_id): selected.get(au_id) for au_id in requested
         },
-        "available_au_ids": sorted(candidates),
+        "feature_type": feature_type,
+        "requested_au_ids": list(requested),
+        "supported_au_ids": list(supported),
+        "missing_au_ids": list(missing),
+        "available_au_ids": sorted(available_candidates),
         "quality": _quality_metadata(
             frame_quality_array,
             available=quality_available,
+        ),
+        "_feature_mask": np.asarray(
+            [au_id in selected for au_id in requested],
+            dtype=bool,
         ),
         "_frame_quality": frame_quality_array,
     }
 
 
-def _upper_triangle_pairs(count: int) -> list[tuple[int, int]]:
-    return [
-        (left, right)
-        for left in range(count)
-        for right in range(left + 1, count)
+def _summary_pairs(au_ids: Iterable[int]) -> list[tuple[int, int]]:
+    au_ids = tuple(int(value) for value in au_ids)
+    supported = set(au_ids)
+    pairs = [
+        pair
+        for pair in DEFAULT_COACTIVATION_PAIRS
+        if pair[0] in supported and pair[1] in supported
     ]
+    if len(pairs) < min(12, len(au_ids) - 1):
+        for left, right in zip(au_ids, au_ids[1:]):
+            pair = (left, right)
+            if pair not in pairs:
+                pairs.append(pair)
+            if len(pairs) >= min(12, len(au_ids) - 1):
+                break
+    return pairs
+
+
+def _summary_feature_indices(
+    full_au_ids: Iterable[int],
+    supported_au_ids: Iterable[int],
+) -> list[int]:
+    full_au_ids = tuple(int(value) for value in full_au_ids)
+    supported = set(int(value) for value in supported_au_ids)
+    positions = {
+        au_id: index
+        for index, au_id in enumerate(full_au_ids)
+        if au_id in supported
+    }
+    indices: list[int] = []
+    block_size = len(full_au_ids)
+    for block in range(3):
+        indices.extend(block * block_size + positions[au_id] for au_id in full_au_ids if au_id in positions)
+    pairs = _summary_pairs(full_au_ids)
+    for pair_index, (left, right) in enumerate(pairs):
+        if left in supported and right in supported:
+            indices.append(block_size * 3 + pair_index)
+    return indices
 
 
 def au_summary(
     sequence: np.ndarray,
     *,
+    au_ids: Iterable[int] | None = None,
     active_threshold: float = DEFAULT_ACTIVE_THRESHOLD,
 ) -> np.ndarray:
-    """Return distribution and AU co-occurrence features for one clip."""
+    """Return robust low-dimensional AU distribution features."""
     sequence = np.asarray(sequence, dtype=np.float32)
     if sequence.ndim != 2 or sequence.shape[0] == 0:
         raise ValueError("AU sequence must have shape [frames, aus].")
+    au_ids = (
+        tuple(int(value) for value in au_ids)
+        if au_ids is not None
+        else tuple(range(sequence.shape[1]))
+    )
+    if len(au_ids) != sequence.shape[1]:
+        raise ValueError("AU ids do not match the sequence width.")
     active = sequence >= float(active_threshold)
-    pairs = _upper_triangle_pairs(sequence.shape[1])
+    pairs = _summary_pairs(au_ids)
     cooccurrence = np.asarray(
         [
             float(np.mean(active[:, left] & active[:, right]))
-            for left, right in pairs
+            for left, right in (
+                (
+                    au_ids.index(left),
+                    au_ids.index(right),
+                )
+                for left, right in pairs
+            )
         ],
         dtype=np.float32,
     )
     return np.concatenate(
         [
-            sequence.mean(axis=0),
-            sequence.std(axis=0),
-            sequence.max(axis=0),
+            np.median(sequence, axis=0),
+            np.median(
+                np.abs(sequence - np.median(sequence, axis=0)),
+                axis=0,
+            ),
             active.mean(axis=0),
             cooccurrence,
         ]
@@ -258,6 +403,9 @@ def _shrink_covariance(samples: np.ndarray) -> np.ndarray:
     dimension = samples.shape[1]
     if samples.shape[0] < 2:
         variance = np.ones(dimension, dtype=np.float64) * 0.05
+        return np.diag(variance)
+    if samples.shape[0] < 8:
+        variance = np.maximum(np.var(samples, axis=0), 0.01)
         return np.diag(variance)
     covariance = np.cov(samples, rowvar=False)
     covariance = np.atleast_2d(covariance)
@@ -314,10 +462,20 @@ def fit_au_profile(
     output_path: str | Path,
     *,
     au_ids: Iterable[int] = DEFAULT_AU_IDS,
+    presence_labeled_sequences: Iterable[tuple[str, np.ndarray]] | None = None,
+    presence_au_ids: Iterable[int] = DEFAULT_PRESENCE_AU_IDS,
     active_threshold: float = DEFAULT_ACTIVE_THRESHOLD,
 ) -> dict[str, Any]:
     """Fit target AU distributions from real target videos only."""
+    labeled_sequences = list(labeled_sequences)
     au_ids = tuple(int(value) for value in au_ids)
+    if (
+        au_ids == DEFAULT_AU_IDS
+        and labeled_sequences
+        and np.asarray(labeled_sequences[0][1]).ndim == 2
+        and np.asarray(labeled_sequences[0][1]).shape[1] == len(LEGACY_AU_IDS)
+    ):
+        au_ids = LEGACY_AU_IDS
     grouped_frames: dict[str, list[np.ndarray]] = {}
     grouped_summaries: dict[str, list[np.ndarray]] = {}
     sample_paths: dict[str, list[str]] = {}
@@ -332,6 +490,7 @@ def fit_au_profile(
         grouped_summaries.setdefault(expression_class, []).append(
             au_summary(
                 sequence,
+                au_ids=au_ids,
                 active_threshold=active_threshold,
             )
         )
@@ -351,9 +510,42 @@ def fit_au_profile(
             "sample_count": len(sample_paths[expression_class]),
         }
 
+    presence_au_ids = tuple(int(value) for value in presence_au_ids)
+    presence_by_class: dict[str, list[np.ndarray]] = {}
+    for expression_class, sequence in presence_labeled_sequences or []:
+        sequence = np.asarray(sequence, dtype=np.float32)
+        if sequence.ndim != 2 or sequence.shape[1] != len(presence_au_ids):
+            raise ValueError(
+                f"Presence sequence for {expression_class} has invalid shape "
+                f"{sequence.shape}; expected [frames, {len(presence_au_ids)}]."
+            )
+        if np.isnan(sequence).all(axis=0).any():
+            continue
+        presence_by_class.setdefault(expression_class, []).append(sequence)
+
+    presence_models: dict[str, Any] = {}
+    for expression_class, sequences in presence_by_class.items():
+        matrix = np.concatenate(sequences, axis=0)
+        presence_models[expression_class] = {
+            "sequence_count": len(sequences),
+            "mean_activation": _json_float_list(np.nanmean(matrix, axis=0)),
+            "active_ratio": _json_float_list(
+                np.nanmean(matrix >= float(active_threshold), axis=0)
+            ),
+        }
+
     profile = {
         "schema_version": AU_PROFILE_SCHEMA,
         "au_ids": list(au_ids),
+        "feature_type": "intensity",
+        "presence_au_ids": list(presence_au_ids),
+        "presence_classes": presence_models,
+        "summary_layout": {
+            "blocks": ["median", "mad", "active_ratio"],
+            "coactivation_pairs": [
+                list(pair) for pair in _summary_pairs(au_ids)
+            ],
+        },
         "active_threshold": float(active_threshold),
         "classes": models,
     }
@@ -380,8 +572,9 @@ def dtw_distance(
     right: np.ndarray,
     *,
     max_points: int = 64,
+    band_ratio: float = 0.20,
 ) -> float:
-    """Compute normalized DTW distance for AU intensity trajectories."""
+    """Compute constrained, normalized DTW distance for AU trajectories."""
     left = _downsample(np.asarray(left, dtype=np.float32), max_points)
     right = _downsample(np.asarray(right, dtype=np.float32), max_points)
     if left.ndim != 2 or right.ndim != 2 or left.shape[1] != right.shape[1]:
@@ -392,8 +585,14 @@ def dtw_distance(
         dtype=np.float64,
     )
     costs[0, 0] = 0.0
+    band = max(
+        abs(len(left) - len(right)),
+        int(math.ceil(max(len(left), len(right)) * band_ratio)),
+    )
     for i in range(1, len(left) + 1):
-        for j in range(1, len(right) + 1):
+        start = max(1, i - band)
+        end = min(len(right), i + band)
+        for j in range(start, end + 1):
             local = float(np.mean(np.abs(left[i - 1] - right[j - 1])))
             costs[i, j] = local + min(
                 costs[i - 1, j],
@@ -406,6 +605,14 @@ def dtw_distance(
 def dtw_similarity(left: np.ndarray, right: np.ndarray) -> float:
     distance = dtw_distance(left, right)
     return float(math.exp(-distance / 0.25))
+
+
+def velocity_similarity(left: np.ndarray, right: np.ndarray) -> float:
+    left = np.asarray(left, dtype=np.float32)
+    right = np.asarray(right, dtype=np.float32)
+    if len(left) < 2 or len(right) < 2:
+        return 1.0
+    return dtw_similarity(np.diff(left, axis=0), np.diff(right, axis=0))
 
 
 def _smooth_signal(signal: np.ndarray, window: int = 3) -> np.ndarray:
@@ -483,6 +690,11 @@ def temporal_event_features(
     if sequence.ndim != 2 or sequence.shape[0] == 0:
         raise ValueError("AU sequence must have shape [frames, aus].")
     au_ids = tuple(int(value) for value in au_ids)
+    if (
+        au_ids == DEFAULT_AU_IDS
+        and sequence.shape[1] == len(LEGACY_AU_IDS)
+    ):
+        au_ids = LEGACY_AU_IDS
     if sequence.shape[1] != len(au_ids):
         raise ValueError("AU ids do not match the sequence width.")
     per_au = {
@@ -583,20 +795,44 @@ def _load_profile(path: str | Path) -> dict[str, Any]:
 def _profile_model_score(
     sequence: np.ndarray,
     model: dict[str, Any],
+    *,
+    full_au_ids: tuple[int, ...],
+    supported_au_ids: tuple[int, ...],
 ) -> dict[str, Any]:
     frame_model = model["frame"]
     summary_model = model["summary"]
+    frame_indices = [
+        full_au_ids.index(au_id)
+        for au_id in supported_au_ids
+    ]
+    frame_mean = np.asarray(frame_model["mean"], dtype=np.float32)[
+        frame_indices
+    ]
+    frame_covariance = np.asarray(
+        frame_model["covariance"],
+        dtype=np.float64,
+    )[
+        np.ix_(frame_indices, frame_indices)
+    ]
     frame_distances = _mahalanobis(
         sequence,
-        np.asarray(frame_model["mean"], dtype=np.float32),
-        np.asarray(frame_model["covariance"], dtype=np.float64),
+        frame_mean,
+        frame_covariance,
     )
-    summary = au_summary(sequence)
+    summary = au_summary(sequence, au_ids=supported_au_ids)
+    summary_indices = _summary_feature_indices(
+        full_au_ids,
+        supported_au_ids,
+    )
     summary_distance = float(
         _mahalanobis(
             summary[None, :],
-            np.asarray(summary_model["mean"], dtype=np.float32),
-            np.asarray(summary_model["covariance"], dtype=np.float64),
+            np.asarray(summary_model["mean"], dtype=np.float32)[
+                summary_indices
+            ],
+            np.asarray(summary_model["covariance"], dtype=np.float64)[
+                np.ix_(summary_indices, summary_indices)
+            ],
         )[0]
     )
     frame_threshold = float(frame_model["distance_threshold"])
@@ -623,7 +859,130 @@ def _profile_model_score(
     }
 
 
-def score_au_compliance(
+def _public_au_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
+    metadata.pop("_frame_quality", None)
+    metadata.pop("_feature_mask", None)
+    return metadata
+
+
+def _quality_filtered_sequence(
+    sequence: np.ndarray,
+    metadata: dict[str, Any],
+) -> tuple[np.ndarray, np.ndarray]:
+    frame_quality = np.asarray(
+        metadata.pop("_frame_quality", np.ones(len(sequence))),
+        dtype=np.float32,
+    )
+    quality = metadata.get("quality", {})
+    usable = frame_quality >= DEFAULT_FACE_QUALITY_THRESHOLD
+    if (
+        bool(quality.get("available"))
+        and int(np.sum(usable)) >= 3
+    ):
+        return sequence[usable], frame_quality
+    return sequence, frame_quality
+
+
+def _presence_report(
+    sequence: np.ndarray,
+    au_ids: tuple[int, ...],
+    metadata: dict[str, Any],
+    profile: dict[str, Any],
+    selected_class: str,
+    *,
+    active_threshold: float,
+) -> dict[str, Any]:
+    supported = tuple(
+        int(value) for value in metadata.get("supported_au_ids", [])
+    )
+    activation_ratio: dict[str, float | None] = {}
+    for index, au_id in enumerate(au_ids):
+        values = sequence[:, index]
+        finite = values[np.isfinite(values)]
+        activation_ratio[str(au_id)] = (
+            float(np.mean(finite >= active_threshold))
+            if len(finite)
+            else None
+        )
+
+    fit_score: float | None = None
+    target = (
+        profile.get("presence_classes", {})
+        .get(selected_class, {})
+        .get("mean_activation")
+    )
+    profile_ids = tuple(
+        int(value) for value in profile.get(
+            "presence_au_ids",
+            DEFAULT_PRESENCE_AU_IDS,
+        )
+    )
+    if target:
+        common = tuple(
+            au_id
+            for au_id in profile_ids
+            if au_id in supported
+        )
+        if common:
+            generated_values = np.asarray(
+                [
+                    activation_ratio[str(au_id)]
+                    for au_id in common
+                ],
+                dtype=np.float32,
+            )
+            target_values = np.asarray(
+                [
+                    target[profile_ids.index(au_id)]
+                    for au_id in common
+                ],
+                dtype=np.float32,
+            )
+            fit_score = float(
+                max(0.0, min(1.0, 1.0 - np.mean(
+                    np.abs(generated_values - target_values)
+                )))
+            )
+
+    return {
+        "feature_type": "presence",
+        "supported_au_ids": list(supported),
+        "missing_au_ids": list(
+            au_id for au_id in au_ids if au_id not in supported
+        ),
+        "activation_ratio": activation_ratio,
+        "fit_score_0_1": fit_score,
+        "quality": metadata.get("quality"),
+    }
+
+
+def _au_time_curve(
+    sequence: np.ndarray,
+    au_ids: tuple[int, ...],
+    *,
+    max_points: int = 96,
+) -> list[dict[str, Any]]:
+    sequence = np.asarray(sequence, dtype=np.float32)
+    if len(sequence) <= max_points:
+        indices = np.arange(len(sequence), dtype=np.int64)
+    else:
+        indices = np.rint(
+            np.linspace(0, len(sequence) - 1, max_points)
+        ).astype(np.int64)
+    return [
+        {
+            "frame_index": int(index),
+            "position": float(index / max(len(sequence) - 1, 1)),
+            "values": {
+                str(au_id): float(sequence[index, column])
+                for column, au_id in enumerate(au_ids)
+            },
+        }
+        for index in indices
+    ]
+
+
+def _legacy_score_au_compliance(
     profile_path: str | Path,
     generated_au_path: str | Path,
     *,
@@ -846,6 +1205,343 @@ def score_au_compliance(
     }
 
 
+def score_au_compliance(
+    profile_path: str | Path,
+    generated_au_path: str | Path,
+    *,
+    expected_class: str | None = None,
+    driver_au_path: str | Path | None = None,
+    leakage_classifier_path: str | Path | None = None,
+) -> dict[str, Any]:
+    """Score intensity AU compliance with presence and timing evidence."""
+    profile = _load_profile(profile_path)
+    au_ids = tuple(int(value) for value in profile["au_ids"])
+    generated, generated_ids, generated_meta = load_au_table(
+        generated_au_path,
+        au_ids,
+        feature_type="intensity",
+        strict=False,
+    )
+    if generated_ids != au_ids:
+        raise ValueError("Generated AU columns do not match the profile.")
+
+    generated_supported = tuple(
+        int(value) for value in generated_meta["supported_au_ids"]
+    )
+    if not generated_supported:
+        raise ValueError(
+            "Generated AU file does not contain any supported intensity AU."
+        )
+    generated_indices = [
+        au_ids.index(au_id) for au_id in generated_supported
+    ]
+    generated_sequence = generated[:, generated_indices]
+    generated_scored, _ = _quality_filtered_sequence(
+        generated_sequence,
+        generated_meta,
+    )
+    generated_quality = generated_meta.get("quality", {})
+    active_threshold = float(
+        profile.get("active_threshold", DEFAULT_ACTIVE_THRESHOLD)
+    )
+    generated_temporal = temporal_event_features(
+        generated_scored,
+        au_ids=generated_supported,
+        active_threshold=active_threshold,
+    )
+
+    classes = profile["classes"]
+    class_scores = {
+        class_name: _profile_model_score(
+            generated_scored,
+            model,
+            full_au_ids=au_ids,
+            supported_au_ids=generated_supported,
+        )
+        for class_name, model in classes.items()
+    }
+    if expected_class:
+        if expected_class not in class_scores:
+            raise ValueError(
+                f"Unknown expected expression class: {expected_class}"
+            )
+        selected_class = expected_class
+    else:
+        selected_class = max(
+            class_scores,
+            key=lambda name: class_scores[name]["personal_au_score_0_1"],
+        )
+    selected = class_scores[selected_class]
+
+    presence_au_ids = tuple(
+        int(value) for value in profile.get(
+            "presence_au_ids",
+            DEFAULT_PRESENCE_AU_IDS,
+        )
+    )
+    try:
+        generated_presence, _, generated_presence_meta = load_au_table(
+            generated_au_path,
+            presence_au_ids,
+            feature_type="presence",
+            strict=False,
+            intensity_scale=1.0,
+        )
+        generated_presence_report = _presence_report(
+            generated_presence,
+            presence_au_ids,
+            generated_presence_meta,
+            profile,
+            selected_class,
+            active_threshold=active_threshold,
+        )
+    except ValueError:
+        generated_presence_report = {
+            "feature_type": "presence",
+            "supported_au_ids": [],
+            "missing_au_ids": list(presence_au_ids),
+            "activation_ratio": {},
+            "fit_score_0_1": None,
+            "quality": None,
+            "status": "unavailable",
+        }
+
+    driver_expression_score: float | None = None
+    driver_dtw_score: float | None = None
+    driver_velocity_score: float | None = None
+    driver_temporal_alignment_score: float | None = None
+    driver_temporal_alignment: dict[str, Any] | None = None
+    driver_meta: dict[str, Any] | None = None
+    driver_similarity_proxy: float | None = None
+    driver_sequence: np.ndarray | None = None
+    driver_scored: np.ndarray | None = None
+    driver_supported: tuple[int, ...] = ()
+    if driver_au_path:
+        driver, driver_ids, driver_meta = load_au_table(
+            driver_au_path,
+            au_ids,
+            feature_type="intensity",
+            strict=False,
+        )
+        if driver_ids != au_ids:
+            raise ValueError("Driver AU columns do not match the profile.")
+        driver_supported = tuple(
+            int(value) for value in driver_meta["supported_au_ids"]
+        )
+        common_driver_au_ids = tuple(
+            au_id
+            for au_id in generated_supported
+            if au_id in driver_supported
+        )
+        if common_driver_au_ids:
+            driver_indices = [
+                au_ids.index(au_id) for au_id in common_driver_au_ids
+            ]
+            driver_sequence = driver[:, driver_indices]
+            driver_scored, _ = _quality_filtered_sequence(
+                driver_sequence,
+                driver_meta,
+            )
+            driver_dtw_score = dtw_similarity(
+                generated_scored,
+                driver_scored,
+            )
+            driver_velocity_score = velocity_similarity(
+                generated_scored,
+                driver_scored,
+            )
+            driver_expression_score = float(
+                np.mean([driver_dtw_score, driver_velocity_score])
+            )
+            driver_temporal = temporal_event_features(
+                driver_scored,
+                au_ids=common_driver_au_ids,
+                active_threshold=active_threshold,
+            )
+            driver_temporal_alignment = compare_temporal_events(
+                generated_temporal,
+                driver_temporal,
+            )
+            driver_temporal_alignment_score = float(
+                driver_temporal_alignment["event_alignment_score_0_1"]
+            )
+            generated_summary = au_summary(
+                generated_scored,
+                au_ids=common_driver_au_ids,
+            )
+            driver_summary = au_summary(
+                driver_scored,
+                au_ids=common_driver_au_ids,
+            )
+            denominator = (
+                float(np.linalg.norm(generated_summary))
+                * float(np.linalg.norm(driver_summary))
+            )
+            if denominator > 1e-8:
+                driver_similarity_proxy = float(
+                    max(
+                        0.0,
+                        min(
+                            1.0,
+                            (
+                                float(
+                                    np.dot(
+                                        generated_summary,
+                                        driver_summary,
+                                    )
+                                )
+                                / denominator
+                                + 1.0
+                            )
+                            / 2.0,
+                        ),
+                    )
+                )
+
+    classifier_risk: float | None = None
+    if leakage_classifier_path:
+        classifier = json.loads(
+            Path(leakage_classifier_path).read_text(
+                encoding="utf-8-sig"
+            )
+        )
+        classifier_au_ids = tuple(
+            int(value) for value in classifier.get("au_ids", au_ids)
+        )
+        common_classifier_au_ids = tuple(
+            au_id
+            for au_id in generated_supported
+            if au_id in classifier_au_ids
+        )
+        if common_classifier_au_ids:
+            classifier_indices = [
+                generated_supported.index(au_id)
+                for au_id in common_classifier_au_ids
+            ]
+            classifier_sequence = generated_scored[:, classifier_indices]
+            classifier_risk = score_leakage_classifier(
+                classifier,
+                au_summary(
+                    classifier_sequence,
+                    au_ids=common_classifier_au_ids,
+                ),
+                feature_indices=_summary_feature_indices(
+                    classifier_au_ids,
+                    common_classifier_au_ids,
+                ),
+            )
+
+    personal_score = float(selected["personal_au_score_0_1"])
+    if classifier_risk is not None:
+        leakage_risk = classifier_risk
+        leakage_backend = "trained_au_leakage_classifier"
+    elif driver_similarity_proxy is not None:
+        leakage_risk = max(
+            0.0,
+            min(
+                1.0,
+                driver_similarity_proxy * (1.0 - personal_score),
+            ),
+        )
+        leakage_backend = "driver_style_overlap_proxy"
+    else:
+        leakage_risk = float(
+            max(
+                selected["frame_anomaly_ratio"],
+                1.0 - personal_score,
+            )
+        )
+        leakage_backend = "target_au_anomaly_proxy"
+
+    quality_status = str(generated_quality.get("status", "not_available"))
+    missing_intensity_au_ids = [
+        au_id for au_id in au_ids if au_id not in generated_supported
+    ]
+    uncertainty_reasons: list[str] = []
+    if quality_status == "uncertain":
+        uncertainty_reasons.append("face_quality_low")
+    if missing_intensity_au_ids:
+        uncertainty_reasons.append("missing_intensity_au")
+    evidence_quality_status = (
+        "uncertain" if uncertainty_reasons else "available"
+    )
+    support_ratio = len(generated_supported) / max(len(au_ids), 1)
+    base_confidence = (
+        0.5 * float(generated_quality.get("valid_frame_ratio", 1.0))
+        + 0.5 * float(generated_quality.get("mean_frame_quality", 1.0))
+        if generated_quality.get("available")
+        else 1.0
+    )
+    quality_confidence = max(
+        0.0,
+        min(1.0, base_confidence * support_ratio),
+    )
+
+    driver_curve = (
+        _au_time_curve(
+            driver_sequence,
+            tuple(
+                au_id
+                for au_id in generated_supported
+                if au_id in driver_supported
+            ),
+        )
+        if driver_sequence is not None
+        else None
+    )
+    _public_au_metadata(generated_meta)
+    if driver_meta is not None:
+        _public_au_metadata(driver_meta)
+    return {
+        "status": "available",
+        "backend": "au_personal_profile",
+        "evaluator_version": AU_EVALUATOR_VERSION,
+        "profile_schema_version": profile.get("schema_version"),
+        "feature_type": "intensity",
+        "au_ids": list(au_ids),
+        "supported_au_ids": list(generated_supported),
+        "missing_au_ids": missing_intensity_au_ids,
+        "presence_au_ids": list(presence_au_ids),
+        "selected_expression_class": selected_class,
+        "expected_expression_class": expected_class,
+        "class_scores": class_scores,
+        "personal_au_score_0_1": personal_score,
+        "driver_expression_score_0_1": driver_expression_score,
+        "driver_dtw_score_0_1": driver_dtw_score,
+        "driver_velocity_score_0_1": driver_velocity_score,
+        "driver_temporal_alignment_score_0_1": (
+            driver_temporal_alignment_score
+        ),
+        "driver_similarity_proxy_0_1": driver_similarity_proxy,
+        "driver_identity_leakage_risk_0_1": leakage_risk,
+        "leakage_backend": leakage_backend,
+        "evidence_quality_status": evidence_quality_status,
+        "evidence_confidence_0_1": quality_confidence,
+        "uncertainty_reasons": uncertainty_reasons,
+        "generated_presence": generated_presence_report,
+        "quality": {
+            "generated": generated_quality,
+            "driver": (
+                driver_meta.get("quality")
+                if driver_meta is not None
+                else None
+            ),
+        },
+        "temporal_events": generated_temporal,
+        "driver_temporal_alignment": driver_temporal_alignment,
+        "time_curve": {
+            "au_ids": list(generated_supported),
+            "generated": _au_time_curve(
+                generated_sequence,
+                generated_supported,
+            ),
+            "driver": driver_curve,
+        },
+        "generated_au": generated_meta,
+        "driver_au": driver_meta,
+    }
+
+
 def _sigmoid(value: float) -> float:
     value = max(-60.0, min(60.0, float(value)))
     return 1.0 / (1.0 + math.exp(-value))
@@ -878,8 +1574,13 @@ def fit_leakage_classifier(
     features: list[np.ndarray] = []
     labels: list[int] = []
     for path, label in paths:
-        sequence, _, _ = load_au_table(path, au_ids)
-        features.append(au_summary(sequence))
+        sequence, _, _ = load_au_table(
+            path,
+            au_ids,
+            feature_type="intensity",
+            strict=True,
+        )
+        features.append(au_summary(sequence, au_ids=au_ids))
         labels.append(label)
     matrix = np.stack(features).astype(np.float64)
     target = np.asarray(labels, dtype=np.float64)
@@ -904,6 +1605,13 @@ def fit_leakage_classifier(
     model = {
         "schema_version": AU_CLASSIFIER_SCHEMA,
         "au_ids": list(au_ids),
+        "feature_type": "intensity",
+        "summary_layout": {
+            "blocks": ["median", "mad", "active_ratio"],
+            "coactivation_pairs": [
+                list(pair) for pair in _summary_pairs(au_ids)
+            ],
+        },
         "feature_mean": _json_float_list(mean),
         "feature_scale": _json_float_list(scale),
         "weights": _json_float_list(weights),
@@ -923,12 +1631,18 @@ def fit_leakage_classifier(
 def score_leakage_classifier(
     classifier: dict[str, Any],
     summary: np.ndarray,
+    *,
+    feature_indices: list[int] | None = None,
 ) -> float:
     if classifier.get("schema_version") != AU_CLASSIFIER_SCHEMA:
         raise ValueError("Unsupported AU leakage classifier schema.")
     mean = np.asarray(classifier["feature_mean"], dtype=np.float64)
     scale = np.asarray(classifier["feature_scale"], dtype=np.float64)
     weights = np.asarray(classifier["weights"], dtype=np.float64)
+    if feature_indices is not None:
+        mean = mean[feature_indices]
+        scale = scale[feature_indices]
+        weights = weights[feature_indices]
     normalized = (np.asarray(summary, dtype=np.float64) - mean) / scale
     return _sigmoid(float(normalized @ weights) + classifier["intercept"])
 

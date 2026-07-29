@@ -25,6 +25,7 @@ const queueSummary = document.querySelector("#queue-summary");
 const queueActive = document.querySelector("#queue-active");
 const activeJobName = document.querySelector("#active-job-name");
 const activeJobStage = document.querySelector("#active-job-stage");
+const activeJobTime = document.querySelector("#active-job-time");
 const activeJobStatus = document.querySelector("#active-job-status");
 const activeJobCancel = document.querySelector("#active-job-cancel");
 const activeJobProgress = document.querySelector("#active-job-progress");
@@ -768,6 +769,32 @@ function queueStatusText(status) {
   return queueStatusLabels[status] ?? "未知状态";
 }
 
+function formatQueueTimestamp(value) {
+  const timestamp = Date.parse(value ?? "");
+  if (!Number.isFinite(timestamp)) return "时间未知";
+  const parts = new Intl.DateTimeFormat("zh-CN", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).formatToParts(new Date(timestamp));
+  const values = Object.fromEntries(
+    parts
+      .filter(({ type }) => type !== "literal")
+      .map(({ type, value }) => [type, value]),
+  );
+  return `${values.year}-${values.month}-${values.day} ${values.hour}:${values.minute}:${values.second}`;
+}
+
+function queueItemTimestamp(job) {
+  return `评分时间 ${formatQueueTimestamp(
+    job.finished_at || job.started_at || job.created_at || job.updated_at,
+  )}`;
+}
+
 function renderQueue(payload) {
   const jobs = Array.isArray(payload.jobs) ? payload.jobs : [];
   const active = jobs.find((job) => activeQueueStatuses.has(job.status));
@@ -780,6 +807,7 @@ function renderQueue(payload) {
     activeJobName.textContent = active.name || active.job_id;
     activeJobStage.textContent =
       queueStageLabels[active.stage]?.[1] ?? active.stage;
+    activeJobTime.textContent = queueItemTimestamp(active);
     activeJobStatus.textContent = queueStatusText(active.status);
     activeJobStatus.className = `queue-status ${escapeHtml(active.status)}`;
     activeJobCancel.dataset.jobId = active.job_id;
@@ -797,6 +825,7 @@ function renderQueue(payload) {
     activeJobCancel.dataset.jobId = "";
     activeJobCancel.disabled = true;
     activeJobCancel.textContent = "中断任务";
+    activeJobTime.textContent = "评分时间 --";
     queueActive.dataset.jobId = "";
     queueActive.classList.remove("is-selectable");
   }
@@ -829,7 +858,10 @@ function renderQueue(payload) {
           <button class="queue-item" type="button" data-job-id="${escapeHtml(job.job_id)}">
             <span class="queue-item-copy">
               <strong>${escapeHtml(job.name || job.job_id)}</strong>
-              <small>${escapeHtml(queueStageLabels[job.stage]?.[1] ?? queueStatusText(job.status))}</small>
+              <span class="queue-item-meta">
+                <small class="queue-item-stage">${escapeHtml(queueStageLabels[job.stage]?.[1] ?? queueStatusText(job.status))}</small>
+                <small class="queue-item-time">${escapeHtml(queueItemTimestamp(job))}</small>
+              </span>
             </span>
             <span class="queue-item-status ${escapeHtml(job.status)}">${queueStatusText(job.status)}</span>
           </button>
