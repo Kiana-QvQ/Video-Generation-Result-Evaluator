@@ -164,9 +164,10 @@ final evaluation report.
 ```
 
 If a driver video is available, add `--driver-video .\driver.mp4`.
-The wrapper extracts its AU CSV and includes the driver-expression score.
-The generated AU CSV is cached under `data/au/generated`; rerunning the
-command reuses it unless `--force` is supplied.
+The wrapper extracts its AU CSV and includes the driver-expression and
+event-timing scores. Add `--cache-root data\au\cache` to enable a
+content-addressed cache; rerunning the command reuses the same video's AU
+CSV unless `--force` is supplied.
 
 ## 4. Evaluate one generated result
 
@@ -187,6 +188,9 @@ The output contains:
 - ArcFace identity preservation;
 - AU personal-pattern compliance;
 - AU DTW driver-expression preservation;
+- AU onset, peak, duration, and active-period summaries;
+- driver temporal-event alignment;
+- face-quality gate status and usable-frame ratio;
 - driver identity leakage risk;
 - combined person-likeness score;
 - anomalous AU frame indices.
@@ -197,5 +201,9 @@ main evidence; identity images and driver videos are optional. The general
 `fusion` section is a broader person-likeness decision and may remain
 `review` when identity or driver evidence is not supplied.
 
-Hard thresholds should be calibrated on held-out human annotations before
-using the result as an automatic block/allow decision.
+The current automatic mode also reports an `evidence_quality_status`,
+`evidence_confidence_0_1`, and `evaluation_meta.evaluator_version`. A low
+face-quality or low usable-frame ratio forces the targeted decision to
+`review` instead of silently treating the AU score as reliable. These
+decisions are deterministic model evidence and should not be interpreted as
+human ground truth.

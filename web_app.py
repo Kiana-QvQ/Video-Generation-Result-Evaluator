@@ -31,6 +31,7 @@ from evaluator.holistic_evaluator import (
     get_model_inventory,
     get_model_recommendation,
 )
+from evaluator.au_compliance import AU_EVALUATOR_VERSION
 from evaluator.hardware_policy import resolve_policy
 from evaluator.media import transcode_video_for_browser
 from evaluator.runtime import OUTPUT_DIR, PROJECT_ROOT
@@ -60,6 +61,7 @@ WANGXING_AU_CLASSES = {
 }
 WANGXING_AU_PROFILE_PATH = PROJECT_ROOT / "data/au/wangxing_au_profile.json"
 WANGXING_AU_CLASSIFIER_PATH = PROJECT_ROOT / "data/au/au_leakage_classifier.json"
+WANGXING_AU_CACHE_ROOT = OUTPUT_DIR / "au_cache"
 
 WEB_RUNS_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -330,6 +332,7 @@ def _wangxing_au_status() -> dict[str, Any]:
     )
     return {
         "ready": ready,
+        "evaluator_version": AU_EVALUATOR_VERSION,
         "profile": str(WANGXING_AU_PROFILE_PATH),
         "classifier": str(WANGXING_AU_CLASSIFIER_PATH),
         "classes": sorted(WANGXING_AU_CLASSES),
@@ -367,6 +370,8 @@ def _run_wangxing_au_assessment(
         str(result_path),
         "--output-root",
         str(run_dir / "wangxing_au"),
+        "--cache-root",
+        str(WANGXING_AU_CACHE_ROOT),
         "--au-profile",
         str(WANGXING_AU_PROFILE_PATH),
         "--leakage-classifier",
@@ -393,12 +398,38 @@ def _run_wangxing_au_assessment(
             encoding="utf-8",
             errors="replace",
         )
-    except (OSError, subprocess.CalledProcessError) as exc:
+    except subprocess.CalledProcessError as exc:
+        diagnostics = "\n".join(
+            value
+            for value in (exc.stdout, exc.stderr)
+            if value
+        ).strip()
+        normalized_diagnostics = diagnostics.lower()
+        if (
+            "no face detected" in normalized_diagnostics
+            or "no landmarks detected" in normalized_diagnostics
+        ):
+            reason = (
+                "AU 提取未检测到可用人脸关键点。系统已尝试原始视频和 "
+                "标准化尺寸；请确认脸部没有被裁切，并保持正面、清晰、 "
+                "足够大的脸部画面。"
+            )
+        else:
+            reason = (
+                "Wang Xing AU 提取失败。请检查 LibreFace、ffmpeg "
+                "和输入视频格式。"
+            )
+        return {
+            "status": "unavailable",
+            "reason": reason,
+            "diagnostics": diagnostics[-2000:],
+            "error_type": type(exc).__name__,
+        }
+    except OSError as exc:
         return {
             "status": "unavailable",
             "reason": (
-                "Wang Xing AU extraction could not complete. "
-                "Check that the result video contains a visible face."
+                "Wang Xing AU 提取进程无法启动，请检查 LibreFace 和 ffmpeg。"
             ),
             "error_type": type(exc).__name__,
         }

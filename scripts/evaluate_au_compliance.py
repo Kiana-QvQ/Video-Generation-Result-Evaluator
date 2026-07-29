@@ -10,6 +10,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from evaluator.au_compliance import (
+    AU_EVALUATOR_VERSION,
     fuse_compliance_scores,
     fuse_wangxing_targeted_scores,
     score_au_compliance,
@@ -107,22 +108,44 @@ def main() -> int:
         driver_expression_score_0_1=au_result[
             "driver_expression_score_0_1"
         ],
+        temporal_alignment_score_0_1=au_result[
+            "driver_temporal_alignment_score_0_1"
+        ],
         leakage_risk_0_1=au_result[
             "driver_identity_leakage_risk_0_1"
         ],
+        evidence_quality_status=au_result.get(
+            "evidence_quality_status",
+            "available",
+        ),
+        evidence_confidence_0_1=au_result.get(
+            "evidence_confidence_0_1"
+        ),
+        uncertainty_reasons=au_result.get("uncertainty_reasons", []),
         personal_au_threshold=args.personal_au_threshold,
         driver_expression_threshold=args.driver_expression_threshold,
         leakage_threshold=args.leakage_threshold,
     )
     result = {
         "status": "available",
+        "evaluation_meta": {
+            "evaluator_version": AU_EVALUATOR_VERSION,
+            "profile_schema_version": au_result.get(
+                "profile_schema_version"
+            ),
+            "generated_au_path": str(generated_au),
+            "driver_au_path": (
+                str(driver_au) if driver_au is not None else None
+            ),
+        },
         "identity_preservation": identity_result,
         "au_compliance": au_result,
         "wangxing_targeted": wangxing_targeted,
         "fusion": fused,
         "threshold_note": (
-            "Calibrate hard thresholds on held-out human annotations "
-            "before production blocking."
+            "Automatic evidence mode: low face quality or low usable-frame "
+            "coverage is reported as review evidence instead of being "
+            "treated as ground truth."
         ),
     }
     serialized = json.dumps(result, ensure_ascii=False, indent=2)

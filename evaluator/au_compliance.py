@@ -12,10 +12,14 @@ import numpy as np
 
 AU_PROFILE_SCHEMA = "wangxing_au_profile_v1"
 AU_CLASSIFIER_SCHEMA = "au_leakage_classifier_v1"
+AU_EVALUATOR_VERSION = "wangxing_au_eval_v2"
+AU_QUALITY_SCHEMA = "face_quality_gate_v1"
 DEFAULT_AU_IDS = (1, 4, 6, 12, 15, 25)
 DEFAULT_ACTIVE_THRESHOLD = 0.20
 DEFAULT_WINDOW_SIZE = 32
 DEFAULT_WINDOW_STRIDE = 16
+DEFAULT_FACE_QUALITY_THRESHOLD = 0.30
+DEFAULT_FACE_VALID_RATIO_THRESHOLD = 0.35
 
 
 def _canonical_au_id(value: str) -> int | None:
@@ -47,6 +51,89 @@ def _parse_float(value: Any) -> float:
     return parsed if math.isfinite(parsed) else 0.0
 
 
+def _landmark_columns(fieldnames: Iterable[str]) -> tuple[list[str], list[str]]:
+    x_columns: list[str] = []
+    y_columns: list[str] = []
+    for name in fieldnames:
+        normalized = str(name).lower()
+        if normalized.startswith("lm_mp_") and normalized.endswith("_x"):
+            x_columns.append(name)
+        elif normalized.startswith("lm_mp_") and normalized.endswith("_y"):
+            y_columns.append(name)
+    return sorted(x_columns), sorted(y_columns)
+
+
+def _frame_quality(
+    row: dict[str, Any],
+    x_columns: list[str],
+    y_columns: list[str],
+) -> float:
+    points = [
+        (_parse_float(row.get(x_name)), _parse_float(row.get(y_name)))
+        for x_name, y_name in zip(x_columns, y_columns)
+    ]
+    valid_points = [
+        (x, y)
+        for x, y in points
+        if 0.0 <= x <= 1.0 and 0.0 <= y <= 1.0
+    ]
+    if len(valid_points) < 20:
+        return 0.0
+
+    xs = np.asarray([point[0] for point in valid_points], dtype=np.float32)
+    ys = np.asarray([point[1] for point in valid_points], dtype=np.float32)
+    width = float(np.ptp(xs))
+    height = float(np.ptp(ys))
+    face_area = width * height
+    if width < 0.05 or height < 0.05:
+        return 0.0
+
+    size_score = max(0.0, min(1.0, face_area / 0.08))
+    pose_values = [
+        abs(_parse_float(row.get("pitch"))),
+        abs(_parse_float(row.get("yaw"))),
+    ]
+    pose_score = max(
+        0.0,
+        min(1.0, 1.0 - max(pose_values) / 60.0),
+    )
+    return float(size_score * pose_score)
+
+
+def _quality_metadata(
+    frame_quality: np.ndarray,
+    *,
+    available: bool,
+) -> dict[str, Any]:
+    frame_quality = np.asarray(frame_quality, dtype=np.float32)
+    valid = frame_quality >= DEFAULT_FACE_QUALITY_THRESHOLD
+    valid_ratio = float(np.mean(valid)) if len(valid) else 0.0
+    mean_quality = float(np.mean(frame_quality)) if len(frame_quality) else 0.0
+    if not available:
+        status = "not_available"
+    elif valid_ratio < DEFAULT_FACE_VALID_RATIO_THRESHOLD:
+        status = "uncertain"
+    elif valid_ratio < 0.60:
+        status = "partial"
+    else:
+        status = "pass"
+    return {
+        "schema_version": AU_QUALITY_SCHEMA,
+        "available": available,
+        "status": status,
+        "frame_count": int(len(frame_quality)),
+        "usable_frame_count": int(np.sum(valid)),
+        "valid_frame_ratio": valid_ratio,
+        "mean_frame_quality": mean_quality,
+        "quality_threshold": DEFAULT_FACE_QUALITY_THRESHOLD,
+        "valid_ratio_threshold": DEFAULT_FACE_VALID_RATIO_THRESHOLD,
+        "low_quality_frame_indices": [
+            int(index)
+            for index in np.flatnonzero(~valid)[:40]
+        ],
+    }
+
+
 def load_au_table(
     path: str | Path,
     au_ids: Iterable[int] = DEFAULT_AU_IDS,
@@ -61,6 +148,13 @@ def load_au_table(
         delimiter = "\t" if "\t" in sample.splitlines()[0] else ","
         reader = csv.DictReader(handle, delimiter=delimiter)
         fieldnames = reader.fieldnames or []
+        landmark_x_columns, landmark_y_columns = _landmark_columns(fieldnames)
+        quality_available = bool(
+            landmark_x_columns
+            and landmark_y_columns
+            and "pitch" in fieldnames
+            and "yaw" in fieldnames
+        )
         candidates: dict[int, list[tuple[int, str]]] = {}
         for name in fieldnames:
             au_id = _canonical_au_id(name)
@@ -83,12 +177,22 @@ def load_au_table(
             )
 
         rows: list[list[float]] = []
+        frame_quality: list[float] = []
         for row in reader:
             values = [
                 _parse_float(row.get(selected[au_id], 0.0))
                 for au_id in requested
             ]
             rows.append(values)
+            frame_quality.append(
+                _frame_quality(
+                    row,
+                    landmark_x_columns,
+                    landmark_y_columns,
+                )
+                if quality_available
+                else 1.0
+            )
 
     if not rows:
         raise ValueError(f"AU file contains no rows: {path}")
@@ -96,6 +200,7 @@ def load_au_table(
     if intensity_scale > 1.0 and float(np.max(matrix)) > 1.0 + 1e-6:
         matrix = matrix / float(intensity_scale)
     matrix = np.clip(matrix, 0.0, 1.0)
+    frame_quality_array = np.asarray(frame_quality, dtype=np.float32)
     return matrix, requested, {
         "path": str(path),
         "delimiter": delimiter,
@@ -103,6 +208,11 @@ def load_au_table(
             str(au_id): selected.get(au_id) for au_id in requested
         },
         "available_au_ids": sorted(candidates),
+        "quality": _quality_metadata(
+            frame_quality_array,
+            available=quality_available,
+        ),
+        "_frame_quality": frame_quality_array,
     }
 
 
@@ -298,6 +408,170 @@ def dtw_similarity(left: np.ndarray, right: np.ndarray) -> float:
     return float(math.exp(-distance / 0.25))
 
 
+def _smooth_signal(signal: np.ndarray, window: int = 3) -> np.ndarray:
+    signal = np.asarray(signal, dtype=np.float32).reshape(-1)
+    if len(signal) < 2 or window <= 1:
+        return signal
+    window = min(int(window), len(signal))
+    kernel = np.ones(window, dtype=np.float32) / float(window)
+    padded = np.pad(
+        signal,
+        (window // 2, window - 1 - window // 2),
+        mode="edge",
+    )
+    return np.convolve(padded, kernel, mode="valid").astype(np.float32)
+
+
+def _event_summary(
+    signal: np.ndarray,
+    *,
+    active_threshold: float,
+) -> dict[str, Any]:
+    signal = _smooth_signal(signal)
+    frame_count = len(signal)
+    if frame_count == 0:
+        return {
+            "active_ratio": 0.0,
+            "event_count": 0,
+            "longest_event_ratio": 0.0,
+            "mean_event_ratio": 0.0,
+            "onset_position": None,
+            "peak_position": None,
+            "peak_intensity": 0.0,
+        }
+
+    active = signal >= float(active_threshold)
+    starts = np.flatnonzero(active & ~np.r_[False, active[:-1]])
+    ends = np.flatnonzero(active & ~np.r_[active[1:], False])
+    durations = (
+        ends - starts + 1
+        if len(starts)
+        else np.asarray([], dtype=np.int64)
+    )
+    peak_index = int(np.argmax(signal))
+    return {
+        "active_ratio": float(np.mean(active)),
+        "event_count": int(len(durations)),
+        "longest_event_ratio": (
+            float(np.max(durations) / frame_count)
+            if len(durations)
+            else 0.0
+        ),
+        "mean_event_ratio": (
+            float(np.mean(durations) / frame_count)
+            if len(durations)
+            else 0.0
+        ),
+        "onset_position": (
+            float(starts[0] / max(frame_count - 1, 1))
+            if len(starts)
+            else None
+        ),
+        "peak_position": float(peak_index / max(frame_count - 1, 1)),
+        "peak_intensity": float(signal[peak_index]),
+    }
+
+
+def temporal_event_features(
+    sequence: np.ndarray,
+    *,
+    au_ids: Iterable[int] = DEFAULT_AU_IDS,
+    active_threshold: float = DEFAULT_ACTIVE_THRESHOLD,
+) -> dict[str, Any]:
+    """Summarize AU onset, peak, duration and active periods."""
+    sequence = np.asarray(sequence, dtype=np.float32)
+    if sequence.ndim != 2 or sequence.shape[0] == 0:
+        raise ValueError("AU sequence must have shape [frames, aus].")
+    au_ids = tuple(int(value) for value in au_ids)
+    if sequence.shape[1] != len(au_ids):
+        raise ValueError("AU ids do not match the sequence width.")
+    per_au = {
+        str(au_id): _event_summary(
+            sequence[:, index],
+            active_threshold=active_threshold,
+        )
+        for index, au_id in enumerate(au_ids)
+    }
+    return {
+        "frame_count": int(sequence.shape[0]),
+        "active_threshold": float(active_threshold),
+        "aggregate": _event_summary(
+            sequence.mean(axis=1),
+            active_threshold=active_threshold,
+        ),
+        "per_au": per_au,
+    }
+
+
+def _event_similarity(
+    left: dict[str, Any],
+    right: dict[str, Any],
+) -> dict[str, float]:
+    def difference(name: str, default: float = 0.0) -> float:
+        left_value = left.get(name)
+        right_value = right.get(name)
+        if left_value is None and right_value is None:
+            return 0.0
+        if left_value is None or right_value is None:
+            return default
+        return abs(float(left_value) - float(right_value))
+
+    active_similarity = 1.0 - difference("active_ratio")
+    duration_similarity = 1.0 - difference("longest_event_ratio")
+    onset_similarity = 1.0 - difference("onset_position", 0.5)
+    peak_similarity = 1.0 - difference("peak_position")
+    return {
+        "active_ratio_similarity_0_1": max(0.0, min(1.0, active_similarity)),
+        "duration_similarity_0_1": max(0.0, min(1.0, duration_similarity)),
+        "onset_similarity_0_1": max(0.0, min(1.0, onset_similarity)),
+        "peak_position_similarity_0_1": max(0.0, min(1.0, peak_similarity)),
+    }
+
+
+def compare_temporal_events(
+    generated: dict[str, Any],
+    driver: dict[str, Any],
+) -> dict[str, Any]:
+    """Compare event timing without reducing the whole clip to one DTW score."""
+    aggregate = _event_similarity(
+        generated.get("aggregate", {}),
+        driver.get("aggregate", {}),
+    )
+    generated_per_au = generated.get("per_au", {})
+    driver_per_au = driver.get("per_au", {})
+    per_au: dict[str, Any] = {}
+    scores: list[float] = []
+    for au_id in sorted(set(generated_per_au) & set(driver_per_au)):
+        similarity = _event_similarity(
+            generated_per_au[au_id],
+            driver_per_au[au_id],
+        )
+        similarity["event_count_difference"] = abs(
+            int(generated_per_au[au_id].get("event_count", 0))
+            - int(driver_per_au[au_id].get("event_count", 0))
+        )
+        per_au[au_id] = similarity
+        scores.append(
+            float(
+                np.mean(
+                    [
+                        similarity["active_ratio_similarity_0_1"],
+                        similarity["duration_similarity_0_1"],
+                        similarity["onset_similarity_0_1"],
+                        similarity["peak_position_similarity_0_1"],
+                    ]
+                )
+            )
+        )
+    aggregate_score = float(np.mean(list(aggregate.values())))
+    overall_score = float(np.mean([aggregate_score, *scores]))
+    return {
+        "event_alignment_score_0_1": max(0.0, min(1.0, overall_score)),
+        "aggregate": aggregate,
+        "per_au": per_au,
+    }
+
+
 def _load_profile(path: str | Path) -> dict[str, Any]:
     with Path(path).open("r", encoding="utf-8-sig") as handle:
         profile = json.load(handle)
@@ -367,9 +641,31 @@ def score_au_compliance(
     if generated_ids != au_ids:
         raise ValueError("Generated AU columns do not match the profile.")
 
+    generated_frame_quality = np.asarray(
+        generated_meta.pop("_frame_quality", np.ones(len(generated))),
+        dtype=np.float32,
+    )
+    generated_quality = generated_meta.get("quality", {})
+    generated_usable = (
+        generated_frame_quality >= DEFAULT_FACE_QUALITY_THRESHOLD
+    )
+    generated_scored = (
+        generated[generated_usable]
+        if bool(generated_quality.get("available"))
+        and int(np.sum(generated_usable)) >= 3
+        else generated
+    )
+    generated_temporal = temporal_event_features(
+        generated_scored,
+        au_ids=au_ids,
+        active_threshold=float(
+            profile.get("active_threshold", DEFAULT_ACTIVE_THRESHOLD)
+        ),
+    )
+
     classes = profile["classes"]
     class_scores = {
-        class_name: _profile_model_score(generated, model)
+        class_name: _profile_model_score(generated_scored, model)
         for class_name, model in classes.items()
     }
     if expected_class:
@@ -386,6 +682,8 @@ def score_au_compliance(
     selected = class_scores[selected_class]
 
     driver_expression_score: float | None = None
+    driver_temporal_alignment_score: float | None = None
+    driver_temporal_alignment: dict[str, Any] | None = None
     driver_meta: dict[str, Any] | None = None
     driver_similarity_proxy: float | None = None
     if driver_au_path:
@@ -395,9 +693,38 @@ def score_au_compliance(
         )
         if driver_ids != au_ids:
             raise ValueError("Driver AU columns do not match the profile.")
-        driver_expression_score = dtw_similarity(generated, driver)
-        generated_summary = au_summary(generated)
-        driver_summary = au_summary(driver)
+        driver_frame_quality = np.asarray(
+            driver_meta.pop("_frame_quality", np.ones(len(driver))),
+            dtype=np.float32,
+        )
+        driver_quality = driver_meta.get("quality", {})
+        driver_usable = driver_frame_quality >= DEFAULT_FACE_QUALITY_THRESHOLD
+        driver_scored = (
+            driver[driver_usable]
+            if bool(driver_quality.get("available"))
+            and int(np.sum(driver_usable)) >= 3
+            else driver
+        )
+        driver_expression_score = dtw_similarity(
+            generated_scored,
+            driver_scored,
+        )
+        driver_temporal = temporal_event_features(
+            driver_scored,
+            au_ids=au_ids,
+            active_threshold=float(
+                profile.get("active_threshold", DEFAULT_ACTIVE_THRESHOLD)
+            ),
+        )
+        driver_temporal_alignment = compare_temporal_events(
+            generated_temporal,
+            driver_temporal,
+        )
+        driver_temporal_alignment_score = float(
+            driver_temporal_alignment["event_alignment_score_0_1"]
+        )
+        generated_summary = au_summary(generated_scored)
+        driver_summary = au_summary(driver_scored)
         denominator = (
             float(np.linalg.norm(generated_summary))
             * float(np.linalg.norm(driver_summary))
@@ -432,7 +759,7 @@ def score_au_compliance(
         )
         classifier_risk = score_leakage_classifier(
             classifier,
-            au_summary(generated),
+            au_summary(generated_scored),
         )
 
     personal_score = float(selected["personal_au_score_0_1"])
@@ -457,18 +784,63 @@ def score_au_compliance(
         )
         leakage_backend = "target_au_anomaly_proxy"
 
+    quality_status = str(generated_quality.get("status", "not_available"))
+    evidence_quality_status = (
+        "uncertain"
+        if quality_status == "uncertain"
+        else "available"
+    )
+    quality_confidence = (
+        float(
+            max(
+                0.0,
+                min(
+                    1.0,
+                    0.5 * float(generated_quality.get("valid_frame_ratio", 1.0))
+                    + 0.5 * float(
+                        generated_quality.get("mean_frame_quality", 1.0)
+                    ),
+                ),
+            )
+        )
+        if generated_quality.get("available")
+        else None
+    )
+
     return {
         "status": "available",
         "backend": "au_personal_profile",
+        "evaluator_version": AU_EVALUATOR_VERSION,
+        "profile_schema_version": profile.get("schema_version"),
         "au_ids": list(au_ids),
         "selected_expression_class": selected_class,
         "expected_expression_class": expected_class,
         "class_scores": class_scores,
         "personal_au_score_0_1": personal_score,
         "driver_expression_score_0_1": driver_expression_score,
+        "driver_temporal_alignment_score_0_1": (
+            driver_temporal_alignment_score
+        ),
         "driver_similarity_proxy_0_1": driver_similarity_proxy,
         "driver_identity_leakage_risk_0_1": leakage_risk,
         "leakage_backend": leakage_backend,
+        "evidence_quality_status": evidence_quality_status,
+        "evidence_confidence_0_1": quality_confidence,
+        "uncertainty_reasons": (
+            ["face_quality_low"]
+            if evidence_quality_status == "uncertain"
+            else []
+        ),
+        "quality": {
+            "generated": generated_quality,
+            "driver": (
+                driver_meta.get("quality")
+                if driver_meta is not None
+                else None
+            ),
+        },
+        "temporal_events": generated_temporal,
+        "driver_temporal_alignment": driver_temporal_alignment,
         "generated_au": generated_meta,
         "driver_au": driver_meta,
     }
@@ -647,17 +1019,31 @@ def fuse_wangxing_targeted_scores(
     personal_au_score_0_1: float | None,
     driver_expression_score_0_1: float | None,
     leakage_risk_0_1: float | None,
+    temporal_alignment_score_0_1: float | None = None,
+    evidence_quality_status: str = "available",
+    evidence_confidence_0_1: float | None = None,
+    uncertainty_reasons: Iterable[str] = (),
     personal_au_threshold: float = 0.50,
     driver_expression_threshold: float = 0.50,
     leakage_threshold: float = 0.50,
 ) -> dict[str, Any]:
     """Judge Wang Xing-specific expression fit without requiring identity evidence."""
-    expression_scores = [
+    driver_scores = [
         float(score)
         for score in (
-            personal_au_score_0_1,
             driver_expression_score_0_1,
+            temporal_alignment_score_0_1,
         )
+        if score is not None and math.isfinite(float(score))
+    ]
+    driver_fit = (
+        sum(driver_scores) / len(driver_scores)
+        if driver_scores
+        else None
+    )
+    expression_scores = [
+        float(score)
+        for score in (personal_au_score_0_1, driver_fit)
         if score is not None and math.isfinite(float(score))
     ]
     expression_fit = (
@@ -677,14 +1063,27 @@ def fuse_wangxing_targeted_scores(
     ):
         reasons.append("driver_expression_below_threshold")
     if (
+        temporal_alignment_score_0_1 is not None
+        and temporal_alignment_score_0_1 < driver_expression_threshold
+    ):
+        reasons.append("temporal_alignment_below_threshold")
+    if (
         leakage_risk_0_1 is not None
         and leakage_risk_0_1 >= leakage_threshold
     ):
         reasons.append("identity_leakage_risk")
+    for reason in uncertainty_reasons:
+        if reason not in reasons:
+            reasons.append(str(reason))
+    if evidence_quality_status == "uncertain":
+        if "evidence_quality_low" not in reasons:
+            reasons.append("evidence_quality_low")
 
     if leakage_risk_0_1 is not None and leakage_risk_0_1 >= leakage_threshold:
         decision = "block"
     elif personal_au_score_0_1 is None:
+        decision = "review"
+    elif evidence_quality_status == "uncertain":
         decision = "review"
     elif reasons:
         decision = "review"
@@ -698,8 +1097,12 @@ def fuse_wangxing_targeted_scores(
         "evidence": {
             "personal_au": personal_au_score_0_1,
             "driver_expression": driver_expression_score_0_1,
+            "temporal_alignment": temporal_alignment_score_0_1,
+            "driver_fit": driver_fit,
             "leakage_risk": leakage_risk_0_1,
         },
+        "evidence_quality_status": evidence_quality_status,
+        "evidence_confidence_0_1": evidence_confidence_0_1,
         "thresholds": {
             "personal_au": personal_au_threshold,
             "driver_expression": driver_expression_threshold,

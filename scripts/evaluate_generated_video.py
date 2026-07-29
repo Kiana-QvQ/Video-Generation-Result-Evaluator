@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -19,6 +21,22 @@ def _csv_path(video_path: Path, output_root: Path) -> Path:
     )
 
 
+def _video_sha256(video_path: Path) -> str:
+    digest = hashlib.sha256()
+    with video_path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _cached_csv_path(
+    video_path: Path,
+    cache_root: Path,
+    namespace: str,
+) -> Path:
+    return cache_root / namespace / f"{_video_sha256(video_path)}.csv"
+
+
 def _project_path(value: str) -> Path:
     path = Path(value)
     return path if path.is_absolute() else PROJECT_ROOT / path
@@ -32,14 +50,34 @@ def _run_extraction(
     batch_size: int,
     num_workers: int,
     force: bool,
+    cache_root: Path | None = None,
+    cache_namespace: str = "generated",
 ) -> Path:
+    if cache_root is not None:
+        output_path = _cached_csv_path(
+            video_path,
+            cache_root,
+            cache_namespace,
+        )
+        if output_path.is_file() and output_path.stat().st_size > 0 and not force:
+            print(f"CACHE HIT {output_path}")
+            return output_path
+    else:
+        output_path = _csv_path(video_path, output_root)
+    extraction_root = (
+        output_root
+        if cache_root is None
+        else output_path.parent / f".extract_{output_path.stem}"
+    )
+    extracted_path = _csv_path(video_path, extraction_root)
+
     command: list[str] = [
         str(PYTHON),
         str(EXTRACTOR),
         "--input",
         str(video_path),
         "--output-root",
-        str(output_root),
+        str(extraction_root),
         "--device",
         device,
         "--batch-size",
@@ -57,11 +95,14 @@ def _run_extraction(
             "Check that the video contains a visible, front-facing face."
         ) from exc
 
-    output_path = _csv_path(video_path, output_root)
-    if not output_path.is_file() or output_path.stat().st_size == 0:
+    if not extracted_path.is_file() or extracted_path.stat().st_size == 0:
         raise RuntimeError(
-            f"AU extraction completed without creating {output_path}"
+            f"AU extraction completed without creating {extracted_path}"
         )
+    if extracted_path != output_path:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(extracted_path, output_path)
+        shutil.rmtree(extraction_root, ignore_errors=True)
     return output_path
 
 
@@ -90,6 +131,10 @@ def _build_parser() -> argparse.ArgumentParser:
         "--driver-au-root",
         default="data/au/driver",
         help="Directory for an automatically extracted driver AU CSV.",
+    )
+    parser.add_argument(
+        "--cache-root",
+        help="Optional content-addressed cache directory for AU CSVs.",
     )
     parser.add_argument(
         "--au-profile",
@@ -149,6 +194,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     leakage_classifier = _project_path(args.leakage_classifier)
     output_root = _project_path(args.output_root)
     driver_au_root = _project_path(args.driver_au_root)
+    cache_root = _project_path(args.cache_root) if args.cache_root else None
     output = _project_path(args.output) if args.output else None
     _existing_file(str(au_profile), label="AU profile")
     _existing_file(
@@ -169,6 +215,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         batch_size=args.batch_size,
         num_workers=args.num_workers,
         force=args.force,
+        cache_root=cache_root,
+        cache_namespace="generated",
     )
     if args.driver_video:
         driver_video = _existing_file(
@@ -183,6 +231,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             batch_size=args.batch_size,
             num_workers=args.num_workers,
             force=args.force,
+            cache_root=cache_root,
+            cache_namespace="driver",
         )
 
     if output is not None:

@@ -400,10 +400,18 @@ function renderWangxingResult(result) {
   }
   const targeted = payload.wangxing_targeted ?? {};
   const au = payload.au_compliance ?? {};
+  const quality = au.quality?.generated ?? au.generated_au?.quality ?? {};
+  const temporal = au.temporal_events?.aggregate ?? {};
+  const timing = au.driver_temporal_alignment ?? {};
+  const identity = normalizeScore(
+    payload.identity_preservation?.metrics?.score_0_1,
+  );
   const score = normalizeScore(
     targeted.wangxing_expression_fit_score_0_1,
   );
-  const decision = String(targeted.decision ?? "review");
+  const rawDecision = String(targeted.decision ?? "review");
+  const uncertain = targeted.evidence_quality_status === "uncertain";
+  const decision = uncertain && rawDecision === "allow" ? "review" : rawDecision;
   const decisionLabel = {
     allow: "ALLOW / 符合",
     review: "REVIEW / 复核",
@@ -413,9 +421,55 @@ function renderWangxingResult(result) {
   const className = au.selected_expression_class ?? "auto";
   const personal = normalizeScore(targeted.evidence?.personal_au);
   const driver = normalizeScore(targeted.evidence?.driver_expression);
+  const eventAlignment = normalizeScore(
+    targeted.evidence?.temporal_alignment ??
+      au.driver_temporal_alignment_score_0_1,
+  );
   const leakage = normalizeScore(targeted.evidence?.leakage_risk);
+  const confidence = normalizeScore(
+    targeted.evidence_confidence_0_1 ??
+      au.evidence_confidence_0_1,
+  );
+  const validFrameRatio = normalizeScore(quality.valid_frame_ratio);
+  const qualityStatus = String(
+    targeted.evidence_quality_status ??
+      au.evidence_quality_status ??
+      quality.status ??
+      "available",
+  );
+  const qualityLabel = {
+    pass: "FACE QUALITY / GOOD",
+    partial: "FACE QUALITY / PARTIAL",
+    uncertain: "FACE QUALITY / UNCERTAIN",
+    not_available: "FACE QUALITY / NOT AVAILABLE",
+    available: "FACE QUALITY / AVAILABLE",
+  }[qualityStatus] ?? "FACE QUALITY / CHECK";
+  const reasonLabels = {
+    face_quality_low: "人脸质量不足",
+    evidence_quality_low: "证据质量不足",
+    wangxing_au_below_threshold: "AU 画像偏离",
+    driver_expression_below_threshold: "动作轨迹偏离",
+    temporal_alignment_below_threshold: "动作时间节奏偏离",
+    identity_leakage_risk: "身份偏离风险",
+  };
+  const reasons = (targeted.decision_reasons ?? [])
+    .map((reason) => reasonLabels[reason] ?? reason)
+    .join(" / ");
   const formatEvidence = (value) =>
     value === null ? "—" : `${(value * 100).toFixed(1)}`;
+  const formatFrameCount = (value) =>
+    Number.isFinite(Number(value)) ? String(value) : "—";
+  const formatPosition = (value) =>
+    normalizeScore(value) === null ? "—" : `${(Number(value) * 100).toFixed(0)}%`;
+  const eventText = `${formatFrameCount(temporal.event_count)} events · peak ${formatPosition(
+    temporal.peak_position,
+  )} · active ${formatEvidence(normalizeScore(temporal.active_ratio))}`;
+  const timingText =
+    eventAlignment === null
+      ? "未提供参考动作视频"
+      : `时间对齐 ${formatEvidence(eventAlignment)} /100`;
+  const identityText =
+    identity === null ? "未提供身份参考图" : "ArcFace 身份证据";
 
   wangxingResult.classList.remove("is-hidden");
   wangxingResult.innerHTML = `
@@ -433,14 +487,36 @@ function renderWangxingResult(result) {
     <div class="wangxing-result-evidence">
       <span><strong>${formatEvidence(personal)}</strong>王兴 AU 画像</span>
       <span><strong>${formatEvidence(driver)}</strong>参考动作轨迹</span>
+      <span><strong>${formatEvidence(eventAlignment)}</strong>动作时间对齐</span>
       <span><strong>${formatEvidence(leakage)}</strong>身份偏离风险</span>
+      <span><strong>${formatEvidence(identity)}</strong>${escapeHtml(identityText)}</span>
+    </div>
+    <div class="wangxing-result-quality">
+      <div class="wangxing-result-quality-head">
+        <span>${escapeHtml(qualityLabel)}</span>
+        <strong>${formatEvidence(confidence)} /100</strong>
+      </div>
+      <div class="wangxing-result-quality-track">
+        <span style="width: ${confidence === null ? 0 : confidence * 100}%"></span>
+      </div>
+      <p>
+        有效人脸帧 ${formatEvidence(validFrameRatio)} · ${escapeHtml(eventText)}
+      </p>
+    </div>
+    <div class="wangxing-result-timing">
+      <span class="wangxing-result-timing-label">TEMPORAL EVIDENCE</span>
+      <strong>${escapeHtml(timingText)}</strong>
     </div>
     <p class="wangxing-result-note">
       ${escapeHtml(
-        targeted.decision_reasons?.join(" / ") ||
+        reasons ||
           "以王兴 AU 画像为主判据；身份图和参考动作视频为可选证据。",
       )}
     </p>
+    <div class="wangxing-result-meta">
+      evaluator ${escapeHtml(au.evaluator_version ?? "unknown")} ·
+      profile ${escapeHtml(au.profile_schema_version ?? "unknown")}
+    </div>
   `;
 }
 
