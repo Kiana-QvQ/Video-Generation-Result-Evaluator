@@ -25,6 +25,23 @@ For a generated video or a driver video outside the dataset:
     --device cpu
 ```
 
+For a complete directory tree such as `data\MD_CL`, use `--input-root`.
+The output keeps the same relative directory structure, so files with the
+same name in different `CL_*` directories do not overwrite each other:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\extract_libreface_au.py `
+    --input-root data\MD_CL `
+    --output-root data\au\MD_CL `
+    --device cuda `
+    --batch-size 64 `
+    --num-workers 2
+```
+
+Existing CSV files are skipped by default. Add `--force` to rebuild them.
+Use `--limit 1 --device cpu` first if you want to smoke-test the LibreFace
+environment before starting the full extraction.
+
 ## 2. Build Wang Xing's AU profile
 
 The profile uses the six canonical emotion classes:
