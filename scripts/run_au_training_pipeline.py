@@ -74,6 +74,16 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--num-workers", type=int, default=2)
     parser.add_argument("--skip-negative-preparation", action="store_true")
     parser.add_argument("--force-au-extraction", action="store_true")
+    parser.add_argument(
+        "--original-au-root",
+        default="data/au/MD_CL",
+        help="Original AU CSV root used for general emotion classification.",
+    )
+    parser.add_argument(
+        "--emotion-profile-output",
+        default="data/au/original_emotion_au_profile.json",
+    )
+    parser.add_argument("--emotion-min-samples-per-class", type=int, default=3)
     return parser
 
 
@@ -140,6 +150,8 @@ def run_pipeline(args: argparse.Namespace) -> dict[str, object]:
         raise ValueError("--batch-size must be positive.")
     if args.num_workers < 0:
         raise ValueError("--num-workers cannot be negative.")
+    if args.emotion_min_samples_per_class <= 0:
+        raise ValueError("--emotion-min-samples-per-class must be positive.")
 
     if args.skip_negative_preparation:
         negative_manifest = (
@@ -218,6 +230,33 @@ def run_pipeline(args: argparse.Namespace) -> dict[str, object]:
         ],
     )
 
+    original_au_root = PROJECT_ROOT / args.original_au_root
+    if original_au_root.is_dir() and any(original_au_root.rglob("*.csv")):
+        _emit_stage(
+            "emotion_profile",
+            0.84,
+            "Building the original AU emotion profile",
+        )
+        _run_step(
+            "Original AU emotion profile",
+            [
+                PYTHON,
+                PROJECT_ROOT / "scripts/build_original_emotion_au_profile.py",
+                "--au-root",
+                args.original_au_root,
+                "--output",
+                args.emotion_profile_output,
+                "--min-samples-per-class",
+                str(args.emotion_min_samples_per_class),
+            ],
+        )
+    else:
+        print(
+            "AU_WARNING|Original AU emotion root is missing or has no CSV files; "
+            "automatic emotion classification will remain unavailable.",
+            flush=True,
+        )
+
     _emit_stage("classifier", 0.90, "Fitting the AU leakage classifier")
     _run_step(
         "AU leakage classifier",
@@ -241,6 +280,9 @@ def run_pipeline(args: argparse.Namespace) -> dict[str, object]:
         ),
         "leakage_classifier": str(
             PROJECT_ROOT / "data/au/au_leakage_classifier.json"
+        ),
+        "emotion_profile": str(
+            PROJECT_ROOT / args.emotion_profile_output
         ),
     }
 

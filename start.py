@@ -5,6 +5,7 @@ import argparse
 import urllib.error
 import urllib.request
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 from typing import Sequence
@@ -48,14 +49,37 @@ def _restart_in_project_venv() -> None:
 
 
 def _vlm_service_available() -> bool:
+    judge_url = os.environ.get(
+        "ETVA_JUDGE_URL",
+        "http://127.0.0.1:30000/v1/chat/completions",
+    )
+    models_url = judge_url.replace(
+        "/v1/chat/completions",
+        "/v1/models",
+    )
     try:
         with urllib.request.urlopen(
-            "http://127.0.0.1:30000/v1/models",
+            models_url,
             timeout=0.4,
         ) as response:
             return 200 <= int(response.status) < 300
     except (OSError, urllib.error.URLError, ValueError):
         return False
+
+
+def _docker_ready() -> bool:
+    try:
+        result = subprocess.run(
+            ["docker", "info"],
+            cwd=ROOT,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=3,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return result.returncode == 0
 
 
 def _start_vlm_judge(
@@ -74,6 +98,20 @@ def _start_vlm_judge(
         return None
     if not VLM_SCRIPT.is_file():
         print(f"Qwen Judge launcher is missing: {VLM_SCRIPT}", flush=True)
+        return None
+    if shutil.which("docker") is None:
+        print(
+            "Docker is not available; Qwen Judge HTTP service will remain "
+            "disabled.",
+            flush=True,
+        )
+        return None
+    if not _docker_ready():
+        print(
+            "Docker Desktop/daemon is not running; Qwen Judge HTTP service "
+            "will remain disabled.",
+            flush=True,
+        )
         return None
     command = [
         "powershell.exe",
@@ -128,11 +166,21 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Start HTTP and gRPC together.",
     )
-    parser.add_argument(
+    vlm_group = parser.add_mutually_exclusive_group()
+    vlm_group.add_argument(
         "--with-vlm",
+        dest="with_vlm",
         action="store_true",
-        help="Start the cached Qwen VLM Judge on port 30000.",
+        help="Start the cached Qwen VLM Judge on port 30000 (default).",
     )
+    vlm_group.add_argument(
+        "--without-vlm",
+        "--no-vlm",
+        dest="with_vlm",
+        action="store_false",
+        help="Do not start the Qwen VLM Judge.",
+    )
+    parser.set_defaults(with_vlm=True)
     parser.add_argument(
         "--vlm-model",
         choices=("2b", "2.5-3b"),
@@ -199,6 +247,16 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--au-num-workers", type=int, default=2)
     parser.add_argument("--skip-negative-preparation", action="store_true")
     parser.add_argument("--force-au-extraction", action="store_true")
+    parser.add_argument(
+        "--original-au-root",
+        default="data/au/MD_CL",
+        help="Original AU CSV root used for general emotion classification.",
+    )
+    parser.add_argument(
+        "--emotion-profile-output",
+        default="data/au/original_emotion_au_profile.json",
+    )
+    parser.add_argument("--emotion-min-samples-per-class", type=int, default=3)
     args = parser.parse_args(argv)
     if args.with_grpc:
         args.transport = "both"
@@ -262,6 +320,14 @@ def _run_au_training(args: argparse.Namespace) -> int:
         command.append("--skip-negative-preparation")
     if args.force_au_extraction:
         command.append("--force-au-extraction")
+    command.extend(["--original-au-root", args.original_au_root])
+    command.extend(["--emotion-profile-output", args.emotion_profile_output])
+    command.extend(
+        [
+            "--emotion-min-samples-per-class",
+            str(args.emotion_min_samples_per_class),
+        ]
+    )
     return subprocess.call(command, cwd=ROOT)
 
 

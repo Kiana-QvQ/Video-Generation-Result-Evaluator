@@ -35,14 +35,39 @@ same name in different `CL_*` directories do not overwrite each other:
     --output-root data\au\MD_CL `
     --device cuda `
     --batch-size 64 `
-    --num-workers 2
+    --num-workers 2 `
+    --continue-on-error
 ```
 
 Existing CSV files are skipped by default. Add `--force` to rebuild them.
+With `--continue-on-error`, videos that have no detectable face are recorded
+in `data\au\MD_CL\_failures.json` and do not interrupt the remaining batch.
 Use `--limit 1 --device cpu` first if you want to smoke-test the LibreFace
 environment before starting the full extraction.
 
-## 2. Build Wang Xing's AU profile
+## 2. Build the two AU profiles
+
+The evaluator keeps two separate profiles:
+
+- The original AU profile classifies the general emotion.
+- The Wang Xing AU profile checks whether the target person can perform that
+  expression and whether the generated motion stays within his personal pattern.
+
+Extract original AU CSV files into `data\au\MD_CL` first. The directory name is
+used as the class label: `CL_kaixin` -> `smile`, `CL_fennu` -> `anger`,
+`CL_jingya` -> `surprise`, `CL_kongju` -> `fear`, `CL_shengqi` -> `annoyance`,
+and `CL_beishang` -> `sadness`.
+
+```powershell
+.\.venv\Scripts\python.exe scripts\build_original_emotion_au_profile.py `
+    --au-root data\au\MD_CL `
+    --output data\au\original_emotion_au_profile.json
+```
+
+The automatic emotion profile is intentionally marked unavailable until it has
+at least two emotion classes and three labeled files per class. This prevents a
+partial dataset from producing a confident but misleading class such as
+`annoyance`.
 
 The profile uses the six canonical emotion classes:
 
@@ -147,7 +172,9 @@ The training command then:
 1. Extracts AU CSV files for Wang Xing's emotion clips.
 2. Extracts AU CSV files for the selected RAVDESS clips.
 3. Builds `data/au/wangxing_au_profile.json`.
-4. Builds `data/au/au_leakage_classifier.json`.
+4. Builds `data/au/original_emotion_au_profile.json` when original AU CSVs
+   exist.
+5. Builds `data/au/au_leakage_classifier.json`.
 
 RAVDESS is a cross-identity real-expression negative set. It should not be
 interpreted as a ground-truth expression set for Wang Xing.

@@ -61,6 +61,9 @@ WANGXING_AU_CLASSES = {
 }
 WANGXING_AU_PROFILE_PATH = PROJECT_ROOT / "data/au/wangxing_au_profile.json"
 WANGXING_AU_CLASSIFIER_PATH = PROJECT_ROOT / "data/au/au_leakage_classifier.json"
+ORIGINAL_EMOTION_AU_PROFILE_PATH = (
+    PROJECT_ROOT / "data/au/original_emotion_au_profile.json"
+)
 WANGXING_AU_CACHE_ROOT = OUTPUT_DIR / "au_cache"
 
 WEB_RUNS_DIR.mkdir(parents=True, exist_ok=True)
@@ -335,16 +338,26 @@ def _wangxing_au_status() -> dict[str, Any]:
         WANGXING_AU_PROFILE_PATH.is_file()
         and WANGXING_AU_CLASSIFIER_PATH.is_file()
     )
+    emotion_profile_exists = ORIGINAL_EMOTION_AU_PROFILE_PATH.is_file()
     return {
         "ready": ready,
         "evaluator_version": AU_EVALUATOR_VERSION,
         "profile": str(WANGXING_AU_PROFILE_PATH),
         "classifier": str(WANGXING_AU_CLASSIFIER_PATH),
+        "emotion_profile": str(ORIGINAL_EMOTION_AU_PROFILE_PATH),
+        "emotion_profile_exists": emotion_profile_exists,
         "classes": sorted(WANGXING_AU_CLASSES),
         "note": (
-            "Uses Wang Xing AU profile as the primary expression-fit signal."
-            if ready
-            else "Train the Wang Xing AU profile and classifier first."
+            "Original AU profile classifies emotion; Wang Xing AU profile "
+            "checks whether the target person can perform it."
+            if ready and emotion_profile_exists
+            else (
+                "Wang Xing AU profile is ready, but the original AU emotion "
+                "profile is missing; automatic emotion classification is "
+                "unavailable."
+                if ready
+                else "Train the Wang Xing AU profile and classifier first."
+            )
         ),
     }
 
@@ -381,6 +394,8 @@ def _run_wangxing_au_assessment(
         str(WANGXING_AU_PROFILE_PATH),
         "--leakage-classifier",
         str(WANGXING_AU_CLASSIFIER_PATH),
+        "--emotion-profile",
+        str(ORIGINAL_EMOTION_AU_PROFILE_PATH),
         "--output",
         str(output_path),
         "--device",

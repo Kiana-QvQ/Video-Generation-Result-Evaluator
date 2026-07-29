@@ -165,6 +165,11 @@ def _build_parser() -> argparse.ArgumentParser:
         default="data/au/wangxing_au_profile.json",
     )
     parser.add_argument(
+        "--emotion-profile",
+        default="data/au/original_emotion_au_profile.json",
+        help="Original AU profile used only for automatic emotion classification.",
+    )
+    parser.add_argument(
         "--leakage-classifier",
         default="data/au/au_leakage_classifier.json",
     )
@@ -216,6 +221,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     assert generated_video is not None
     au_profile = _project_path(args.au_profile)
+    emotion_profile = _project_path(args.emotion_profile)
     leakage_classifier = _project_path(args.leakage_classifier)
     output_root = _project_path(args.output_root)
     driver_au_root = _project_path(args.driver_au_root)
@@ -270,6 +276,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         str(generated_au),
         "--au-profile",
         str(au_profile),
+        "--emotion-profile",
+        str(emotion_profile),
         "--leakage-classifier",
         str(leakage_classifier),
         "--device",

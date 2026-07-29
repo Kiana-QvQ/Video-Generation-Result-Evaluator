@@ -60,11 +60,21 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Print the selected Python environment and endpoint, then exit.",
     )
-    parser.add_argument(
+    vlm_group = parser.add_mutually_exclusive_group()
+    vlm_group.add_argument(
         "--with-vlm",
+        dest="with_vlm",
         action="store_true",
-        help="Start the cached Qwen VLM Judge on port 30000.",
+        help="Start the cached Qwen VLM Judge on port 30000 (default).",
     )
+    vlm_group.add_argument(
+        "--without-vlm",
+        "--no-vlm",
+        dest="with_vlm",
+        action="store_false",
+        help="Do not start the Qwen VLM Judge.",
+    )
+    parser.set_defaults(with_vlm=True)
     parser.add_argument(
         "--vlm-model",
         choices=("2b", "2.5-3b"),

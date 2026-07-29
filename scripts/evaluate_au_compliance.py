@@ -25,6 +25,11 @@ def main() -> int:
     )
     parser.add_argument("--generated-au", required=True)
     parser.add_argument("--au-profile", required=True)
+    parser.add_argument(
+        "--emotion-profile",
+        default="data/au/original_emotion_au_profile.json",
+        help="Original AU profile used only for automatic emotion classification.",
+    )
     parser.add_argument("--driver-au")
     parser.add_argument("--leakage-classifier")
     parser.add_argument("--expected-class")
@@ -45,6 +50,11 @@ def main() -> int:
 
     generated_au = project_path(args.generated_au)
     au_profile = project_path(args.au_profile)
+    emotion_profile = (
+        project_path(args.emotion_profile)
+        if args.emotion_profile
+        else None
+    )
     driver_au = project_path(args.driver_au) if args.driver_au else None
     leakage_classifier = (
         project_path(args.leakage_classifier)
@@ -88,6 +98,7 @@ def main() -> int:
         expected_class=args.expected_class,
         driver_au_path=driver_au,
         leakage_classifier_path=leakage_classifier,
+        emotion_profile_path=emotion_profile,
     )
     fused = fuse_compliance_scores(
         identity_score_0_1=identity_score,
