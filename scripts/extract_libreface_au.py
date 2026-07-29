@@ -73,6 +73,18 @@ def _manifest_inputs(
     return inputs
 
 
+def _input_root_inputs(input_root: Path) -> list[tuple[Path, str]]:
+    input_root = _project_path(input_root)
+    if not input_root.is_dir():
+        raise SystemExit(f"Input root was not found: {input_root}")
+
+    inputs: list[tuple[Path, str]] = []
+    for path in sorted(input_root.rglob("*")):
+        if path.is_file() and path.suffix.lower() == ".mp4":
+            inputs.append((path, path.relative_to(input_root).as_posix()))
+    return inputs
+
+
 def _find_executable() -> str:
     executable_candidates = [
         Path(sys.executable).with_name("libreface.exe"),
@@ -276,6 +288,10 @@ def main() -> int:
         default="data/video/expression_reference_manifest.json",
     )
     parser.add_argument("--input", action="append")
+    parser.add_argument(
+        "--input-root",
+        help="Recursively process all MP4 files below this directory.",
+    )
     parser.add_argument("--output-root", default="data/au/libreface")
     parser.add_argument("--only-emotions", action="store_true")
     parser.add_argument("--device", default="cpu")
@@ -286,7 +302,11 @@ def main() -> int:
     args = parser.parse_args()
 
     _find_executable()
-    if args.input:
+    if args.input_root:
+        if args.input:
+            raise SystemExit("--input-root cannot be combined with --input.")
+        inputs = _input_root_inputs(_project_path(args.input_root))
+    elif args.input:
         inputs = [
             (_project_path(value), Path(value).name)
             for value in args.input
