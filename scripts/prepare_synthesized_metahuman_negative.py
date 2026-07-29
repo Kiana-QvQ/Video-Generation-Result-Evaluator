@@ -24,6 +24,11 @@ VIDEO_SUFFIXES = {
 }
 
 
+def _project_path(value: str | Path) -> Path:
+    path = Path(value).expanduser()
+    return path if path.is_absolute() else PROJECT_ROOT / path
+
+
 def _safe_extract(archive: Path, destination: Path) -> None:
     destination = destination.resolve()
     with zipfile.ZipFile(archive) as handle:
@@ -82,7 +87,7 @@ def _write_manifest(
                 "person": f"metahuman_negative_{index:05d}",
                 "performance": "synthesized_metahuman",
                 "relative_path": target.relative_to(output_root).as_posix(),
-                "local_path": str(target),
+                "local_path": target.relative_to(output_root).as_posix(),
                 "source_relative_path": relative,
                 "phase1_usable": True,
                 "is_emotion": False,
@@ -125,12 +130,12 @@ def main() -> int:
     parser.add_argument("--seed", type=int, default=20260728)
     args = parser.parse_args()
 
-    output_root = Path(args.output_root)
+    output_root = _project_path(args.output_root)
     output_root.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="metahuman_prepare_") as temp:
         temp_root = Path(temp)
         if args.archive:
-            archive = Path(args.archive)
+            archive = _project_path(args.archive)
             if not archive.is_file():
                 raise SystemExit(f"Archive not found: {archive}")
             archive_path = archive

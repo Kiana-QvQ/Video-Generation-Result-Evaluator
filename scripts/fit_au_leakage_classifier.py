@@ -10,6 +10,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from evaluator.au_compliance import fit_leakage_classifier
+from evaluator.paths import project_path
 
 
 def _csv_files(root: Path) -> list[Path]:
@@ -31,21 +32,22 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    positive = _csv_files(Path(args.positive_root))
-    negative = _csv_files(Path(args.negative_root))
+    positive = _csv_files(project_path(args.positive_root))
+    negative = _csv_files(project_path(args.negative_root))
     if not positive:
         raise SystemExit("No positive AU CSV files found.")
     if not negative:
         raise SystemExit("No negative AU CSV files found.")
+    output = project_path(args.output)
     model = fit_leakage_classifier(
         positive,
         negative,
-        args.output,
+        output,
     )
     print(
         json.dumps(
             {
-                "output": args.output,
+                "output": output.relative_to(project_path(".").resolve()).as_posix(),
                 "positive_count": model["positive_count"],
                 "negative_count": model["negative_count"],
             },

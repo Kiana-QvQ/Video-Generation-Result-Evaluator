@@ -640,3 +640,69 @@ def fuse_compliance_scores(
             "leakage": leakage_threshold,
         },
     }
+
+
+def fuse_wangxing_targeted_scores(
+    *,
+    personal_au_score_0_1: float | None,
+    driver_expression_score_0_1: float | None,
+    leakage_risk_0_1: float | None,
+    personal_au_threshold: float = 0.50,
+    driver_expression_threshold: float = 0.50,
+    leakage_threshold: float = 0.50,
+) -> dict[str, Any]:
+    """Judge Wang Xing-specific expression fit without requiring identity evidence."""
+    expression_scores = [
+        float(score)
+        for score in (
+            personal_au_score_0_1,
+            driver_expression_score_0_1,
+        )
+        if score is not None and math.isfinite(float(score))
+    ]
+    expression_fit = (
+        sum(expression_scores) / len(expression_scores)
+        if expression_scores
+        else None
+    )
+    reasons: list[str] = []
+    if (
+        personal_au_score_0_1 is not None
+        and personal_au_score_0_1 < personal_au_threshold
+    ):
+        reasons.append("wangxing_au_below_threshold")
+    if (
+        driver_expression_score_0_1 is not None
+        and driver_expression_score_0_1 < driver_expression_threshold
+    ):
+        reasons.append("driver_expression_below_threshold")
+    if (
+        leakage_risk_0_1 is not None
+        and leakage_risk_0_1 >= leakage_threshold
+    ):
+        reasons.append("identity_leakage_risk")
+
+    if leakage_risk_0_1 is not None and leakage_risk_0_1 >= leakage_threshold:
+        decision = "block"
+    elif personal_au_score_0_1 is None:
+        decision = "review"
+    elif reasons:
+        decision = "review"
+    else:
+        decision = "allow"
+
+    return {
+        "wangxing_expression_fit_score_0_1": expression_fit,
+        "decision": decision,
+        "decision_reasons": reasons,
+        "evidence": {
+            "personal_au": personal_au_score_0_1,
+            "driver_expression": driver_expression_score_0_1,
+            "leakage_risk": leakage_risk_0_1,
+        },
+        "thresholds": {
+            "personal_au": personal_au_threshold,
+            "driver_expression": driver_expression_threshold,
+            "leakage": leakage_threshold,
+        },
+    }

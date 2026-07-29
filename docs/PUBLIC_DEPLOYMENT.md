@@ -96,10 +96,10 @@ New-NetFirewallRule `
 5. 参数填写：
 
    ```text
-   -NoProfile -ExecutionPolicy Bypass -File "D:\VideoEvaluator\run.ps1" -Public
+   -NoProfile -ExecutionPolicy Bypass -File ".\run.ps1" -Public
    ```
 
-6. 工作目录设置为项目根目录，例如 `D:\VideoEvaluator`。
+6. 工作目录设置为项目根目录。
 7. 使用目标电脑上的固定服务账号运行，并授予该账号读写项目目录的权限。
 
 ### 8. 访问限制

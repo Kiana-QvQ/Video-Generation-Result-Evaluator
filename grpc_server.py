@@ -108,6 +108,8 @@ def _options(request: pb2.JobOptions | None) -> dict[str, object]:
             "device": "auto",
             "manual_expression_score": "",
             "manual_aesthetic_score": "",
+            "wangxing_au_enabled": True,
+            "wangxing_expected_class": "auto",
         }
     return {
         "prompt_text": request.prompt_text,
@@ -120,6 +122,8 @@ def _options(request: pb2.JobOptions | None) -> dict[str, object]:
         "device": request.device or "auto",
         "manual_expression_score": request.manual_expression_score,
         "manual_aesthetic_score": request.manual_aesthetic_score,
+        "wangxing_au_enabled": True,
+        "wangxing_expected_class": "auto",
     }
 
 
@@ -320,6 +324,12 @@ class FrameAuditService(pb2_grpc.FrameAuditServicer):
                         manual_aesthetic_score=str(
                             options["manual_aesthetic_score"]
                         ),
+                        wangxing_au_enabled=bool(
+                            options["wangxing_au_enabled"]
+                        ),
+                        wangxing_expected_class=str(
+                            options["wangxing_expected_class"]
+                        ),
                     )
                     return _json_response(response)
                 finally:
@@ -365,6 +375,12 @@ class FrameAuditService(pb2_grpc.FrameAuditServicer):
                         ),
                         manual_aesthetic_score=str(
                             options["manual_aesthetic_score"]
+                        ),
+                        wangxing_au_enabled=bool(
+                            options["wangxing_au_enabled"]
+                        ),
+                        wangxing_expected_class=str(
+                            options["wangxing_expected_class"]
                         ),
                     )
                     return _json_response(response)

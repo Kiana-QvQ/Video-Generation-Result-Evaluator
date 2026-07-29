@@ -92,7 +92,8 @@
                     <span>03 / 15%</span>
                     <strong>表情准确</strong>
                     <span class="principles-model">ViCLIP / CLIP</span>
-                    <p>比较参考动作与结果的表情、运动轨迹和文本语义。</p>
+                    <span class="principles-model">ETVA VLM Judge / Qwen2-VL-2B AWQ</span>
+                    <p>按 Prompt 或参考视频判断结果的表情与动作是否对齐。</p>
                   </article>
                   <article>
                     <span>04 / 25%</span>
@@ -208,6 +209,58 @@
                   </span>
                 </label>
               </div>
+
+              <section class="wangxing-au-card" aria-labelledby="wangxing-au-title">
+                <div class="wangxing-au-card-head">
+                  <div>
+                    <p class="eyebrow">03 / TARGET SPECIALIZATION</p>
+                    <h3 id="wangxing-au-title">王兴特化动作评估</h3>
+                  </div>
+                  <span id="wangxing-au-readiness" class="au-readiness">CHECKING</span>
+                </div>
+                <label class="au-toggle">
+                  <input name="wangxing_au_enabled" type="checkbox" checked />
+                  <span class="au-toggle-copy">
+                    <strong>启用 Wang Xing AU</strong>
+                    <small>主判据：生成结果是否像王兴会做出的动作和表情</small>
+                  </span>
+                  <span class="toggle-switch" aria-hidden="true"></span>
+                </label>
+                <div class="wangxing-au-options">
+                  <label class="field">
+                    <span class="field-label">
+                      <span>EXPECTED EXPRESSION</span>
+                      <small>可选</small>
+                    </span>
+                    <select name="wangxing_expected_class">
+                      <option value="auto" selected>自动判定</option>
+                      <option value="smile">微笑 / smile</option>
+                      <option value="anger">爆发式愤怒 / anger</option>
+                      <option value="surprise">惊讶 / surprise</option>
+                      <option value="fear">恐惧 / fear</option>
+                      <option value="annoyance">压抑式生气 / annoyance</option>
+                      <option value="sadness">悲伤 / sadness</option>
+                    </select>
+                  </label>
+                  <div class="au-driver-note">
+                    <span class="au-mini-label">OPTIONAL DRIVER</span>
+                    <strong>参考动作视频可直接复用</strong>
+                    <small>上传参考动作视频后，会额外比较 AU 时间轨迹。</small>
+                  </div>
+                </div>
+                <div class="au-chip-list" aria-label="AU action units">
+                  <span>AU1 内眉上扬</span>
+                  <span>AU4 眉毛下压</span>
+                  <span>AU6 脸颊上提</span>
+                  <span>AU12 嘴角上扬</span>
+                  <span>AU15 嘴角下压</span>
+                  <span>AU25 嘴唇分开</span>
+                </div>
+                <p class="au-card-note">
+                  <span class="note-pin"></span>
+                  只在检测到清晰人脸时输出 AU；结果会保存到本次任务报告。
+                </p>
+              </section>
 
               <label class="field prompt-field" for="prompt-text">
                 <span class="field-label">
@@ -350,7 +403,7 @@
                 </div>
                 <div class="preflight-row">
                   <span class="preflight-index">03</span>
-                  <div><strong>表情准确</strong><small>CLIP / 运动轨迹 / 人工兜底</small></div>
+                  <div><strong>表情准确</strong><small>ViCLIP / CLIP / ETVA VLM Judge</small></div>
                   <em>15%</em>
                 </div>
                 <div class="preflight-row">
@@ -391,6 +444,8 @@
                   <div id="radar-chart" class="radar-chart" aria-label="五类评分雷达图"></div>
                 </div>
               </div>
+
+              <section id="wangxing-result" class="wangxing-result is-hidden" aria-live="polite"></section>
 
               <div id="category-list" class="category-list"></div>
 

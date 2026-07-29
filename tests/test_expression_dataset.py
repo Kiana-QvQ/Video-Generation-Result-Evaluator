@@ -36,22 +36,14 @@ class ExpressionDatasetTests(unittest.TestCase):
                             "person": "wangxing",
                             "performance": "Xiao",
                             "clip_index": 1,
-                            "clip_path": (
-                                "/home/digisky/ztj/LTX-2/packages/lora_data/"
-                                "wangxing/wangxing_arkit52_front_89f/"
-                                "Xiao/clip0001.mp4"
-                            ),
+                            "clip_path": "data/video/Xiao/clip0001.mp4",
                             "clip_len": 89,
                         },
                         {
                             "person": "wangxing",
                             "performance": "FenNu",
                             "clip_index": 1,
-                            "clip_path": (
-                                "/home/digisky/ztj/LTX-2/packages/lora_data/"
-                                "wangxing/wangxing_arkit52_front_89f/"
-                                "FenNu/clip0001.mp4"
-                            ),
+                            "clip_path": "data/video/FenNu/clip0001.mp4",
                             "clip_len": 89,
                         },
                     ]

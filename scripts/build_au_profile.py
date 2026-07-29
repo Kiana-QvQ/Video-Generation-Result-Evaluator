@@ -10,6 +10,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from evaluator.au_compliance import DEFAULT_AU_IDS, fit_au_profile, load_au_table
+from evaluator.paths import project_path
 
 
 def _find_au_file(au_root: Path, relative_path: str) -> Path | None:
@@ -38,9 +39,10 @@ def main() -> int:
     args = parser.parse_args()
 
     manifest = json.loads(
-        Path(args.manifest).read_text(encoding="utf-8-sig")
+        project_path(args.manifest).read_text(encoding="utf-8-sig")
     )
-    au_root = Path(args.au_root)
+    au_root = project_path(args.au_root)
+    output = project_path(args.output)
     labeled_sequences: list[tuple[str, object]] = []
     missing: list[str] = []
     for record in manifest["records"]:
@@ -67,13 +69,13 @@ def main() -> int:
             "No labeled AU files found. Run a mature AU extractor first."
         )
 
-    profile = fit_au_profile(labeled_sequences, args.output)
+    profile = fit_au_profile(labeled_sequences, output)
     print(json.dumps({
         "classes": {
             name: model["sample_count"]
             for name, model in profile["classes"].items()
         },
-        "output": args.output,
+        "output": output.relative_to(project_path("." ).resolve()).as_posix(),
     }, ensure_ascii=False, indent=2))
     return 0
 

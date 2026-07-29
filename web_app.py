@@ -8,6 +8,7 @@ import os
 import queue
 import shutil
 import subprocess
+import sys
 import threading
 import time
 from collections import deque
@@ -49,6 +50,16 @@ TRUST_PROXY_HEADERS = os.getenv("FRAME_AUDIT_TRUST_PROXY_HEADERS", "").lower() i
 MAX_UPLOAD_BYTES = 1_500 * 1024 * 1024
 VIDEO_SUFFIXES = {".mp4", ".mov", ".avi", ".mkv", ".webm", ".wmv", ".m4v"}
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp"}
+WANGXING_AU_CLASSES = {
+    "smile",
+    "anger",
+    "surprise",
+    "fear",
+    "annoyance",
+    "sadness",
+}
+WANGXING_AU_PROFILE_PATH = PROJECT_ROOT / "data/au/wangxing_au_profile.json"
+WANGXING_AU_CLASSIFIER_PATH = PROJECT_ROOT / "data/au/au_leakage_classifier.json"
 
 WEB_RUNS_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -288,12 +299,118 @@ def _result_downloads(job: dict[str, Any]) -> dict[str, str]:
         "summary_csv": "summary.csv",
         "frame_csv": "frame_metrics.csv",
         "result_json": "result.json",
+        "wangxing_au_json": "wangxing_au_result.json",
     }
     return {
         key: _file_url(run_id, run_dir / filename)
         for key, filename in filenames.items()
         if (run_dir / filename).is_file()
     }
+
+
+def _normalize_wangxing_class(value: str | None) -> str | None:
+    normalized = str(value or "").strip().lower()
+    if not normalized or normalized == "auto":
+        return None
+    if normalized not in WANGXING_AU_CLASSES:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "wangxing_expected_class must be auto, smile, anger, "
+                "surprise, fear, annoyance, or sadness."
+            ),
+        )
+    return normalized
+
+
+def _wangxing_au_status() -> dict[str, Any]:
+    ready = (
+        WANGXING_AU_PROFILE_PATH.is_file()
+        and WANGXING_AU_CLASSIFIER_PATH.is_file()
+    )
+    return {
+        "ready": ready,
+        "profile": str(WANGXING_AU_PROFILE_PATH),
+        "classifier": str(WANGXING_AU_CLASSIFIER_PATH),
+        "classes": sorted(WANGXING_AU_CLASSES),
+        "note": (
+            "Uses Wang Xing AU profile as the primary expression-fit signal."
+            if ready
+            else "Train the Wang Xing AU profile and classifier first."
+        ),
+    }
+
+
+def _run_wangxing_au_assessment(
+    *,
+    result_path: Path,
+    reference_image_paths: list[Path],
+    reference_video_path: Path | None,
+    expected_class: str | None,
+    device: str,
+    run_dir: Path,
+) -> dict[str, Any]:
+    status = _wangxing_au_status()
+    if not status["ready"]:
+        return {
+            "status": "unavailable",
+            "reason": status["note"],
+        }
+
+    au_device = resolve_policy(device).resolved_device
+    output_path = run_dir / "wangxing_au_result.json"
+    output_path.unlink(missing_ok=True)
+    command = [
+        sys.executable,
+        str(PROJECT_ROOT / "scripts/evaluate_generated_video.py"),
+        "--generated-video",
+        str(result_path),
+        "--output-root",
+        str(run_dir / "wangxing_au"),
+        "--au-profile",
+        str(WANGXING_AU_PROFILE_PATH),
+        "--leakage-classifier",
+        str(WANGXING_AU_CLASSIFIER_PATH),
+        "--output",
+        str(output_path),
+        "--device",
+        au_device,
+    ]
+    for reference_image_path in reference_image_paths:
+        command.extend(["--target-image", str(reference_image_path)])
+    if reference_video_path is not None:
+        command.extend(["--driver-video", str(reference_video_path)])
+    if expected_class is not None:
+        command.extend(["--expected-class", expected_class])
+
+    try:
+        subprocess.run(
+            command,
+            cwd=PROJECT_ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+    except (OSError, subprocess.CalledProcessError) as exc:
+        return {
+            "status": "unavailable",
+            "reason": (
+                "Wang Xing AU extraction could not complete. "
+                "Check that the result video contains a visible face."
+            ),
+            "error_type": type(exc).__name__,
+        }
+
+    try:
+        return json.loads(output_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return {
+            "status": "unavailable",
+            "reason": "Wang Xing AU report was not written.",
+            "error_type": type(exc).__name__,
+        }
 
 
 def _job_response(
@@ -682,13 +799,20 @@ def _result_payload(
     json_path: Path,
     uploaded: dict[str, Any],
 ) -> dict[str, Any]:
+    downloads = {
+        "summary_csv": _file_url(run_id, csv_path),
+        "result_json": _file_url(run_id, json_path),
+    }
+    wangxing_au_path = _job_dir(run_id) / "wangxing_au_result.json"
+    if wangxing_au_path.is_file():
+        downloads["wangxing_au_json"] = _file_url(
+            run_id,
+            wangxing_au_path,
+        )
     payload = {
         "run_id": run_id,
         "result": result,
-        "downloads": {
-            "summary_csv": _file_url(run_id, csv_path),
-            "result_json": _file_url(run_id, json_path),
-        },
+        "downloads": downloads,
         "uploaded_files": {
             key: (
                 _file_urls(run_id, path)
@@ -733,6 +857,8 @@ def _prepare_job(
     device: str,
     manual_expression_score: str,
     manual_aesthetic_score: str,
+    wangxing_au_enabled: bool,
+    wangxing_expected_class: str,
 ) -> dict[str, Any]:
     _validate_evaluation_request(result_video, max_frames, device)
     prompt = prompt_text.strip()
@@ -749,6 +875,7 @@ def _prepare_job(
         manual_aesthetic_score,
         "manual_aesthetic_score",
     )
+    expected_class = _normalize_wangxing_class(wangxing_expected_class)
 
     run_dir = _job_dir(run_id)
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -833,6 +960,8 @@ def _prepare_job(
         "device": device,
         "manual_expression_score": expression_score,
         "manual_aesthetic_score": aesthetic_score,
+        "wangxing_au_enabled": wangxing_au_enabled,
+        "wangxing_expected_class": expected_class or "auto",
     }
     created_at = _now_iso()
     job = {
@@ -884,6 +1013,28 @@ def _execute_job(job_id: str) -> None:
             manual_aesthetic_score=parameters.get("manual_aesthetic_score"),
             vbench_output_root=_job_dir(job_id),
         )
+        if bool(parameters.get("wangxing_au_enabled", True)):
+            _update_job_state(
+                job_id,
+                stage="wangxing_au",
+                progress=0.72,
+            )
+            expected_class = _normalize_wangxing_class(
+                str(parameters.get("wangxing_expected_class", "auto"))
+            )
+            result["wangxing_au"] = _run_wangxing_au_assessment(
+                result_path=result_path,
+                reference_image_paths=reference_paths,
+                reference_video_path=reference_video_path,
+                expected_class=expected_class,
+                device=str(parameters.get("device", "cpu")),
+                run_dir=_job_dir(job_id),
+            )
+        else:
+            result["wangxing_au"] = {
+                "status": "disabled",
+                "reason": "Wang Xing AU assessment was disabled for this job.",
+            }
         result["web_run_id"] = job_id
         result["result_video"] = probe_video(result_path).to_dict()
         if gt_path:
@@ -1219,6 +1370,7 @@ def models() -> dict[str, Any]:
         "models": get_model_inventory(),
         "recommendation": get_model_recommendation(),
         "hardware_policy": policy.to_dict(),
+        "wangxing_au": _wangxing_au_status(),
     }
 
 
@@ -1240,6 +1392,8 @@ def create_job(
     device: str = Form("auto"),
     manual_expression_score: str = Form(""),
     manual_aesthetic_score: str = Form(""),
+    wangxing_au_enabled: bool = Form(True),
+    wangxing_expected_class: str = Form("auto"),
 ) -> JSONResponse:
     client_ip = _client_ip(request)
     run_id = (
@@ -1261,6 +1415,8 @@ def create_job(
             device=device,
             manual_expression_score=manual_expression_score,
             manual_aesthetic_score=manual_aesthetic_score,
+            wangxing_au_enabled=wangxing_au_enabled,
+            wangxing_expected_class=wangxing_expected_class,
         )
         with JOB_LOCK:
             _write_job(job)
@@ -1534,6 +1690,8 @@ def evaluate(
     device: str = Form("auto"),
     manual_expression_score: str = Form(""),
     manual_aesthetic_score: str = Form(""),
+    wangxing_au_enabled: bool = Form(True),
+    wangxing_expected_class: str = Form("auto"),
 ) -> JSONResponse:
     client_ip = _client_ip(request)
     result_suffix = _upload_suffix(result_video, VIDEO_SUFFIXES)
@@ -1625,6 +1783,22 @@ def evaluate(
                 status_code=422,
                 detail=f"Input videos cannot be evaluated: {exc}",
             ) from exc
+        if wangxing_au_enabled:
+            result["wangxing_au"] = _run_wangxing_au_assessment(
+                result_path=result_path,
+                reference_image_paths=uploaded["reference_images"],
+                reference_video_path=uploaded["reference_video"],
+                expected_class=_normalize_wangxing_class(
+                    wangxing_expected_class
+                ),
+                device=device,
+                run_dir=run_dir,
+            )
+        else:
+            result["wangxing_au"] = {
+                "status": "disabled",
+                "reason": "Wang Xing AU assessment was disabled for this job.",
+            }
         result["web_run_id"] = run_id
         result["result_video"] = probe_video(result_path).to_dict()
         if uploaded["gt_video"]:
