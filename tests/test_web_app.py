@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import subprocess
 import tempfile
 from pathlib import Path
 import unittest
@@ -72,6 +73,7 @@ class WebAppTests(unittest.TestCase):
         )
         self.assertIn("wangxing_au", payload)
         self.assertIn("ready", payload["wangxing_au"])
+        self.assertIn("evaluator_version", payload["wangxing_au"])
 
     def test_wangxing_au_runner_passes_identity_images_and_driver_video(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -108,6 +110,7 @@ class WebAppTests(unittest.TestCase):
             self.assertEqual(result["status"], "available")
             self.assertIn("--target-image", command)
             self.assertIn(str(reference_image), command)
+            self.assertIn("--cache-root", command)
             self.assertEqual(
                 command[command.index("--driver-video") + 1],
                 str(reference_video),
@@ -147,6 +150,36 @@ class WebAppTests(unittest.TestCase):
             "disabled",
         )
         runner.assert_not_called()
+
+    def test_wangxing_au_runner_explains_face_detection_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory) / "run"
+            run_dir.mkdir()
+            result_path = run_dir / "result.mp4"
+            result_path.write_bytes(b"result")
+            failure = subprocess.CalledProcessError(
+                2,
+                ["evaluate_generated_video"],
+                stderr="No face detected in the provided video.",
+            )
+            with patch(
+                "web_app._wangxing_au_status",
+                return_value={"ready": True},
+            ), patch(
+                "web_app.subprocess.run",
+                side_effect=failure,
+            ):
+                result = web_app._run_wangxing_au_assessment(
+                    result_path=result_path,
+                    reference_image_paths=[],
+                    reference_video_path=None,
+                    expected_class=None,
+                    device="cpu",
+                    run_dir=run_dir,
+                )
+
+        self.assertEqual(result["status"], "unavailable")
+        self.assertIn("未检测到可用人脸关键点", result["reason"])
 
     def test_invalid_wangxing_expression_class_is_rejected_before_queueing(
         self,
@@ -206,7 +239,9 @@ class WebAppTests(unittest.TestCase):
 
     def test_job_resource_supports_create_read_update_cancel_retry_and_delete(self) -> None:
         video_path = Path("outputs/test_result.mp4")
-        with patch("web_app._ensure_queue_worker"):
+        with patch("web_app._ensure_queue_worker"), patch(
+            "web_app._enqueue_job"
+        ):
             with video_path.open("rb") as video:
                 create_response = self.client.post(
                     "/api/jobs",

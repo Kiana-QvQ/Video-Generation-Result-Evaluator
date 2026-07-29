@@ -27,6 +27,7 @@ else:
 LIBREFACE_STAGE_ROOT.mkdir(parents=True, exist_ok=True)
 LIBREFACE_WEIGHTS_ROOT = LIBREFACE_STAGE_ROOT / "weights_libreface"
 LIBREFACE_WEIGHTS_ROOT.mkdir(parents=True, exist_ok=True)
+LIBREFACE_MAX_LONG_SIDE = 960
 
 
 def _project_path(value: str | Path) -> Path:
@@ -132,30 +133,107 @@ def _run_libreface(
         else:
             runtime_python = Path(sys.executable)
             worker = PROJECT_ROOT / "scripts/libreface_worker.py"
-        command = [
-            str(runtime_python),
-            str(worker),
-            "--input-path",
-            staged_input.as_posix(),
-            "--output-path",
-            staged_output.as_posix(),
-            "--temp",
-            temporary_root.as_posix(),
-            "--weights-dir",
-            LIBREFACE_WEIGHTS_ROOT.as_posix(),
-            "--device",
-            device,
-            "--batch-size",
-            str(max(1, int(batch_size))),
-            "--num-workers",
-            str(max(0, int(num_workers))),
-        ]
-        print("RUN", " ".join(str(part) for part in command))
         environment = os.environ.copy()
         environment.setdefault("PYTHONIOENCODING", "utf-8")
         environment.setdefault("PYTHONUTF8", "1")
+
+        def run_worker(input_path: Path) -> None:
+            staged_output.unlink(missing_ok=True)
+            command = [
+                str(runtime_python),
+                str(worker),
+                "--input-path",
+                input_path.as_posix(),
+                "--output-path",
+                staged_output.as_posix(),
+                "--temp",
+                temporary_root.as_posix(),
+                "--weights-dir",
+                LIBREFACE_WEIGHTS_ROOT.as_posix(),
+                "--device",
+                device,
+                "--batch-size",
+                str(max(1, int(batch_size))),
+                "--num-workers",
+                str(max(0, int(num_workers))),
+            ]
+            print("RUN", " ".join(str(part) for part in command))
+            try:
+                completed = subprocess.run(
+                    command,
+                    check=True,
+                    env=environment,
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                )
+            except subprocess.CalledProcessError as exc:
+                if exc.stdout:
+                    print(exc.stdout, end="")
+                if exc.stderr:
+                    print(exc.stderr, end="", file=sys.stderr)
+                raise
+            if completed.stdout:
+                print(completed.stdout, end="")
+            if completed.stderr:
+                print(completed.stderr, end="", file=sys.stderr)
+
+        def normalise_input() -> Path:
+            ffmpeg = shutil.which("ffmpeg")
+            if not ffmpeg:
+                raise RuntimeError(
+                    "ffmpeg is required to normalize high-resolution AU input."
+                )
+            normalized_input = temporary_root / "normalized.mp4"
+            try:
+                completed = subprocess.run(
+                    [
+                        ffmpeg,
+                        "-y",
+                        "-i",
+                        str(staged_input),
+                        "-vf",
+                        "scale=540:-2",
+                        "-c:v",
+                        "libx264",
+                        "-preset",
+                        "fast",
+                        "-crf",
+                        "18",
+                        "-pix_fmt",
+                        "yuv420p",
+                        "-an",
+                        str(normalized_input),
+                    ],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                )
+            except subprocess.CalledProcessError as exc:
+                if exc.stderr:
+                    print(exc.stderr, end="", file=sys.stderr)
+                raise
+            if completed.stderr:
+                print(completed.stderr, end="", file=sys.stderr)
+            return normalized_input
+
         try:
-            subprocess.run(command, check=True, env=environment)
+            try:
+                run_worker(staged_input)
+            except subprocess.CalledProcessError as first_error:
+                print(
+                    "LibreFace could not process the original video. "
+                    "Retrying with a normalized AU input.",
+                    file=sys.stderr,
+                )
+                try:
+                    normalized_input = normalise_input()
+                    run_worker(normalized_input)
+                except Exception as normalized_error:
+                    raise normalized_error from first_error
             if not staged_output.is_file() or staged_output.stat().st_size == 0:
                 raise RuntimeError(
                     "LibreFace exited without producing an AU CSV. "
