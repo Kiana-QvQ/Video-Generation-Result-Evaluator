@@ -30,6 +30,24 @@ LIBREFACE_WEIGHTS_ROOT.mkdir(parents=True, exist_ok=True)
 LIBREFACE_MAX_LONG_SIDE = 960
 
 
+def _configure_utf8_streams() -> None:
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:
+            continue
+        try:
+            reconfigure(encoding="utf-8", errors="replace")
+        except (OSError, ValueError):
+            continue
+
+
+def _utf8_environment() -> dict[str, str]:
+    environment = os.environ.copy()
+    environment["PYTHONIOENCODING"] = "utf-8"
+    environment["PYTHONUTF8"] = "1"
+    return environment
+
+
 def _project_path(value: str | Path) -> Path:
     path = Path(value).expanduser()
     return path if path.is_absolute() else PROJECT_ROOT / path
@@ -133,9 +151,7 @@ def _run_libreface(
         else:
             runtime_python = Path(sys.executable)
             worker = PROJECT_ROOT / "scripts/libreface_worker.py"
-        environment = os.environ.copy()
-        environment.setdefault("PYTHONIOENCODING", "utf-8")
-        environment.setdefault("PYTHONUTF8", "1")
+        environment = _utf8_environment()
 
         def run_worker(input_path: Path) -> None:
             staged_output.unlink(missing_ok=True)
@@ -251,6 +267,7 @@ def _run_libreface(
 
 
 def main() -> int:
+    _configure_utf8_streams()
     parser = argparse.ArgumentParser(
         description="Extract per-frame AU CSV files with official LibreFace."
     )

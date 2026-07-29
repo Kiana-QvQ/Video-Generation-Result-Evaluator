@@ -578,6 +578,38 @@ def _reference_frames(
     return [], "none"
 
 
+def _identity_reference_frames(
+    reference_image: str | Path | list[str | Path] | tuple[str | Path, ...] | None,
+    reference_video: str | Path | None,
+    ground_truth: str | Path | None,
+    max_frames: int,
+) -> tuple[list[np.ndarray], str]:
+    """Combine every available identity source instead of choosing one."""
+    frames: list[np.ndarray] = []
+    sources: list[str] = []
+
+    image_frames = _read_reference_image(reference_image)
+    if image_frames:
+        frames.extend(image_frames)
+        sources.append("reference_image")
+
+    for path, source in (
+        (reference_video, "reference_video"),
+        (ground_truth, "gt_video"),
+    ):
+        if not path:
+            continue
+        try:
+            _, _, video_frames = _sample_video(path, max_frames)
+        except Exception:
+            continue
+        if video_frames:
+            frames.extend(video_frames)
+            sources.append(source)
+
+    return frames, "+".join(sources) if sources else "none"
+
+
 def evaluate_identity(
     result_path: str | Path,
     reference_image: str | Path | list[str | Path] | tuple[str | Path, ...] | None,
@@ -588,7 +620,7 @@ def evaluate_identity(
 ) -> dict[str, Any]:
     detector = _FaceDetector()
     backend = _IdentityBackend(detector, device=device)
-    reference_frames, reference_source = _reference_frames(
+    reference_frames, reference_source = _identity_reference_frames(
         reference_image,
         reference_video,
         ground_truth,
@@ -613,25 +645,6 @@ def evaluate_identity(
         if embedding is not None:
             reference_embeddings.append(embedding)
             reference_backends.add(embedding_backend)
-    if not reference_embeddings:
-        fallback_frames, fallback_source = _reference_frames(
-            None,
-            reference_video,
-            ground_truth,
-            max_frames,
-        )
-        fallback_embeddings: list[np.ndarray] = []
-        fallback_backends: set[str] = set()
-        for frame in fallback_frames:
-            embedding, _, embedding_backend = backend.embedding(frame)
-            if embedding is not None:
-                fallback_embeddings.append(embedding)
-                fallback_backends.add(embedding_backend)
-        if fallback_embeddings:
-            reference_frames = fallback_frames
-            reference_source = fallback_source
-            reference_embeddings = fallback_embeddings
-            reference_backends = fallback_backends
     if not reference_embeddings:
         return {
             "status": "unavailable",
@@ -1017,11 +1030,7 @@ def evaluate_texture(
         for i, (index, value) in enumerate(zip(result_indices, result_hf))
     ]
     return {
-        "status": (
-            "available"
-            if maniqa is not None and musiq is not None
-            else "partial"
-        ),
+        "status": "partial",
         "mode": "no_gt",
         "backend": f"MANIQA={maniqa_backend}; MUSIQ={musiq_backend}; high_frequency_proxy",
         "metrics": {
@@ -1719,6 +1728,172 @@ def _face_box_jitter(
     return float(np.mean(np.linalg.norm(differences, axis=1))), "face_box_jitter_proxy"
 
 
+def _iter_video_frames(
+    path: str | Path,
+) -> Iterable[tuple[dict[str, Any], int, np.ndarray]]:
+    info = probe_video(path).to_dict()
+    capture = cv2.VideoCapture(str(path))
+    if not capture.isOpened():
+        raise ValueError(f"Unable to open video: {path}")
+    try:
+        frame_index = 0
+        while True:
+            success, frame = capture.read()
+            if not success:
+                break
+            yield (
+                info,
+                frame_index,
+                cv2.cvtColor(frame, cv2.COLOR_BGR2RGB),
+            )
+            frame_index += 1
+    finally:
+        capture.release()
+
+
+def _normalized_face_box(
+    frame: np.ndarray,
+    bbox: tuple[int, int, int, int] | None,
+) -> np.ndarray | None:
+    if bbox is None:
+        return None
+    x, y, width, height = bbox
+    frame_height, frame_width = frame.shape[:2]
+    return np.array(
+        [
+            (x + width / 2) / max(frame_width, 1),
+            (y + height / 2) / max(frame_height, 1),
+            width / max(frame_width, 1),
+            height / max(frame_height, 1),
+        ],
+        dtype=np.float32,
+    )
+
+
+def _jitter_from_landmark_sequences(
+    sequences: list[np.ndarray | None],
+) -> float | None:
+    values: list[float] = []
+    valid_indices = [
+        index
+        for index, sequence in enumerate(sequences)
+        if sequence is not None
+    ]
+    if len(valid_indices) < 2:
+        return None
+
+    run_start = valid_indices[0]
+    previous = run_start
+    for current in valid_indices[1:] + [None]:
+        if current is None or current != previous + 1:
+            run = [
+                sequence
+                for sequence in sequences[run_start:previous + 1]
+                if sequence is not None
+            ]
+            if len(run) >= 2:
+                reference = run[0]
+                aligned = np.stack(
+                    [
+                        _align_landmarks(points, reference)
+                        for points in run
+                    ]
+                )
+                displacement = (
+                    np.diff(aligned, n=2, axis=0)
+                    if len(aligned) >= 3
+                    else np.diff(aligned, axis=0)
+                )
+                values.extend(
+                    np.linalg.norm(displacement, axis=2).reshape(-1).tolist()
+                )
+            if current is None:
+                break
+            run_start = current
+        previous = current
+    return float(np.mean(values)) if values else None
+
+
+def _jitter_from_box_sequences(
+    sequences: list[np.ndarray | None],
+) -> float | None:
+    values: list[float] = []
+    for previous, current in zip(sequences, sequences[1:]):
+        if previous is None or current is None:
+            continue
+        values.append(float(np.linalg.norm(current - previous)))
+    return float(np.mean(values)) if values else None
+
+
+def _full_temporal_scan(
+    result_path: str | Path,
+    detector: _FaceDetector,
+    landmark_tracker: _LandmarkTracker,
+) -> tuple[
+    dict[str, Any],
+    np.ndarray,
+    list[float],
+    float | None,
+    str,
+]:
+    result_info: dict[str, Any] | None = None
+    result_indices: list[int] = []
+    self_errors: list[float] = []
+    landmark_sequences: list[np.ndarray | None] = []
+    box_sequences: list[np.ndarray | None] = []
+    previous_frame: np.ndarray | None = None
+
+    for info, frame_index, frame in _iter_video_frames(result_path):
+        result_info = info
+        result_indices.append(frame_index)
+        if previous_frame is not None:
+            self_errors.append(_warp_error(previous_frame, frame))
+        previous_frame = frame
+
+        landmarks = landmark_tracker.extract(frame)
+        normalized_landmarks = (
+            _normalize_landmarks(landmarks)
+            if landmarks is not None
+            else None
+        )
+        landmark_sequences.append(normalized_landmarks)
+        box_sequences.append(
+            _normalized_face_box(
+                frame,
+                detector.detect(frame) if normalized_landmarks is None else None,
+            )
+        )
+
+    if result_info is None:
+        raise ValueError("The video contains no readable frames.")
+
+    landmark_jitter = _jitter_from_landmark_sequences(landmark_sequences)
+    if landmark_jitter is not None:
+        return (
+            result_info,
+            np.asarray(result_indices, dtype=np.int64),
+            self_errors,
+            landmark_jitter,
+            "mediapipe_landmark_jitter",
+        )
+    box_jitter = _jitter_from_box_sequences(box_sequences)
+    if box_jitter is not None:
+        return (
+            result_info,
+            np.asarray(result_indices, dtype=np.int64),
+            self_errors,
+            box_jitter,
+            "face_box_jitter_proxy",
+        )
+    return (
+        result_info,
+        np.asarray(result_indices, dtype=np.int64),
+        self_errors,
+        None,
+        "unavailable",
+    )
+
+
 def evaluate_temporal(
     result_path: str | Path,
     ground_truth: str | Path | None,
@@ -1728,13 +1903,30 @@ def evaluate_temporal(
 ) -> dict[str, Any]:
     detector = _FaceDetector()
     landmark_tracker = _LandmarkTracker()
-    result_info, result_indices, result_frames = _sample_video(result_path, max_frames)
+    (
+        result_info,
+        result_indices,
+        self_errors,
+        jitter,
+        jitter_backend,
+    ) = _full_temporal_scan(
+        result_path,
+        detector,
+        landmark_tracker,
+    )
     reference_path = reference_video or ground_truth
+    reference_result_frames: list[np.ndarray] = []
     reference_frames: list[np.ndarray] = []
+    reference_result_indices = np.asarray([], dtype=np.int64)
     reference_error: str | None = None
     if reference_path:
         try:
-            result_info, result_indices, result_frames, reference_frames = (
+            (
+                _,
+                reference_result_indices,
+                reference_result_frames,
+                reference_frames,
+            ) = (
                 _sample_aligned_videos(
                     result_path,
                     reference_path,
@@ -1743,7 +1935,7 @@ def evaluate_temporal(
             )
         except Exception as exc:
             reference_error = f"参考光流计算失败：{exc}"
-    if len(result_frames) < 2:
+    if len(result_indices) < 2 or len(self_errors) < 1:
         return {
             "status": "unavailable",
             "mode": "self_warping",
@@ -1754,24 +1946,22 @@ def evaluate_temporal(
             "frame_records": [],
         }
 
-    self_errors = [_warp_error(result_frames[i], result_frames[i + 1]) for i in range(len(result_frames) - 1)]
-    jitter, jitter_backend = _face_box_jitter(
-        result_frames,
-        detector,
-        landmark_tracker,
-    )
     reference_epe: list[float] = []
+    reference_epe_by_result_frame: dict[int, float] = {}
     if reference_frames:
         try:
             for i in range(len(reference_frames) - 1):
-                reference_epe.append(
-                    _flow_endpoint_error(
-                        result_frames[i],
-                        result_frames[i + 1],
-                        reference_frames[i],
-                        reference_frames[i + 1],
-                    )
+                value = _flow_endpoint_error(
+                    reference_result_frames[i],
+                    reference_result_frames[i + 1],
+                    reference_frames[i],
+                    reference_frames[i + 1],
                 )
+                reference_epe.append(value)
+                if i + 1 < len(reference_result_indices):
+                    reference_epe_by_result_frame[
+                        int(reference_result_indices[i + 1])
+                    ] = value
             if len(reference_epe) == 0 and reference_error is None:
                 reference_error = "参考视频不足两帧，无法计算参考光流端点误差。"
         except Exception as exc:
@@ -1806,6 +1996,8 @@ def evaluate_temporal(
             "reference_flow_endpoint_error": _safe_mean(reference_epe),
             "landmark_jitter": jitter,
             "identity_similarity_variance": identity_variance,
+            "generated_frame_count": int(len(result_indices)),
+            "temporal_scan": "full_sequential_result_video",
             "stability_score_0_1": float(np.mean(score_parts)),
         },
         "note": (
@@ -1827,7 +2019,15 @@ def evaluate_temporal(
                 ),
                 "warping_error": round(self_errors[i], 6),
                 "reference_flow_endpoint_error": (
-                    round(reference_epe[i], 6) if i < len(reference_epe) else None
+                    round(
+                        reference_epe_by_result_frame[
+                            int(result_indices[i + 1])
+                        ],
+                        6,
+                    )
+                    if int(result_indices[i + 1])
+                    in reference_epe_by_result_frame
+                    else None
                 ),
             }
             for i in range(len(self_errors))
@@ -2333,6 +2533,7 @@ def evaluate_all(
         "sampling_policy": {
             "regular_sample_fps": DEFAULT_SAMPLE_FPS,
             "max_frames": int(max_frames),
+            "temporal_scan": "full_sequential_result_video",
             "semantic_window_frames": SEMANTIC_WINDOW_FRAMES,
             "semantic_window_seconds": SEMANTIC_WINDOW_SECONDS,
             "semantic_window_overlap": SEMANTIC_WINDOW_OVERLAP,

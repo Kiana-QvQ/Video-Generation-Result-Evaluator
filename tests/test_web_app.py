@@ -119,6 +119,8 @@ class WebAppTests(unittest.TestCase):
                 command[command.index("--expected-class") + 1],
                 "smile",
             )
+            self.assertEqual(run.call_args.kwargs["env"]["PYTHONIOENCODING"], "utf-8")
+            self.assertEqual(run.call_args.kwargs["env"]["PYTHONUTF8"], "1")
 
     def test_sync_evaluation_can_disable_wangxing_au(self) -> None:
         video_path = Path("outputs/test_result.mp4")
@@ -180,6 +182,42 @@ class WebAppTests(unittest.TestCase):
 
         self.assertEqual(result["status"], "unavailable")
         self.assertIn("未检测到可用人脸关键点", result["reason"])
+
+    def test_wangxing_au_runner_does_not_mislabel_encoding_failure_as_face_failure(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory) / "run"
+            run_dir.mkdir()
+            result_path = run_dir / "result.mp4"
+            result_path.write_bytes(b"result")
+            failure = subprocess.CalledProcessError(
+                2,
+                ["evaluate_generated_video"],
+                stderr=(
+                    "ERROR: 'gbk' codec can't encode character "
+                    "'\\ufffd' in position 835: illegal multibyte sequence"
+                ),
+            )
+            with patch(
+                "web_app._wangxing_au_status",
+                return_value={"ready": True},
+            ), patch(
+                "web_app.subprocess.run",
+                side_effect=failure,
+            ):
+                result = web_app._run_wangxing_au_assessment(
+                    result_path=result_path,
+                    reference_image_paths=[],
+                    reference_video_path=None,
+                    expected_class=None,
+                    device="cpu",
+                    run_dir=run_dir,
+                )
+
+        self.assertEqual(result["status"], "unavailable")
+        self.assertIn("编码失败", result["reason"])
+        self.assertNotIn("未检测到可用人脸关键点", result["reason"])
 
     def test_invalid_wangxing_expression_class_is_rejected_before_queueing(
         self,
@@ -563,7 +601,7 @@ class WebAppTests(unittest.TestCase):
         )
         self.assertEqual(payload["path"], "result.mp4")
         self.assertEqual(payload["array"], [1, 2])
-        self.assertIsNone(payload["score"])
+        self.assertEqual(payload["score"], "inf")
 
     def test_atomic_status_write_retries_windows_permission_error(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

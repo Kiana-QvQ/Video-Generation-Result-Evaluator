@@ -36,6 +36,18 @@ smile, anger, surprise, fear, annoyance, sadness
 `anger` is `FenNu` and means explosive anger. `annoyance` is `ShengQi`
 and means suppressed displeasure. They are not merged.
 
+The trained feature contract keeps LibreFace tasks separate:
+
+- Intensity: AU 1, 2, 4, 5, 6, 9, 12, 15, 17, 20, 25, 26, normalized from
+  LibreFace's 0-5 range to 0-1;
+- Presence: AU 1, 2, 4, 6, 7, 10, 12, 14, 15, 17, 23, 24, stored as
+  auxiliary activation evidence.
+
+These are not concatenated into one continuous 24- or 17-dimensional AU
+vector. Profile and evaluation reports record supported and missing AU ids.
+Missing columns remain `NaN` internally and reduce evidence confidence; they
+are never silently interpreted as zero activation.
+
 ```powershell
 .\.venv\Scripts\python.exe scripts\build_au_profile.py `
     --manifest data\video\expression_reference_manifest.json `
@@ -187,8 +199,12 @@ The output contains:
 
 - ArcFace identity preservation;
 - AU personal-pattern compliance;
+- Intensity and Presence AU coverage as separate evidence;
 - AU DTW driver-expression preservation;
-- AU onset, peak, duration, and active-period summaries;
+- constrained AU DTW plus first-order velocity similarity;
+- AU time curves for generated and optional driver sequences;
+- event-level AU records with start/end frame, duration, peak frame, and peak
+  intensity;
 - driver temporal-event alignment;
 - face-quality gate status and usable-frame ratio;
 - driver identity leakage risk;
@@ -201,9 +217,39 @@ main evidence; identity images and driver videos are optional. The general
 `fusion` section is a broader person-likeness decision and may remain
 `review` when identity or driver evidence is not supplied.
 
+The general fusion currently records the implemented weights explicitly:
+identity 40%, personal AU 40%, and driver expression 20%. Missing components
+are renormalized over the available evidence. The Wang Xing-targeted score is
+an arithmetic mean of available personal-AU, driver-expression, and temporal
+alignment evidence; it has no fixed identity weight. These weights are
+implementation defaults and should be calibrated on a held-out validation set.
+
 The current automatic mode also reports an `evidence_quality_status`,
 `evidence_confidence_0_1`, and `evaluation_meta.evaluator_version`. A low
 face-quality or low usable-frame ratio forces the targeted decision to
 `review` instead of silently treating the AU score as reliable. These
 decisions are deterministic model evidence and should not be interpreted as
-human ground truth.
+human ground truth. AU dynamics are an individualized behavioral prior and
+evidence of pattern drift; they are not, by themselves, an identity verdict.
+
+Automatic expression selection uses both intensity AU and the auxiliary
+presence AU representation when it is available. The personal AU score uses
+55% intensity evidence and 45% presence evidence. Class selection additionally
+uses a cross-class relative score, rather than comparing each class against
+its own distance threshold; this prevents a small, broad class profile from
+winning over a closer expression merely because its fitted threshold is
+larger.
+
+The scoring path now keeps two separate representations of the generated
+sequence:
+
+- Personal AU and identity evidence use only frames passing the face-quality
+  mask.
+- AU event timing keeps the original frame indices and full clip duration,
+  marking low-quality frames as invalid instead of concatenating the valid
+  frames.
+
+The main evaluator's temporal-stability category remains independent from the
+Wang Xing AU path and reads the original result video. Do not replace the
+result video with a filtered-face video before calculating optical flow,
+warping, or jitter.
