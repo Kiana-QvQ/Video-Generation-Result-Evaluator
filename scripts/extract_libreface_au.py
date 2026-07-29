@@ -299,6 +299,15 @@ def main() -> int:
     parser.add_argument("--num-workers", type=int, default=2)
     parser.add_argument("--limit", type=int)
     parser.add_argument("--force", action="store_true")
+    parser.add_argument(
+        "--continue-on-error",
+        action="store_true",
+        help="Record failed videos and continue with the remaining inputs.",
+    )
+    parser.add_argument(
+        "--failure-log",
+        help="JSON path for failures; defaults to <output-root>/_failures.json.",
+    )
     args = parser.parse_args()
 
     _find_executable()
@@ -322,6 +331,7 @@ def main() -> int:
 
     completed = 0
     skipped = 0
+    failures: list[dict[str, str]] = []
     for video_path, relative_name in inputs:
         if not video_path.is_file():
             print(f"SKIP missing video: {video_path}")
@@ -335,21 +345,59 @@ def main() -> int:
             skipped += 1
             continue
 
-        _run_libreface(
-            video_path,
-            output_path,
-            device=args.device,
-            batch_size=args.batch_size,
-            num_workers=args.num_workers,
-        )
+        try:
+            _run_libreface(
+                video_path,
+                output_path,
+                device=args.device,
+                batch_size=args.batch_size,
+                num_workers=args.num_workers,
+            )
+        except Exception as exc:
+            failure = {
+                "input": str(video_path),
+                "output": str(output_path),
+                "error": f"{type(exc).__name__}: {exc}",
+            }
+            failures.append(failure)
+            print(
+                f"FAIL {video_path}: {failure['error']}",
+                file=sys.stderr,
+            )
+            if not args.continue_on_error:
+                raise
+            continue
         completed += 1
+
+    failure_log: Path | None = None
+    if failures:
+        failure_log = _project_path(
+            args.failure_log
+            if args.failure_log
+            else output_root / "_failures.json"
+        )
+        failure_log.parent.mkdir(parents=True, exist_ok=True)
+        failure_log.write_text(
+            json.dumps(
+                {
+                    "failed": len(failures),
+                    "records": failures,
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
 
     print(
         json.dumps(
             {
                 "completed": completed,
                 "skipped": skipped,
+                "failed": len(failures),
                 "output_root": str(output_root),
+                "failure_log": str(failure_log) if failure_log else None,
             },
             ensure_ascii=False,
             indent=2,

@@ -12,8 +12,10 @@ import numpy as np
 
 AU_PROFILE_SCHEMA = "wangxing_au_profile_v2"
 AU_CLASSIFIER_SCHEMA = "au_leakage_classifier_v2"
-AU_EVALUATOR_VERSION = "wangxing_au_eval_v5"
+AU_EVALUATOR_VERSION = "wangxing_au_eval_v6"
 AU_QUALITY_SCHEMA = "face_quality_gate_v1"
+AUTO_EMOTION_MIN_CLASSES = 2
+AUTO_EMOTION_MIN_SAMPLES_PER_CLASS = 3
 DEFAULT_INTENSITY_AU_IDS = (
     1,
     2,
@@ -1622,6 +1624,94 @@ def _add_auto_selection_scores(
             score["auto_selection_score_0_1"] = intensity_rank
 
 
+def _score_auto_emotion_profile(
+    *,
+    generated_au_path: str | Path,
+    generated_scored: np.ndarray,
+    generated_supported: tuple[int, ...],
+    profile: dict[str, Any],
+) -> tuple[dict[str, dict[str, Any]], str | None]:
+    """Score emotion classes from a separate, general AU reference profile."""
+    classes = profile.get("classes", {})
+    if not isinstance(classes, dict):
+        return {}, "emotion profile has no class models"
+    if len(classes) < AUTO_EMOTION_MIN_CLASSES:
+        return {}, "emotion profile needs at least two emotion classes"
+    sample_counts = [
+        int(model.get("sample_count", 0))
+        for model in classes.values()
+        if isinstance(model, dict)
+    ]
+    if (
+        len(sample_counts) < AUTO_EMOTION_MIN_CLASSES
+        or min(sample_counts) < AUTO_EMOTION_MIN_SAMPLES_PER_CLASS
+    ):
+        return {}, (
+            "emotion profile has too few labeled samples per class "
+            f"(minimum {AUTO_EMOTION_MIN_SAMPLES_PER_CLASS})"
+        )
+    if profile.get("auto_classification_ready") is False:
+        return {}, str(
+            profile.get(
+                "auto_classification_reason",
+                "emotion profile is not ready for automatic classification",
+            )
+        )
+
+    profile_au_ids = tuple(int(value) for value in profile.get("au_ids", ()))
+    supported = tuple(
+        au_id for au_id in generated_supported if au_id in profile_au_ids
+    )
+    if not supported:
+        return {}, "emotion profile has no AU columns in common with the result"
+    generated_indices = [
+        generated_supported.index(au_id) for au_id in supported
+    ]
+    sequence = generated_scored[:, generated_indices]
+    scores = {
+        class_name: _profile_model_score(
+            sequence,
+            model,
+            full_au_ids=profile_au_ids,
+            supported_au_ids=supported,
+        )
+        for class_name, model in classes.items()
+    }
+
+    presence_scores: dict[str, float | None] = {}
+    presence_au_ids = tuple(
+        int(value)
+        for value in profile.get("presence_au_ids", DEFAULT_PRESENCE_AU_IDS)
+    )
+    try:
+        presence, _, presence_meta = load_au_table(
+            generated_au_path,
+            presence_au_ids,
+            feature_type="presence",
+            strict=False,
+            intensity_scale=1.0,
+        )
+        presence_mask = _quality_mask(presence, presence_meta)
+        for class_name in classes:
+            presence_scores[class_name] = _presence_report(
+                presence,
+                presence_au_ids,
+                presence_meta,
+                profile,
+                class_name,
+                active_threshold=float(
+                    profile.get("active_threshold", DEFAULT_ACTIVE_THRESHOLD)
+                ),
+                valid_mask=presence_mask,
+            ).get("fit_score_0_1")
+    except ValueError:
+        pass
+
+    _combine_personal_au_scores(scores, presence_scores)
+    _add_auto_selection_scores(scores)
+    return scores, None
+
+
 def _au_time_curve(
     sequence: np.ndarray,
     au_ids: tuple[int, ...],
@@ -1907,6 +1997,7 @@ def score_au_compliance(
     expected_class: str | None = None,
     driver_au_path: str | Path | None = None,
     leakage_classifier_path: str | Path | None = None,
+    emotion_profile_path: str | Path | None = None,
 ) -> dict[str, Any]:
     """Score intensity AU compliance with presence and timing evidence."""
     profile = _load_profile(profile_path)
@@ -2027,12 +2118,59 @@ def score_au_compliance(
         if best_intensity_score < AUTO_NEUTRAL_INTENSITY_THRESHOLD
         else "face_mesh_no_salient_motion"
     )
+
+    auto_class_scores: dict[str, dict[str, Any]] = {}
+    auto_classification_status = "legacy_target_profile"
+    auto_classification_reason = (
+        "No separate original AU emotion profile was supplied."
+    )
+    if emotion_profile_path is not None:
+        auto_classification_status = "unavailable"
+        emotion_path = Path(emotion_profile_path)
+        if not emotion_path.is_file():
+            auto_classification_reason = (
+                f"Original AU emotion profile was not found: {emotion_path}"
+            )
+        else:
+            try:
+                emotion_profile = _load_profile(emotion_path)
+                auto_class_scores, profile_reason = _score_auto_emotion_profile(
+                    generated_au_path=generated_au_path,
+                    generated_scored=generated_scored,
+                    generated_supported=generated_supported,
+                    profile=emotion_profile,
+                )
+                if auto_class_scores:
+                    auto_classification_status = "available"
+                    auto_classification_reason = (
+                        "Automatic emotion class comes from the original AU "
+                        "emotion profile."
+                    )
+                else:
+                    auto_classification_reason = profile_reason or (
+                        "Original AU emotion profile could not be scored."
+                    )
+            except (OSError, ValueError, json.JSONDecodeError) as exc:
+                auto_classification_reason = (
+                    f"Original AU emotion profile is invalid: {exc}"
+                )
+
     if expected_class:
         if expected_class not in class_scores:
             raise ValueError(
                 f"Unknown expected expression class: {expected_class}"
             )
         selected_class = expected_class
+    elif emotion_profile_path is not None:
+        if auto_class_scores:
+            selected_class = max(
+                auto_class_scores,
+                key=lambda name: auto_class_scores[name][
+                    "auto_selection_score_0_1"
+                ],
+            )
+        else:
+            selected_class = "unknown"
     elif (
         best_intensity_score < AUTO_NEUTRAL_INTENSITY_THRESHOLD
         or (
@@ -2057,8 +2195,19 @@ def score_au_compliance(
         selected_class = "neutral"
     else:
         selected_class = best_expression_class
-    selected = class_scores[selected_class]
-    generated_presence_report = presence_reports.get(selected_class)
+
+    target_evidence_class = (
+        selected_class
+        if selected_class in class_scores
+        and selected_class != "neutral"
+        else best_expression_class
+    )
+    selected = (
+        class_scores[selected_class]
+        if selected_class in class_scores
+        else class_scores[target_evidence_class]
+    )
+    generated_presence_report = presence_reports.get(target_evidence_class)
     if generated_presence_report is None:
         generated_presence_report = {
             "feature_type": "presence",
@@ -2317,8 +2466,12 @@ def score_au_compliance(
         "missing_au_ids": missing_intensity_au_ids,
         "presence_au_ids": list(presence_au_ids),
         "selected_expression_class": selected_class,
+        "target_evidence_class": target_evidence_class,
         "expected_expression_class": expected_class,
         "class_scores": class_scores,
+        "auto_classification_status": auto_classification_status,
+        "auto_classification_reason": auto_classification_reason,
+        "auto_class_scores": auto_class_scores,
         "personal_au_score_0_1": personal_score,
         "driver_expression_score_0_1": driver_expression_score,
         "driver_dtw_score_0_1": driver_dtw_score,

@@ -11,6 +11,7 @@ class GrpcStartArgumentTests(unittest.TestCase):
         args = _parse_args([])
         self.assertEqual(args.host, "127.0.0.1")
         self.assertEqual(args.port, 50051)
+        self.assertTrue(args.with_vlm)
 
     def test_public_binds_all_interfaces(self) -> None:
         args = _parse_args(["--public", "--port", "50054"])

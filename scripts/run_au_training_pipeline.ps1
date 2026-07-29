@@ -14,6 +14,9 @@ param(
     [string]$Device = "cuda",
     [int]$BatchSize = 64,
     [int]$NumWorkers = 2,
+    [string]$OriginalAuRoot = "data\au\MD_CL",
+    [string]$EmotionProfileOutput = "data\au\original_emotion_au_profile.json",
+    [int]$EmotionMinSamplesPerClass = 3,
     [switch]$SkipNegativePreparation,
     [switch]$ForceAuExtraction
 )
@@ -36,7 +39,10 @@ $runnerArgs = @(
     "--max-negative-videos", "$MaxNegativeVideos",
     "--device", $Device,
     "--batch-size", "$BatchSize",
-    "--num-workers", "$NumWorkers"
+    "--num-workers", "$NumWorkers",
+    "--original-au-root", $OriginalAuRoot,
+    "--emotion-profile-output", $EmotionProfileOutput,
+    "--emotion-min-samples-per-class", "$EmotionMinSamplesPerClass"
 )
 
 if (-not [string]::IsNullOrWhiteSpace($MetaHumanArchive)) {

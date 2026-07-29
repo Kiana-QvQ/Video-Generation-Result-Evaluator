@@ -506,6 +506,7 @@ function clampUnit(value) {
 
 const expressionLabels = {
   auto: "自动判断",
+  unknown: "数据不足，无法可靠归类",
   smile: "微笑",
   anger: "愤怒",
   annoyance: "烦躁",
@@ -787,6 +788,14 @@ function renderWangxingResult(result) {
     targeted.evidence_confidence_0_1 ??
       au.evidence_confidence_0_1,
   );
+  const autoClassificationReason = String(
+    au.auto_classification_reason ?? "",
+  );
+  const autoClassificationNote =
+    /at least two|too few|not found|not ready/i.test(autoClassificationReason)
+      ? "原版 AU 情绪数据未达到自动分类条件，至少需要两类情绪且每类至少 3 个样本。"
+      : autoClassificationReason ||
+        "原版 AU 情绪数据不足，暂不输出确定情绪。";
   const thresholds = targeted.thresholds ?? {};
   const validFrameRatio = normalizeScore(quality.valid_frame_ratio);
   const qualityStatus = String(
@@ -839,6 +848,9 @@ function renderWangxingResult(result) {
     );
   }
   const decisionNote = [
+    selectedClass === "unknown"
+      ? autoClassificationNote
+      : "",
     decision === "block"
       ? "这是王兴 AU 规则判定，不是上传拦截，也不是 Qwen 安全拦截。"
       : "",
