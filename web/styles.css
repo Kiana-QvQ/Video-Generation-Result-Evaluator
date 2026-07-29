@@ -2275,6 +2275,24 @@ input[type="number"]:focus {
   background: #eeece6;
 }
 
+.evidence-note {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 5px;
+  padding: 11px;
+  border: 1px solid rgba(168, 93, 77, 0.28);
+  border-radius: 10px;
+  background: #f8e9e2;
+  color: #7e5145;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.evidence-note strong {
+  color: #8e4f40;
+  font: 700 11px var(--sans);
+}
+
 .evidence-card-label {
   display: grid;
   gap: 3px;

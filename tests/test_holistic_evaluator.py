@@ -216,6 +216,21 @@ class HolisticEvaluatorTests(unittest.TestCase):
         self.assertAlmostEqual(result["metrics"]["window_mean_score"], 0.5)
         self.assertAlmostEqual(result["score_0_1"], 0.4)
 
+    def test_etva_explains_cached_model_without_http_service(self) -> None:
+        result = evaluate_etva_judge(
+            "result.mp4",
+            "perform a wink",
+            None,
+            max_frames=16,
+            window_frames=8,
+            service_available=False,
+        )
+
+        self.assertEqual(result["status"], "unavailable")
+        self.assertIn("weights are cached", result["reason"])
+        self.assertIn("HTTP service is not connected", result["reason"])
+        self.assertEqual(result["model"], "qwen2-vl-2b-awq")
+
     def test_identity_tail_uses_lowest_scores(self) -> None:
         self.assertEqual(_lower_tail([0.95, 0.2, 0.8, 0.7], 0.5), [0.2, 0.7])
 
@@ -537,7 +552,9 @@ class HolisticEvaluatorTests(unittest.TestCase):
             self.assertEqual(len(result["summary"]), 5)
             self.assertIn("weighted_score_weight_coverage", result)
 
-    def test_invalid_gt_falls_back_without_aborting_other_scores(self) -> None:
+    def test_mismatched_gt_uses_center_crop_without_aborting_other_scores(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             result_path = root / "result.mp4"
@@ -557,10 +574,25 @@ class HolisticEvaluatorTests(unittest.TestCase):
                 manual_aesthetic_score=4,
             )
 
-            self.assertEqual(result["evaluation_mode"], "result_only")
-            self.assertEqual(result["categories"]["texture"]["mode"], "no_gt")
+            self.assertEqual(result["evaluation_mode"], "full_reference")
+            self.assertEqual(
+                result["categories"]["texture"]["mode"],
+                "full_reference",
+            )
+            self.assertEqual(
+                result["categories"]["texture"]["ground_truth_status"],
+                "used",
+            )
             self.assertTrue(
-                any("GT 全参考指标不可用" in warning for warning in result["warnings"])
+                result["categories"]["texture"]["ground_truth_provided"]
+            )
+            self.assertEqual(
+                result["categories"]["texture"]["ground_truth_alignment"]["mode"],
+                "center_crop_gt_to_result_aspect",
+            )
+            self.assertIn(
+                "宽高比不同",
+                result["categories"]["texture"]["warnings"][0],
             )
 
     def test_expression_style_and_semantic_scores_are_combined(self) -> None:

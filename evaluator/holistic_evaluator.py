@@ -13,6 +13,7 @@ import numpy as np
 
 from .video_metrics import (
     _aligned_sample_indices,
+    _align_ground_truth_frame,
     _read_frames,
     _resize_like,
     DEFAULT_SAMPLE_FPS,
@@ -128,6 +129,22 @@ def get_model_inventory() -> list[dict[str, Any]]:
     except Exception:
         vbench_ready = False
 
+    qwen_service_active = etva_service_available()
+    qwen_model = _model_status(
+        "ETVA VLM Judge (Qwen2-VL-2B AWQ)",
+        "细粒度视频问答式评委",
+        qwen_vlm_ready,
+        (
+            "Qwen2-VL-2B AWQ 已缓存，且 Judge HTTP 服务已连接。"
+            if qwen_vlm_ready and qwen_service_active
+            else "Qwen2-VL-2B AWQ 已下载，但 Judge HTTP 服务未连接。"
+            if qwen_vlm_ready
+            else "未检测到精简 VLM Judge 权重。"
+        ),
+        optional=True,
+    )
+    qwen_model["service_active"] = qwen_service_active
+
     return [
         _model_status(
             "ViCLIP",
@@ -140,17 +157,7 @@ def get_model_inventory() -> list[dict[str, Any]]:
             ),
             optional=True,
         ),
-        _model_status(
-            "ETVA VLM Judge (Qwen2-VL-2B AWQ)",
-            "细粒度视频问答式评委",
-            qwen_vlm_ready,
-            (
-                "Qwen2-VL-2B AWQ 已缓存；按需串行加载。"
-                if qwen_vlm_ready
-                else "未检测到精简 VLM Judge 权重。"
-            ),
-            optional=True,
-        ),
+        qwen_model,
         _model_status(
             "ArcFace",
             "角色 / 身份一致性",
@@ -296,6 +303,10 @@ def _sample_aligned_videos(
     )
     result_frames = _read_frames(result_info["path"], result_indices)
     reference_frames = _read_frames(reference_info["path"], reference_indices)
+    reference_frames = [
+        _align_ground_truth_frame(reference_frame, result_frame)
+        for result_frame, reference_frame in zip(result_frames, reference_frames)
+    ]
     return result_info, result_indices, result_frames, reference_frames
 
 
@@ -848,6 +859,8 @@ def evaluate_texture(
     result_info, result_indices, result_frames = _sample_video(result_path, max_frames)
     result_boxes = [detector.detect(frame) for frame in result_frames]
     warnings: list[str] = []
+    ground_truth_provided = bool(ground_truth)
+    ground_truth_fallback_reason: str | None = None
 
     full_reference: dict[str, Any] | None = None
     if ground_truth:
@@ -863,6 +876,7 @@ def evaluate_texture(
             warnings.append(
                 f"GT 全参考指标不可用，已降级到无 GT 纹理评估：{exc}"
             )
+            ground_truth_fallback_reason = str(exc)
             ground_truth = None
 
     if ground_truth and full_reference is not None:
@@ -883,7 +897,7 @@ def evaluate_texture(
             result_eval_boxes,
             gt_eval_boxes,
         ):
-            gt_frame = _resize_like(gt_frame, result_frame)
+            gt_frame = _align_ground_truth_frame(gt_frame, result_frame)
             result_value = _high_frequency_energy(result_frame, result_bbox)
             gt_value = _high_frequency_energy(gt_frame, gt_bbox)
             ratio_values.append(
@@ -938,6 +952,11 @@ def evaluate_texture(
         return {
             "status": "available" if lpips_value is not None else "partial",
             "mode": "full_reference",
+            "ground_truth_status": "used",
+            "ground_truth_provided": True,
+            "ground_truth_usable": True,
+            "ground_truth_fallback_reason": None,
+            "ground_truth_alignment": full_reference.get("alignment"),
             "backend": "PSNR/SSIM/LPIPS (GT) + high_frequency_proxy",
             "metrics": {
                 "psnr_db": full_reference["metrics"]["psnr_db"],
@@ -1032,6 +1051,12 @@ def evaluate_texture(
     return {
         "status": "partial",
         "mode": "no_gt",
+        "ground_truth_status": (
+            "uploaded_but_unusable" if ground_truth_provided else "not_uploaded"
+        ),
+        "ground_truth_provided": ground_truth_provided,
+        "ground_truth_usable": False,
+        "ground_truth_fallback_reason": ground_truth_fallback_reason,
         "backend": f"MANIQA={maniqa_backend}; MUSIQ={musiq_backend}; high_frequency_proxy",
         "metrics": {
             "psnr_db": None,
@@ -1614,13 +1639,8 @@ def _warp_error(frame_a: np.ndarray, frame_b: np.ndarray) -> float:
 
 
 def _flow_endpoint_error(frame_a: np.ndarray, frame_b: np.ndarray, reference_a: np.ndarray, reference_b: np.ndarray) -> float:
-    if abs(
-        (reference_a.shape[1] / reference_a.shape[0])
-        - (frame_a.shape[1] / frame_a.shape[0])
-    ) > 0.01:
-        raise ValueError("Result and reference videos have different aspect ratios.")
-    reference_a = _resize_like(reference_a, frame_a)
-    reference_b = _resize_like(reference_b, frame_b)
+    reference_a = _align_ground_truth_frame(reference_a, frame_a)
+    reference_b = _align_ground_truth_frame(reference_b, frame_b)
     generated_flow = _flow(frame_a, frame_b)
     reference_flow = _flow(reference_a, reference_b)
     difference = generated_flow - reference_flow
@@ -2280,6 +2300,7 @@ def evaluate_all(
         reference_path=reference_video or ground_truth,
         max_frames=max_frames,
         window_frames=policy.etva_frames,
+        service_available=qwen_service_active,
     )
     etva_score = (
         etva_judge.get("score_0_1")

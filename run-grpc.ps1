@@ -1,5 +1,8 @@
 param(
     [switch]$Public,
+    [switch]$WithVlm,
+    [ValidateSet("2b", "2.5-3b")]
+    [string]$VlmModel = "2b",
     [string]$BindHost,
     [int]$Port = 50051
 )
@@ -27,5 +30,11 @@ $env:EVALUATOR_IQA_DEVICE = "auto"
 $env:EVALUATOR_SEMANTIC_DEVICE = "auto"
 
 Set-Location $root
-& $python (Join-Path $root "start_grpc.py") --host $hostAddress --port $Port
+$startArguments = @("--host", $hostAddress, "--port", [string]$Port)
+if ($WithVlm) {
+    $startArguments += "--with-vlm"
+    $startArguments += "--vlm-model"
+    $startArguments += $VlmModel
+}
+& $python (Join-Path $root "start_grpc.py") @startArguments
 exit $LASTEXITCODE

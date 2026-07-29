@@ -253,11 +253,13 @@ function renderModels(payload) {
   modelList.innerHTML = payload.models
     .map((model) => {
       const label =
-        model.status === "ready"
-          ? "READY"
-          : model.status === "optional"
-            ? "OPTIONAL"
-            : "OFFLINE";
+        model.name.includes("ETVA VLM") && model.ready && model.service_active === false
+          ? "CACHED"
+          : model.status === "ready"
+            ? "READY"
+            : model.status === "optional"
+              ? "OPTIONAL"
+              : "OFFLINE";
       return `
         <div class="model-chip ${escapeHtml(model.status)}" title="${escapeHtml(model.note)}">
           <span class="status-dot"></span>
@@ -332,12 +334,20 @@ function renderQwenFeedback(result) {
     ? feedback.suggestions.filter(Boolean)
     : [];
   const isAvailable = judge.status === "available";
+  const unavailableReason = String(judge.reason ?? "");
+  const isCachedButOffline =
+    !isAvailable && /cached|not connected|not reachable/i.test(unavailableReason);
+  const unavailableMessage = isCachedButOffline
+    ? "Qwen 权重已下载，但 Judge 服务未连接；下载模型不会自动启动 HTTP 服务。"
+    : "Qwen 模型未返回文字诊断，请重新评估或检查 VLM 服务。";
   const windowCount = Number(judge.metrics?.window_count);
   const statusText = isAvailable
     ? Number.isFinite(windowCount)
       ? `Qwen2-VL-2B AWQ · 已分析 ${windowCount} 个时间窗口`
       : "Qwen2-VL-2B AWQ · 已完成复核"
-    : "Qwen2-VL-2B AWQ · 当前未返回诊断";
+    : isCachedButOffline
+      ? "Qwen2-VL-2B AWQ · 已下载，当前未连接"
+      : "Qwen2-VL-2B AWQ · 当前未返回诊断";
 
   qwenFeedback.classList.remove("is-hidden");
   qwenFeedback.innerHTML = `
@@ -348,7 +358,7 @@ function renderQwenFeedback(result) {
         <p>${escapeHtml(statusText)}</p>
       </div>
       <span class="qwen-feedback-badge ${isAvailable ? "ready" : "muted"}">
-        ${isAvailable ? "AI REVIEW" : "未连接"}
+        ${isAvailable ? "AI REVIEW" : isCachedButOffline ? "已下载 / 未连接" : "未连接"}
       </span>
     </div>
     <div class="qwen-feedback-grid">
@@ -363,7 +373,7 @@ function renderQwenFeedback(result) {
             : `<p class="qwen-feedback-empty">${
                 isAvailable
                   ? "未发现明确问题。"
-                  : "Qwen 模型未返回文字诊断，请重新评估或检查 VLM 服务。"
+                  : unavailableMessage
               }</p>`
         }
       </div>
@@ -378,7 +388,7 @@ function renderQwenFeedback(result) {
             : `<p class="qwen-feedback-empty">${
                 isAvailable
                   ? "暂无额外调整建议。"
-                  : "连接 Qwen2-VL-2B AWQ 后，这里会显示具体调整方向。"
+                  : "启动 Qwen Judge 服务后重新评估，这里会显示具体调整方向。"
               }</p>`
         }
       </div>
@@ -388,7 +398,8 @@ function renderQwenFeedback(result) {
 
 function renderEvidence(result) {
   const categories = result.categories ?? {};
-  const texture = categories.texture?.metrics ?? {};
+  const textureCategory = categories.texture ?? {};
+  const texture = textureCategory.metrics ?? {};
   const identity = categories.identity?.metrics ?? {};
   const expression = categories.expression?.metrics ?? {};
   const temporal = categories.temporal?.metrics ?? {};
@@ -401,7 +412,30 @@ function renderEvidence(result) {
       : identitySource.includes("reference_image")
         ? "ArcFace / 参考图"
         : "ArcFace / 参考素材";
-  const fullReference = categories.texture?.mode === "full_reference";
+  const fullReference = textureCategory.mode === "full_reference";
+  const groundTruthStatus = String(
+    textureCategory.ground_truth_status ??
+      (result.ground_truth_video ? "uploaded_but_unusable" : "not_uploaded"),
+  );
+  const groundTruthUploaded =
+    groundTruthStatus === "used" ||
+    groundTruthStatus === "uploaded_but_unusable" ||
+    Boolean(result.ground_truth_video);
+  const groundTruthAlignmentMode = String(
+    textureCategory.ground_truth_alignment?.mode ?? "",
+  );
+  const groundTruthWasCenterCropped =
+    groundTruthAlignmentMode === "center_crop_gt_to_result_aspect";
+  const textureReferenceDetail = fullReference
+    ? groundTruthWasCenterCropped
+      ? "GT 参考 / 居中裁剪对齐"
+      : "GT 参考"
+    : groundTruthUploaded
+      ? "GT 已上传 / 未通过对齐"
+      : "无 GT";
+  const textureFallbackReason =
+    textureCategory.ground_truth_fallback_reason ||
+    (Array.isArray(textureCategory.warnings) ? textureCategory.warnings[0] : "");
   const manualAesthetic = aesthetics.manual_score_0_to_1;
   const vbenchAesthetic = aesthetics.vbench_aesthetic_quality_0_to_1;
   const aestheticValue = manualAesthetic ?? vbenchAesthetic;
@@ -416,9 +450,9 @@ function renderEvidence(result) {
     : "人工优先";
   const evidence = [
     ["IDENTITY / MEAN", "身份一致性 / 均值", formatNumber(identity.mean_similarity), identityReferenceLabel, "higher"],
-    [fullReference ? "PSNR / dB" : "TEXTURE / SCORE", fullReference ? "峰值信噪比" : "纹理质量 / 分数", fullReference ? formatNumber(texture.psnr_db, 2) : formatNumber(texture.score_0_1), fullReference ? "GT 参考" : "无 GT", "higher"],
-    [fullReference ? "SSIM" : "MANIQA", fullReference ? "结构相似性" : "图像质量评分", fullReference ? formatNumber(texture.ssim, 4) : formatNumber(texture.maniqa), fullReference ? "GT 参考" : "可选图像质量指标", "higher"],
-    [fullReference ? "LPIPS" : "MUSIQ", fullReference ? "感知距离" : "无参考质量评分", fullReference ? formatNumber(texture.lpips, 4) : formatNumber(texture.musiq), fullReference ? "GT 参考" : "可选图像质量指标", fullReference ? "lower" : "higher"],
+    [fullReference ? "PSNR / dB" : "TEXTURE / SCORE", fullReference ? "峰值信噪比" : "纹理质量 / 分数", fullReference ? formatNumber(texture.psnr_db, 2) : formatNumber(texture.score_0_1), textureReferenceDetail, "higher"],
+    [fullReference ? "SSIM" : "MANIQA", fullReference ? "结构相似性" : "图像质量评分", fullReference ? formatNumber(texture.ssim, 4) : formatNumber(texture.maniqa), fullReference ? "GT 参考" : groundTruthUploaded ? "GT 已上传 / 未通过对齐" : "可选图像质量指标", "higher"],
+    [fullReference ? "LPIPS" : "MUSIQ", fullReference ? "感知距离" : "无参考质量评分", fullReference ? formatNumber(texture.lpips, 4) : formatNumber(texture.musiq), fullReference ? "GT 参考" : groundTruthUploaded ? "GT 已上传 / 未通过对齐" : "可选图像质量指标", fullReference ? "lower" : "higher"],
     ["TEXT / VIDEO", "文本 / 视频一致性", formatNumber(expression.text_video_alignment), "CLIP 基线", "higher"],
     ["TEMPORAL / STABILITY", "时间稳定性", formatNumber(temporal.stability_score_0_1), "光流 + 抖动", "higher"],
   ];
@@ -451,7 +485,17 @@ function renderEvidence(result) {
         `;
       },
     )
-    .join("");
+    .join("") +
+    (groundTruthUploaded && (!fullReference || groundTruthWasCenterCropped)
+      ? `<div class="evidence-note"><strong>${
+          fullReference
+            ? "GT 已使用，因宽高比不同采用居中裁剪对齐。"
+            : "GT 已上传，但未用于 PSNR / SSIM / LPIPS。"
+        }</strong><span>${escapeHtml(
+          textureFallbackReason ||
+            "GT 与结果视频已按共同时间区间进行比较。",
+        )}</span></div>`
+      : "");
 }
 
 function clampUnit(value) {
@@ -540,16 +584,35 @@ function describeAuActivity(auIds) {
     };
   }
   return {
-    label: "轻微面部变化",
-    detail: "检测到的表情动作不明显",
+    label: "无明显表情变化",
+    detail: "没有足够强度和持续时间的表情动作通过显著性阈值",
   };
 }
 
 function collectAuTemporalSegments(temporalEvents) {
   const frameCount = Math.max(1, Number(temporalEvents?.frame_count) || 1);
+  const meshMouthEvents =
+    temporalEvents?.face_mesh?.status === "available"
+      ? temporalEvents.face_mesh.mouth_open?.events ?? []
+      : null;
   const intervals = [];
   Object.entries(temporalEvents?.per_au ?? {}).forEach(([auId, summary]) => {
     (Array.isArray(summary?.events) ? summary.events : []).forEach((event) => {
+      const isSalient =
+        event.salient === true ||
+        (event.salient === undefined &&
+          Number(event.peak_intensity) >= 0.5 &&
+          Number(event.duration_ratio) >= 0.05);
+      if (!isSalient) return;
+      if (meshMouthEvents && (Number(auId) === 25 || Number(auId) === 26)) {
+        const overlapsMouthMesh = meshMouthEvents.some(
+          (meshEvent) =>
+            Number(meshEvent.start_frame) <= Number(event.end_frame) &&
+            Number(meshEvent.end_frame) >= Number(event.start_frame) &&
+            meshEvent.salient !== false,
+        );
+        if (!overlapsMouthMesh) return;
+      }
       const start = Number(event.start_frame);
       const end = Number(event.end_frame);
       if (
@@ -601,6 +664,7 @@ function formatTemporalRange(segment) {
 function renderAuTemporalEvidence(au) {
   const temporalEvents = au.temporal_events ?? {};
   const segments = collectAuTemporalSegments(temporalEvents);
+  const meshEnabled = temporalEvents.face_mesh?.status === "available";
   const expectedClass = au.expected_expression_class;
   const selectedClass = au.selected_expression_class ?? "auto";
   const expressionContext = expectedClass
@@ -618,9 +682,11 @@ function renderAuTemporalEvidence(au) {
       <div class="wangxing-result-section-head">
         <span>AU TEMPORAL EVIDENCE / 表情时间段</span>
         <small>${escapeHtml(
-          au.driver_au
-            ? "有参考动作视频 · 可比较节奏"
-            : "未提供参考动作视频 · 仅分析生成视频",
+          `${meshEnabled ? "Face Mesh + AU 交叉验证 · " : "AU 单独分析 · "}${
+            au.driver_au
+              ? "有参考动作视频 · 可比较节奏"
+              : "未提供参考动作视频 · 仅分析生成视频"
+          }`,
         )}</small>
       </div>
       <div class="au-expression-summary">
@@ -721,6 +787,7 @@ function renderWangxingResult(result) {
     targeted.evidence_confidence_0_1 ??
       au.evidence_confidence_0_1,
   );
+  const thresholds = targeted.thresholds ?? {};
   const validFrameRatio = normalizeScore(quality.valid_frame_ratio);
   const qualityStatus = String(
     targeted.evidence_quality_status ??
@@ -748,6 +815,38 @@ function renderWangxingResult(result) {
     .join(" / ");
   const formatEvidence = (value) =>
     value === null ? "—" : `${(value * 100).toFixed(1)}`;
+  const thresholdNotes = [];
+  if (
+    personal !== null &&
+    Number.isFinite(Number(thresholds.personal_au)) &&
+    personal < Number(thresholds.personal_au)
+  ) {
+    thresholdNotes.push(
+      `王兴 AU ${formatEvidence(personal)} < 阈值 ${formatEvidence(
+        thresholds.personal_au,
+      )}`,
+    );
+  }
+  if (
+    leakage !== null &&
+    Number.isFinite(Number(thresholds.leakage)) &&
+    leakage >= Number(thresholds.leakage)
+  ) {
+    thresholdNotes.push(
+      `身份泄漏风险 ${formatEvidence(leakage)} >= 阈值 ${formatEvidence(
+        thresholds.leakage,
+      )}`,
+    );
+  }
+  const decisionNote = [
+    decision === "block"
+      ? "这是王兴 AU 规则判定，不是上传拦截，也不是 Qwen 安全拦截。"
+      : "",
+    reasons,
+    thresholdNotes.join(" / "),
+  ]
+    .filter(Boolean)
+    .join(" ");
   const identityText =
     identity === null ? "未提供身份参考图" : "ArcFace 身份证据";
 
@@ -786,7 +885,7 @@ function renderWangxingResult(result) {
     ${renderAuTemporalEvidence(au)}
     <p class="wangxing-result-note">
       ${escapeHtml(
-        reasons ||
+        decisionNote ||
           "以王兴 AU 画像为主判据；身份图和参考动作视频为可选证据。",
       )}
     </p>

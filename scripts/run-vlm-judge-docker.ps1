@@ -28,6 +28,7 @@ docker run --rm --gpus all `
     --shm-size 32g `
     --ipc=host `
     -p 30000:30000 `
+    --name "frame-audit-qwen-$JudgeModel" `
     -v "${modelPath}:/models/judge:ro" `
     lmsysorg/sglang:latest `
     python3 -m sglang.launch_server `

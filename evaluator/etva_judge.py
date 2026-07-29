@@ -186,6 +186,21 @@ def _unique_feedback(items: list[str], limit: int = 6) -> list[str]:
     return unique
 
 
+def _unavailable_result(
+    reason: str,
+    warnings: list[str] | None = None,
+) -> dict[str, Any]:
+    return {
+        "status": "unavailable",
+        "backend": "qwen2_vl_2b_awq_http",
+        "model": ETVA_MODEL,
+        "url": ETVA_URL,
+        "score_0_1": None,
+        "reason": reason,
+        "warnings": warnings or [reason],
+    }
+
+
 def _aggregate_window_scores(
     scores: list[float],
     tail_weight: float = 0.2,
@@ -209,6 +224,7 @@ def evaluate_etva_judge(
     reference_path: str | Path | None,
     max_frames: int,
     window_frames: int = SEMANTIC_WINDOW_FRAMES,
+    service_available: bool | None = None,
 ) -> dict[str, Any]:
     """Ask the local OpenAI-compatible Qwen VLM to score semantic alignment."""
     prompt = (prompt_text or "").strip()
@@ -216,10 +232,17 @@ def evaluate_etva_judge(
         return {
             "status": "disabled",
             "backend": "qwen2_vl_2b_awq_http",
+            "model": ETVA_MODEL,
+            "url": ETVA_URL,
             "score_0_1": None,
             "reason": "ETVA_JUDGE_ENABLED disabled.",
             "warnings": [],
         }
+    if service_available is False:
+        return _unavailable_result(
+            "Qwen weights are cached, but the ETVA Judge HTTP service is not connected. "
+            f"Start the service and make sure {ETVA_URL} is reachable."
+        )
     reference_only = os.environ.get(
         "ETVA_JUDGE_REFERENCE_ONLY",
         "0",
@@ -228,6 +251,8 @@ def evaluate_etva_judge(
         return {
             "status": "unavailable",
             "backend": "qwen2_vl_2b_awq_http",
+            "model": ETVA_MODEL,
+            "url": ETVA_URL,
             "score_0_1": None,
             "reason": (
                 "A prompt is required for ETVA judging unless "
@@ -370,10 +395,7 @@ def evaluate_etva_judge(
             "warnings": warnings,
         }
     except (OSError, ValueError, KeyError, json.JSONDecodeError, urllib.error.URLError) as exc:
-        return {
-            "status": "unavailable",
-            "backend": "qwen2_vl_2b_awq_http",
-            "score_0_1": None,
-            "reason": f"ETVA judge is not reachable or returned invalid output: {exc}",
-            "warnings": [str(exc)],
-        }
+        return _unavailable_result(
+            f"ETVA judge is not reachable or returned invalid output: {exc}",
+            [str(exc)],
+        )

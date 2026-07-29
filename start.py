@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import os
 import argparse
+import urllib.error
+import urllib.request
 from pathlib import Path
 import subprocess
 import sys
@@ -10,6 +12,15 @@ from typing import Sequence
 
 ROOT = Path(__file__).resolve().parent
 VENV_PYTHON = ROOT / ".venv" / "Scripts" / "python.exe"
+VLM_SCRIPT = ROOT / "scripts" / "run-vlm-judge-docker.ps1"
+VLM_MODEL_PATHS = {
+    "2b": ROOT / "model_cache" / "vlm_judge" / "Qwen2-VL-2B-Instruct-AWQ",
+    "2.5-3b": ROOT / "model_cache" / "vlm_judge" / "Qwen2.5-VL-3B-Instruct-AWQ",
+}
+VLM_CONTAINER_NAMES = {
+    "2b": "frame-audit-qwen-2b",
+    "2.5-3b": "frame-audit-qwen-2.5-3b",
+}
 
 
 def _restart_in_project_venv() -> None:
@@ -36,6 +47,74 @@ def _restart_in_project_venv() -> None:
     raise SystemExit(return_code)
 
 
+def _vlm_service_available() -> bool:
+    try:
+        with urllib.request.urlopen(
+            "http://127.0.0.1:30000/v1/models",
+            timeout=0.4,
+        ) as response:
+            return 200 <= int(response.status) < 300
+    except (OSError, urllib.error.URLError, ValueError):
+        return False
+
+
+def _start_vlm_judge(
+    model: str,
+) -> tuple[subprocess.Popen[bytes], str] | None:
+    if _vlm_service_available():
+        print("Qwen Judge is already available on 127.0.0.1:30000.", flush=True)
+        return None
+    model_path = VLM_MODEL_PATHS[model]
+    if not (model_path / "model.safetensors").is_file():
+        print(
+            f"Qwen Judge weights are missing at {model_path}; "
+            "HTTP service will remain disabled.",
+            flush=True,
+        )
+        return None
+    if not VLM_SCRIPT.is_file():
+        print(f"Qwen Judge launcher is missing: {VLM_SCRIPT}", flush=True)
+        return None
+    command = [
+        "powershell.exe",
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        str(VLM_SCRIPT),
+        "-JudgeModel",
+        model,
+    ]
+    print(
+        f"Starting Qwen Judge ({model}) on 127.0.0.1:30000...",
+        flush=True,
+    )
+    process = subprocess.Popen(command, cwd=ROOT, env=os.environ.copy())
+    return process, VLM_CONTAINER_NAMES[model]
+
+
+def _stop_vlm_judge(
+    handle: tuple[subprocess.Popen[bytes], str] | None,
+) -> None:
+    if handle is None:
+        return
+    process, container_name = handle
+    if process.poll() is None:
+        process.terminate()
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=5)
+    subprocess.run(
+        ["docker", "stop", container_name],
+        cwd=ROOT,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    )
+
+
 def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Start Frame Audit services.")
     parser.add_argument(
@@ -48,6 +127,17 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         "--with-grpc",
         action="store_true",
         help="Start HTTP and gRPC together.",
+    )
+    parser.add_argument(
+        "--with-vlm",
+        action="store_true",
+        help="Start the cached Qwen VLM Judge on port 30000.",
+    )
+    parser.add_argument(
+        "--vlm-model",
+        choices=("2b", "2.5-3b"),
+        default="2b",
+        help="Cached Qwen Judge model to start.",
     )
     parser.add_argument(
         "--http-host",
@@ -214,6 +304,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         if grpc_process.poll() is not None:
             raise SystemExit("gRPC service failed to start.")
 
+    vlm_handle = _start_vlm_judge(args.vlm_model) if args.with_vlm else None
     if args.transport == "grpc":
         try:
             return_code = grpc_process.wait() if grpc_process else 0
@@ -224,6 +315,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             return
         finally:
             _stop_process(grpc_process)
+            _stop_vlm_judge(vlm_handle)
 
     try:
         import uvicorn
@@ -240,6 +332,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         )
     finally:
         _stop_process(grpc_process)
+        _stop_vlm_judge(vlm_handle)
 
 
 if __name__ == "__main__":
