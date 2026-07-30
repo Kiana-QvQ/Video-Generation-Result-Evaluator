@@ -26,6 +26,7 @@ DEFAULT_SAMPLE_FPS = 8.0
 SEMANTIC_WINDOW_FRAMES = 8
 SEMANTIC_WINDOW_SECONDS = 1.0
 SEMANTIC_WINDOW_OVERLAP = 0.5
+DEFAULT_MAX_FRAME_DIMENSION = 1920
 
 
 @dataclass(frozen=True)
@@ -381,6 +382,30 @@ def sample_aligned_video_windows(
     return result_info.to_dict(), reference_info.to_dict(), windows
 
 
+def _max_frame_dimension() -> int:
+    raw_value = os.environ.get(
+        "EVALUATOR_MAX_FRAME_DIMENSION",
+        str(DEFAULT_MAX_FRAME_DIMENSION),
+    ).strip()
+    try:
+        return max(0, int(raw_value))
+    except ValueError:
+        return DEFAULT_MAX_FRAME_DIMENSION
+
+
+def _resize_frame_for_evaluation(frame: np.ndarray) -> np.ndarray:
+    max_dimension = _max_frame_dimension()
+    if max_dimension <= 0 or max(frame.shape[:2]) <= max_dimension:
+        return frame
+    height, width = frame.shape[:2]
+    scale = max_dimension / max(height, width)
+    target_size = (
+        max(1, int(round(width * scale))),
+        max(1, int(round(height * scale))),
+    )
+    return cv2.resize(frame, target_size, interpolation=cv2.INTER_AREA)
+
+
 def _read_frames(path: str, indices: Iterable[int]) -> list[np.ndarray]:
     capture = cv2.VideoCapture(path)
     if not capture.isOpened():
@@ -393,6 +418,7 @@ def _read_frames(path: str, indices: Iterable[int]) -> list[np.ndarray]:
             ok, frame = capture.read()
             if not ok or frame is None:
                 raise ValueError(f"Unable to read frame {index} from {path}")
+            frame = _resize_frame_for_evaluation(frame)
             frames.append(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
     finally:
         capture.release()
@@ -740,7 +766,7 @@ def _mean(values: list[float | None]) -> float | None:
 def evaluate_full_reference(
     result_path: str | Path,
     ground_truth_path: str | Path,
-    max_frames: int = 64,
+    max_frames: int = 8,
     calculate_lpips: bool = True,
     device: str = "auto",
 ) -> dict[str, Any]:

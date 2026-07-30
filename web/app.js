@@ -1402,7 +1402,7 @@ function syncFormWithJob(job) {
   };
 
   setValue("#prompt-text", parameters.prompt_text ?? "");
-  setValue('[name="max_frames"]', parameters.max_frames ?? 64);
+  setValue('[name="max_frames"]', parameters.max_frames ?? 8);
   setValue('[name="device"]', parameters.device ?? "cuda");
   setValue(
     '[name="manual_expression_score"]',

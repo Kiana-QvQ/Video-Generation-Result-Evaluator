@@ -17,6 +17,7 @@ from .video_metrics import (
     _align_ground_truth_frame,
     _default_face_detector,
     _read_frames,
+    _resize_frame_for_evaluation,
     _resize_like,
     DEFAULT_SAMPLE_FPS,
     SEMANTIC_WINDOW_FRAMES,
@@ -340,6 +341,7 @@ def _read_reference_image(
             else None
         )
         if image is not None:
+            image = _resize_frame_for_evaluation(image)
             frames.append(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
     return frames
 
@@ -1742,6 +1744,7 @@ def _iter_video_frames(
             success, frame = capture.read()
             if not success:
                 break
+            frame = _resize_frame_for_evaluation(frame)
             yield (
                 info,
                 frame_index,
@@ -2206,7 +2209,7 @@ def evaluate_all(
     reference_image: str | Path | list[str | Path] | tuple[str | Path, ...] | None,
     reference_video: str | Path | None,
     prompt_text: str | None = None,
-    max_frames: int = 64,
+    max_frames: int = 8,
     calculate_lpips: bool = True,
     device: str = "auto",
     manual_expression_score: float | None = None,
