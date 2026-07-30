@@ -337,17 +337,21 @@ function renderQwenFeedback(result) {
   const unavailableReason = String(judge.reason ?? "");
   const isCachedButOffline =
     !isAvailable && /cached|not connected|not reachable/i.test(unavailableReason);
+  const judgeModelLabel = String(judge.model || "qwen2-vl-2b-awq")
+    .replaceAll("-awq", " AWQ")
+    .replaceAll("qwen2-vl-2b", "Qwen2-VL-2B")
+    .replaceAll("qwen2.5-vl-3b", "Qwen2.5-VL-3B");
   const unavailableMessage = isCachedButOffline
     ? "Qwen 权重已下载，但 Judge 服务未连接；下载模型不会自动启动 HTTP 服务。"
     : "Qwen 模型未返回文字诊断，请重新评估或检查 VLM 服务。";
   const windowCount = Number(judge.metrics?.window_count);
   const statusText = isAvailable
     ? Number.isFinite(windowCount)
-      ? `Qwen2-VL-2B AWQ · 已分析 ${windowCount} 个时间窗口`
-      : "Qwen2-VL-2B AWQ · 已完成复核"
+      ? `${judgeModelLabel} · 已分析 ${windowCount} 个时间窗口`
+      : `${judgeModelLabel} · 已完成复核`
     : isCachedButOffline
-      ? "Qwen2-VL-2B AWQ · 已下载，当前未连接"
-      : "Qwen2-VL-2B AWQ · 当前未返回诊断";
+      ? `${judgeModelLabel} · 已下载，当前未连接`
+      : `${judgeModelLabel} · 当前未返回诊断`;
 
   qwenFeedback.classList.remove("is-hidden");
   qwenFeedback.innerHTML = `
@@ -740,13 +744,16 @@ function renderWangxingResult(result) {
   }
   if (payload.status !== "available") {
     wangxingResult.classList.remove("is-hidden");
+    const notApplicable = payload.status === "not_applicable";
     wangxingResult.innerHTML = `
       <div class="wangxing-result-head">
         <div>
           <span class="wangxing-result-kicker">TARGET SPECIALIZATION / WANG XING AU</span>
-          <h3>王兴特化评估暂不可用</h3>
+          <h3>${notApplicable ? "王兴专项未启用" : "王兴特化评估暂不可用"}</h3>
         </div>
-        <span class="wangxing-result-status review">UNAVAILABLE</span>
+        <span class="wangxing-result-status review">${
+          notApplicable ? "NOT APPLICABLE / 不适用" : "UNAVAILABLE"
+        }</span>
       </div>
       <p class="wangxing-result-note">${escapeHtml(payload.reason ?? "AU 评估未运行。")}</p>
     `;
@@ -763,11 +770,14 @@ function renderWangxingResult(result) {
   );
   const rawDecision = String(targeted.decision ?? "review");
   const uncertain = targeted.evidence_quality_status === "uncertain";
-  const decision = uncertain && rawDecision === "allow" ? "review" : rawDecision;
+  const decision =
+    rawDecision === "block" ||
+    (uncertain && rawDecision === "allow")
+      ? "review"
+      : rawDecision;
   const decisionLabel = {
     allow: "ALLOW / 符合",
-    review: "REVIEW / 复核",
-    block: "BLOCK / 拦截",
+    review: "REVIEW / 需复核",
   }[decision] ?? "REVIEW / 复核";
   const scoreText = score === null ? "—" : `${(score * 100).toFixed(1)}`;
   const selectedClass = au.selected_expression_class ?? "auto";
@@ -850,9 +860,6 @@ function renderWangxingResult(result) {
   const decisionNote = [
     selectedClass === "unknown"
       ? autoClassificationNote
-      : "",
-    decision === "block"
-      ? "这是王兴 AU 规则判定，不是上传拦截，也不是 Qwen 安全拦截。"
       : "",
     reasons,
     thresholdNotes.join(" / "),
@@ -1397,7 +1404,7 @@ function syncFormWithJob(job) {
   if (lpips) lpips.checked = parameters.calculate_lpips !== false;
   const wangxingAu = document.querySelector('[name="wangxing_au_enabled"]');
   if (wangxingAu) {
-    wangxingAu.checked = parameters.wangxing_au_enabled !== false;
+    wangxingAu.checked = parameters.wangxing_au_enabled === true;
   }
 
   setStoredUpload(

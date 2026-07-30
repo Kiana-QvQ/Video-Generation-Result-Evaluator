@@ -85,13 +85,15 @@ $env:FRAME_AUDIT_TRUST_PROXY_HEADERS = "true"
 .\scripts\download-vbench-models.ps1 -SkipDinoRepository
 .\docker\build-vbench.ps1
 
-# 8GB 默认 VLM Judge
+# 8GB 本地 VLM Judge（不使用 Docker）
+.\setup.ps1 -VLM
 .\scripts\download-vlm-judge.ps1
-.\scripts\run-vlm-judge-docker.ps1
+.\run.ps1 -WithVlm -VlmBackend local
 ```
 
 VBench 和 VLM Judge 都是可选能力，不会自动启动，也不影响基础五类评估。
-Docker 构建需要 Docker Desktop、NVIDIA 容器支持和可用的 CUDA 基础镜像。
+本地 Qwen Judge 读取 `model_cache/vlm_judge/` 中的权重；如果需要 Docker，
+必须显式使用 `.\run.ps1 -WithVlm -VlmBackend docker`。
 
 ## 输出与测试
 

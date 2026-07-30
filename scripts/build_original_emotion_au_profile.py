@@ -17,6 +17,11 @@ from evaluator.au_compliance import (  # noqa: E402
     fit_au_profile,
     load_au_table,
 )
+from evaluator.au_dataset import (  # noqa: E402
+    DEFAULT_MIN_AU_ROWS,
+    DEFAULT_MIN_FRAME_COVERAGE,
+    validate_au_csv,
+)
 from evaluator.paths import project_path  # noqa: E402
 
 
@@ -51,20 +56,74 @@ def main(argv: list[str] | None = None) -> int:
         "--output",
         default="data/au/original_emotion_au_profile.json",
     )
+    parser.add_argument("--video-root", default="data/MD_CL")
     parser.add_argument("--min-samples-per-class", type=int, default=3)
+    parser.add_argument("--min-output-rows", type=int, default=DEFAULT_MIN_AU_ROWS)
+    parser.add_argument(
+        "--min-frame-coverage",
+        type=float,
+        default=DEFAULT_MIN_FRAME_COVERAGE,
+    )
+    parser.add_argument(
+        "--allow-incomplete",
+        action="store_true",
+        help="Build a partial profile instead of failing the completeness gate.",
+    )
     args = parser.parse_args(argv)
     if args.min_samples_per_class <= 0:
         raise ValueError("--min-samples-per-class must be positive.")
+    if args.min_output_rows <= 0:
+        raise ValueError("--min-output-rows must be positive.")
+    if not 0.0 <= args.min_frame_coverage <= 1.0:
+        raise ValueError("--min-frame-coverage must be between 0 and 1.")
 
     au_root = project_path(args.au_root)
     output = project_path(args.output)
+    video_root = project_path(args.video_root)
     labeled_sequences: list[tuple[str, object]] = []
     presence_sequences: list[tuple[str, object]] = []
     skipped: list[str] = []
+    expected_outputs: list[Path] = []
+    incomplete_outputs: list[str] = []
+    if not video_root.is_dir() and not args.allow_incomplete:
+        raise SystemExit(f"Original video root was not found: {video_root}")
+    if video_root.is_dir():
+        for video_path in sorted(video_root.rglob("*.mp4")):
+            if _class_from_path(video_path) is None:
+                continue
+            relative = video_path.relative_to(video_root)
+            au_path = au_root / relative.with_suffix(".csv")
+            expected_outputs.append(au_path)
+            valid, reason = validate_au_csv(
+                au_path,
+                min_rows=args.min_output_rows,
+                min_frame_coverage=args.min_frame_coverage,
+            )
+            if not valid:
+                incomplete_outputs.append(f"{au_path}: {reason}")
+    if incomplete_outputs and not args.allow_incomplete:
+        preview = "\n".join(incomplete_outputs[:10])
+        more = len(incomplete_outputs) - min(len(incomplete_outputs), 10)
+        suffix = f"\n... and {more} more." if more else ""
+        raise SystemExit(
+            "AU extraction is incomplete or contains low-quality outputs. "
+            f"Missing/invalid files: {len(incomplete_outputs)}.\n"
+            f"{preview}{suffix}\n"
+            "Finish extraction first, or pass --allow-incomplete explicitly."
+        )
+
     for path in sorted(au_root.rglob("*.csv")):
         expression_class = _class_from_path(path)
         if expression_class is None:
             skipped.append(f"{path}: unknown class directory")
+            continue
+        valid, reason = validate_au_csv(
+            path,
+            min_rows=args.min_output_rows,
+            min_frame_coverage=args.min_frame_coverage,
+        )
+        if not valid:
+            skipped.append(f"{path}: {reason}")
             continue
         try:
             sequence, supported, _ = load_au_table(
@@ -114,6 +173,9 @@ def main(argv: list[str] | None = None) -> int:
         {
             "profile_role": "original_emotion_reference",
             "source_root": str(au_root),
+            "video_root": str(video_root),
+            "expected_output_count": len(expected_outputs),
+            "incomplete_output_count": len(incomplete_outputs),
             "sample_counts": dict(sorted(counts.items())),
             "auto_classification_ready": ready,
             "auto_classification_reason": (

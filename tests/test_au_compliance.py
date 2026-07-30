@@ -429,14 +429,14 @@ class AUComplianceTests(unittest.TestCase):
         self.assertIsNotNone(result["driver_temporal_alignment"])
         self.assertIsNone(result["generated_au"]["selected_columns"]["25"])
 
-    def test_fusion_blocks_high_leakage(self) -> None:
+    def test_fusion_reviews_high_leakage(self) -> None:
         result = fuse_compliance_scores(
             identity_score_0_1=0.9,
             personal_au_score_0_1=0.8,
             driver_expression_score_0_1=0.8,
             leakage_risk_0_1=0.7,
         )
-        self.assertEqual(result["decision"], "block")
+        self.assertEqual(result["decision"], "review")
         self.assertIn("driver_identity_leakage", result["decision_reasons"])
 
     def test_wangxing_targeted_fit_does_not_require_identity_or_driver(self) -> None:

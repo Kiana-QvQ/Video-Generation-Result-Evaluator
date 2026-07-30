@@ -118,7 +118,7 @@ class GrpcTransportTests(unittest.TestCase):
             self.assertEqual(response.http_status, 202)
             self.assertEqual(payload["status"], "queued")
             self.assertIn("result_video", payload["uploaded_files"])
-            self.assertTrue(payload["parameters"]["wangxing_au_enabled"])
+            self.assertFalse(payload["parameters"]["wangxing_au_enabled"])
             self.assertEqual(
                 payload["parameters"]["wangxing_expected_class"],
                 "auto",

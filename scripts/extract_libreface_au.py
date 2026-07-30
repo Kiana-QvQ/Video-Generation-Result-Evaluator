@@ -13,6 +13,11 @@ import sys
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
+from evaluator.au_dataset import (  # noqa: E402
+    DEFAULT_MIN_AU_ROWS,
+    DEFAULT_MIN_FRAME_COVERAGE,
+    validate_au_csv,
+)
 MPL_CONFIG_DIR = PROJECT_ROOT / ".tmp" / "matplotlib"
 MPL_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
 os.environ.setdefault("MPLCONFIGDIR", str(MPL_CONFIG_DIR))
@@ -330,6 +335,12 @@ def main() -> int:
     parser.add_argument("--num-workers", type=int, default=2)
     parser.add_argument("--limit", type=int)
     parser.add_argument("--force", action="store_true")
+    parser.add_argument("--min-output-rows", type=int, default=DEFAULT_MIN_AU_ROWS)
+    parser.add_argument(
+        "--min-frame-coverage",
+        type=float,
+        default=DEFAULT_MIN_FRAME_COVERAGE,
+    )
     parser.add_argument(
         "--continue-on-error",
         action="store_true",
@@ -340,6 +351,11 @@ def main() -> int:
         help="JSON path for failures; defaults to <output-root>/_failures.json.",
     )
     args = parser.parse_args()
+
+    if args.min_output_rows <= 0:
+        raise SystemExit("--min-output-rows must be positive.")
+    if not 0.0 <= args.min_frame_coverage <= 1.0:
+        raise SystemExit("--min-frame-coverage must be between 0 and 1.")
 
     _find_executable()
     if args.input_root:
@@ -377,9 +393,16 @@ def main() -> int:
         output_path = output_root / relative.with_suffix(".csv")
         output_path.parent.mkdir(parents=True, exist_ok=True)
         if output_path.exists() and not args.force:
-            print(f"SKIP existing: {output_path}")
-            skipped += 1
-            continue
+            valid, reason = validate_au_csv(
+                output_path,
+                min_rows=args.min_output_rows,
+                min_frame_coverage=args.min_frame_coverage,
+            )
+            if valid:
+                print(f"SKIP existing: {output_path}")
+                skipped += 1
+                continue
+            print(f"RETRY invalid existing: {output_path} ({reason})")
 
         try:
             _run_libreface(
@@ -389,6 +412,13 @@ def main() -> int:
                 batch_size=args.batch_size,
                 num_workers=args.num_workers,
             )
+            valid, reason = validate_au_csv(
+                output_path,
+                min_rows=args.min_output_rows,
+                min_frame_coverage=args.min_frame_coverage,
+            )
+            if not valid:
+                raise RuntimeError(f"AU output quality check failed: {reason}")
         except Exception as exc:
             failure = {
                 "input": str(video_path),

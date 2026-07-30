@@ -2,7 +2,8 @@ param(
     [switch]$Cuda,
     [switch]$Optional,
     [switch]$Grpc,
-    [switch]$VBench
+    [switch]$VBench,
+    [switch]$VLM
 )
 
 $ErrorActionPreference = "Stop"
@@ -72,6 +73,13 @@ if ($VBench) {
     Write-Host "Installing the optional VBench backend..."
     & $python -m pip install -r (Join-Path $root "requirements\vbench.txt")
 }
+if ($VLM) {
+    Write-Host "Installing the local Qwen VLM backend..."
+    & $python -m pip install -r (Join-Path $root "requirements\vlm_local.txt")
+    if ($LASTEXITCODE -ne 0) {
+        throw "Local Qwen VLM installation failed."
+    }
+}
 
 Write-Host ""
 Write-Host "Project environment is ready."
@@ -82,6 +90,9 @@ if ($Optional) {
 }
 if ($VBench) {
     Write-Host "VBench package is ready. Download its assets with: .\scripts\download-vbench-models.ps1"
+}
+if ($VLM) {
+    Write-Host "Local Qwen VLM backend is ready. Start with: .\run.ps1 -WithVlm -VlmBackend local"
 }
 if ($Grpc) {
     Write-Host "gRPC transport is ready. Start the alternative endpoint with: .\run-grpc.ps1"

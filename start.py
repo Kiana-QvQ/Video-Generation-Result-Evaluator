@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import argparse
+import json
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -14,9 +15,14 @@ from typing import Sequence
 ROOT = Path(__file__).resolve().parent
 VENV_PYTHON = ROOT / ".venv" / "Scripts" / "python.exe"
 VLM_SCRIPT = ROOT / "scripts" / "run-vlm-judge-docker.ps1"
+VLM_LOCAL_SCRIPT = ROOT / "scripts" / "run-vlm-judge-local.py"
 VLM_MODEL_PATHS = {
     "2b": ROOT / "model_cache" / "vlm_judge" / "Qwen2-VL-2B-Instruct-AWQ",
     "2.5-3b": ROOT / "model_cache" / "vlm_judge" / "Qwen2.5-VL-3B-Instruct-AWQ",
+}
+VLM_SERVED_NAMES = {
+    "2b": "qwen2-vl-2b-awq",
+    "2.5-3b": "qwen2.5-vl-3b-awq",
 }
 VLM_CONTAINER_NAMES = {
     "2b": "frame-audit-qwen-2b",
@@ -48,7 +54,7 @@ def _restart_in_project_venv() -> None:
     raise SystemExit(return_code)
 
 
-def _vlm_service_available() -> bool:
+def _vlm_service_models() -> list[str]:
     judge_url = os.environ.get(
         "ETVA_JUDGE_URL",
         "http://127.0.0.1:30000/v1/chat/completions",
@@ -62,9 +68,30 @@ def _vlm_service_available() -> bool:
             models_url,
             timeout=0.4,
         ) as response:
-            return 200 <= int(response.status) < 300
-    except (OSError, urllib.error.URLError, ValueError):
+            if not 200 <= int(response.status) < 300:
+                return []
+            payload = json.loads(response.read().decode("utf-8"))
+        models = payload.get("data", []) if isinstance(payload, dict) else []
+        return [
+            str(item.get("id"))
+            for item in models
+            if isinstance(item, dict) and item.get("id")
+        ]
+    except (OSError, urllib.error.URLError, ValueError, json.JSONDecodeError):
+        return []
+
+
+def _vlm_service_available() -> bool:
+    return bool(_vlm_service_models())
+
+
+def _vlm_model_weights_available(model_path: Path) -> bool:
+    """Accept both single-file and sharded Hugging Face checkpoints."""
+    if not model_path.is_dir():
         return False
+    return any(model_path.glob("*.safetensors")) or (
+        model_path / "pytorch_model.bin"
+    ).is_file()
 
 
 def _docker_ready() -> bool:
@@ -84,14 +111,63 @@ def _docker_ready() -> bool:
 
 def _start_vlm_judge(
     model: str,
-) -> tuple[subprocess.Popen[bytes], str] | None:
-    if _vlm_service_available():
-        print("Qwen Judge is already available on 127.0.0.1:30000.", flush=True)
+    backend: str = "local",
+) -> tuple[subprocess.Popen[bytes], str, str] | None:
+    service_models = _vlm_service_models()
+    if service_models:
+        requested_model = VLM_SERVED_NAMES[model]
+        active_model = (
+            requested_model
+            if requested_model in service_models
+            else service_models[0]
+        )
+        os.environ["ETVA_JUDGE_MODEL"] = active_model
+        print(
+            "Qwen Judge is already available on 127.0.0.1:30000 "
+            f"({', '.join(service_models)}).",
+            flush=True,
+        )
         return None
     model_path = VLM_MODEL_PATHS[model]
-    if not (model_path / "model.safetensors").is_file():
+    if not _vlm_model_weights_available(model_path):
         print(
             f"Qwen Judge weights are missing at {model_path}; "
+            "HTTP service will remain disabled.",
+            flush=True,
+        )
+        return None
+    served_name = VLM_SERVED_NAMES[model]
+    os.environ.setdefault("ETVA_JUDGE_MODEL", served_name)
+    environment = os.environ.copy()
+    environment.setdefault("ETVA_JUDGE_MODEL", served_name)
+
+    backend = backend.lower()
+    if backend == "local":
+        if not VLM_LOCAL_SCRIPT.is_file():
+            print(f"Local Qwen Judge launcher is missing: {VLM_LOCAL_SCRIPT}", flush=True)
+            return None
+        command = [
+            sys.executable,
+            str(VLM_LOCAL_SCRIPT),
+            "--model-path",
+            str(model_path),
+            "--served-model-name",
+            served_name,
+            "--host",
+            "127.0.0.1",
+            "--port",
+            "30000",
+        ]
+        print(
+            f"Starting local Qwen Judge ({model}) on 127.0.0.1:30000...",
+            flush=True,
+        )
+        process = subprocess.Popen(command, cwd=ROOT, env=environment)
+        return process, "local", ""
+
+    if backend != "docker":
+        print(
+            f"Unsupported Qwen Judge backend {backend!r}; "
             "HTTP service will remain disabled.",
             flush=True,
         )
@@ -127,16 +203,16 @@ def _start_vlm_judge(
         f"Starting Qwen Judge ({model}) on 127.0.0.1:30000...",
         flush=True,
     )
-    process = subprocess.Popen(command, cwd=ROOT, env=os.environ.copy())
-    return process, VLM_CONTAINER_NAMES[model]
+    process = subprocess.Popen(command, cwd=ROOT, env=environment)
+    return process, "docker", VLM_CONTAINER_NAMES[model]
 
 
 def _stop_vlm_judge(
-    handle: tuple[subprocess.Popen[bytes], str] | None,
+    handle: tuple[subprocess.Popen[bytes], str, str] | None,
 ) -> None:
     if handle is None:
         return
-    process, container_name = handle
+    process, backend, resource = handle
     if process.poll() is None:
         process.terminate()
         try:
@@ -144,13 +220,14 @@ def _stop_vlm_judge(
         except subprocess.TimeoutExpired:
             process.kill()
             process.wait(timeout=5)
-    subprocess.run(
-        ["docker", "stop", container_name],
-        cwd=ROOT,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        check=False,
-    )
+    if backend == "docker" and resource:
+        subprocess.run(
+            ["docker", "stop", resource],
+            cwd=ROOT,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
 
 
 def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -171,7 +248,7 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         "--with-vlm",
         dest="with_vlm",
         action="store_true",
-        help="Start the cached Qwen VLM Judge on port 30000 (default).",
+        help="Start the cached Qwen VLM Judge on port 30000.",
     )
     vlm_group.add_argument(
         "--without-vlm",
@@ -180,7 +257,15 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         action="store_false",
         help="Do not start the Qwen VLM Judge.",
     )
-    parser.set_defaults(with_vlm=True)
+    parser.set_defaults(
+        with_vlm=False,
+    )
+    parser.add_argument(
+        "--vlm-backend",
+        choices=("local", "docker"),
+        default=None,
+        help="Qwen Judge backend. Local transformers is the default.",
+    )
     parser.add_argument(
         "--vlm-model",
         choices=("2b", "2.5-3b"),
@@ -258,6 +343,8 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--emotion-min-samples-per-class", type=int, default=3)
     args = parser.parse_args(argv)
+    if args.vlm_backend is None:
+        args.vlm_backend = os.environ.get("EVALUATOR_VLM_BACKEND", "local")
     if args.with_grpc:
         args.transport = "both"
     args.http_host = args.http_host or os.environ.get(
@@ -370,7 +457,11 @@ def main(argv: Sequence[str] | None = None) -> None:
         if grpc_process.poll() is not None:
             raise SystemExit("gRPC service failed to start.")
 
-    vlm_handle = _start_vlm_judge(args.vlm_model) if args.with_vlm else None
+    vlm_handle = (
+        _start_vlm_judge(args.vlm_model, args.vlm_backend)
+        if args.with_vlm
+        else None
+    )
     if args.transport == "grpc":
         try:
             return_code = grpc_process.wait() if grpc_process else 0

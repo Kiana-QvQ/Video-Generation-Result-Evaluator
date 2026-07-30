@@ -1077,7 +1077,7 @@ def _execute_job(job_id: str) -> None:
             manual_aesthetic_score=parameters.get("manual_aesthetic_score"),
             vbench_output_root=_job_dir(job_id),
         )
-        if bool(parameters.get("wangxing_au_enabled", True)):
+        if bool(parameters.get("wangxing_au_enabled", False)):
             _update_job_state(
                 job_id,
                 stage="wangxing_au",
@@ -1096,8 +1096,12 @@ def _execute_job(job_id: str) -> None:
             )
         else:
             result["wangxing_au"] = {
-                "status": "disabled",
-                "reason": "Wang Xing AU assessment was disabled for this job.",
+                "status": "not_applicable",
+                "scope": "wangxing_specialization_only",
+                "reason": (
+                    "Wang Xing AU specialization was not selected. "
+                    "Generic evaluation is unaffected."
+                ),
             }
         result["web_run_id"] = job_id
         result["result_video"] = probe_video(result_path).to_dict()
@@ -1456,7 +1460,7 @@ def create_job(
     device: str = Form("auto"),
     manual_expression_score: str = Form(""),
     manual_aesthetic_score: str = Form(""),
-    wangxing_au_enabled: bool = Form(True),
+    wangxing_au_enabled: bool = Form(False),
     wangxing_expected_class: str = Form("auto"),
 ) -> JSONResponse:
     client_ip = _client_ip(request)
@@ -1754,7 +1758,7 @@ def evaluate(
     device: str = Form("auto"),
     manual_expression_score: str = Form(""),
     manual_aesthetic_score: str = Form(""),
-    wangxing_au_enabled: bool = Form(True),
+    wangxing_au_enabled: bool = Form(False),
     wangxing_expected_class: str = Form("auto"),
 ) -> JSONResponse:
     client_ip = _client_ip(request)
@@ -1860,8 +1864,12 @@ def evaluate(
             )
         else:
             result["wangxing_au"] = {
-                "status": "disabled",
-                "reason": "Wang Xing AU assessment was disabled for this job.",
+                "status": "not_applicable",
+                "scope": "wangxing_specialization_only",
+                "reason": (
+                    "Wang Xing AU specialization was not selected. "
+                    "Generic evaluation is unaffected."
+                ),
             }
         result["web_run_id"] = run_id
         result["result_video"] = probe_video(result_path).to_dict()
