@@ -8,10 +8,13 @@ from pathlib import Path
 import unittest
 from unittest.mock import patch
 from uuid import uuid4
+from types import SimpleNamespace
 
 import numpy as np
 from fastapi.testclient import TestClient
 
+from evaluator.media import concatenate_videos, find_ffmpeg
+from evaluator.video_metrics import probe_video
 import web_app
 from web_app import _json_safe, app
 
@@ -44,6 +47,8 @@ class WebAppTests(unittest.TestCase):
         self.assertIn("处理队列", response.text)
         self.assertIn("看清视频，", response.text)
         self.assertIn("上传视频后开始评分。", response.text)
+        self.assertIn("参考视频 (可选，支持多段)", response.text)
+        self.assertIn("多段参考视频", response.text)
 
     def test_health_endpoint(self) -> None:
         response = self.client.get("/api/health")
@@ -121,6 +126,99 @@ class WebAppTests(unittest.TestCase):
             )
             self.assertEqual(run.call_args.kwargs["env"]["PYTHONIOENCODING"], "utf-8")
             self.assertEqual(run.call_args.kwargs["env"]["PYTHONUTF8"], "1")
+
+    def test_multiple_reference_videos_are_joined_for_evaluation(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory) / "run"
+            run_dir.mkdir()
+            segment_paths = [
+                run_dir / "reference_motion_01.mp4",
+                run_dir / "reference_motion_02.mp4",
+            ]
+            merged_path = run_dir / "reference_motion.mp4"
+            uploads = [
+                SimpleNamespace(filename="segment-a.mp4"),
+                SimpleNamespace(filename="segment-b.webm"),
+            ]
+            with patch(
+                "web_app._save_upload",
+                side_effect=segment_paths,
+            ) as save_upload, patch(
+                "web_app.concatenate_videos",
+                return_value=merged_path,
+            ) as concatenate:
+                result = web_app._save_reference_videos(uploads, run_dir)
+
+            self.assertEqual(result, merged_path)
+            self.assertEqual(save_upload.call_count, 2)
+            concatenate.assert_called_once_with(segment_paths, merged_path)
+
+    def test_multiple_reference_videos_keep_all_frames_when_sizes_differ(self) -> None:
+        source = Path("outputs/test_result.mp4")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            resized = root / "resized.mp4"
+            merged = root / "merged.mp4"
+            subprocess.run(
+                [
+                    find_ffmpeg(),
+                    "-y",
+                    "-loglevel",
+                    "error",
+                    "-i",
+                    str(source),
+                    "-vf",
+                    "scale=80:60",
+                    "-c:v",
+                    "libx264",
+                    "-pix_fmt",
+                    "yuv420p",
+                    str(resized),
+                ],
+                check=True,
+            )
+            concatenate_videos([source, resized], merged)
+
+            merged_info = probe_video(merged)
+            self.assertEqual(merged_info.frame_count, 16)
+            self.assertEqual(merged_info.width, 64)
+            self.assertEqual(merged_info.height, 48)
+
+    def test_evaluate_accepts_multiple_reference_video_parts(self) -> None:
+        captured: dict[str, list[str]] = {}
+        base_result = {
+            "summary": [],
+            "frame_records": [],
+            "categories": {},
+            "weighted_score_0_100": 0.0,
+            "coverage": "0/5",
+        }
+
+        def capture_reference_videos(uploads, _run_dir):
+            captured["names"] = [upload.filename for upload in uploads]
+            return None
+
+        with patch(
+            "web_app._save_reference_videos",
+            side_effect=capture_reference_videos,
+        ), patch("web_app.evaluate_all", return_value=base_result):
+            with Path("outputs/test_result.mp4").open("rb") as result_file:
+                response = self.client.post(
+                    "/api/evaluate",
+                    files=[
+                        ("result_video", ("result.mp4", result_file, "video/mp4")),
+                        ("reference_video", ("a.mp4", b"a", "video/mp4")),
+                        ("reference_video", ("b.mp4", b"b", "video/mp4")),
+                    ],
+                    data={
+                        "max_frames": "2",
+                        "device": "cpu",
+                        "calculate_lpips": "false",
+                    },
+                )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(captured["names"], ["a.mp4", "b.mp4"])
 
     def test_sync_evaluation_can_disable_wangxing_au(self) -> None:
         video_path = Path("outputs/test_result.mp4")
@@ -443,6 +541,34 @@ class WebAppTests(unittest.TestCase):
                         break
                 web_app.JOB_QUEUES_BY_IP.clear()
                 web_app.JOB_SCHEDULED_IPS.clear()
+
+    def test_scheduler_estimates_reference_and_au_jobs_as_heavier(self) -> None:
+        light = {
+            "parameters": {
+                "max_frames": 8,
+                "calculate_lpips": False,
+                "wangxing_au_enabled": False,
+            },
+            "files": {},
+        }
+        heavy = {
+            "parameters": {
+                "max_frames": 64,
+                "calculate_lpips": True,
+                "wangxing_au_enabled": True,
+                "prompt_text": "compare the expression",
+            },
+            "files": {
+                "gt_video": "gt.mp4",
+                "reference_video": "reference.mp4",
+                "reference_images": ["reference_01.png", "reference_02.png"],
+            },
+        }
+
+        self.assertLess(
+            web_app._estimate_job_seconds(light),
+            web_app._estimate_job_seconds(heavy),
+        )
 
     def test_single_persisted_queued_job_is_restored_for_dispatch(self) -> None:
         job_id = f"queued-recovery-{uuid4().hex}"

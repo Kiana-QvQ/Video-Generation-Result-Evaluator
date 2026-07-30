@@ -1,5 +1,5 @@
 # Optional local Qwen2-VL AWQ HTTP backend.
-transformers>=4.49,<5
+transformers>=4.45,<4.47
 accelerate>=1.2,<2
 qwen-vl-utils>=0.0.10
-autoawq>=0.2.7
+# AutoAWQ is installed separately by setup.ps1 as a Windows-compatible wheel.

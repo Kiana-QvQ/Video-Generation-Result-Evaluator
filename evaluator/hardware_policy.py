@@ -12,6 +12,8 @@ class HardwarePolicy:
     resolved_device: str
     cuda_available: bool
     vram_gb: float | None
+    free_vram_gb: float | None
+    memory_pressure: str
     serial_models: bool
     judge_model: str
     viclip_enabled_by_default: bool
@@ -36,29 +38,46 @@ def _env_vram() -> float | None:
     return parsed if parsed > 0 else None
 
 
-def _cuda_info() -> tuple[bool, float | None]:
+def _cuda_info() -> tuple[bool, float | None, float | None]:
     forced_vram = _env_vram()
     try:
         import torch
 
         available = bool(torch.cuda.is_available())
         if not available:
-            return False, forced_vram
+            return False, forced_vram, None
         actual_vram = float(
             torch.cuda.get_device_properties(0).total_memory
             / (1024**3)
         )
-        return True, forced_vram or actual_vram
+        free_vram = None
+        try:
+            free_bytes, _ = torch.cuda.mem_get_info(0)
+            free_vram = float(free_bytes / (1024**3))
+        except Exception:
+            pass
+        return True, forced_vram or actual_vram, free_vram
     except Exception:
-        return False, forced_vram
+        return False, forced_vram, None
 
 
 def resolve_policy(requested_device: str = "auto") -> HardwarePolicy:
     requested = requested_device.lower()
-    cuda_available, vram_gb = _cuda_info()
+    cuda_available, vram_gb, free_vram_gb = _cuda_info()
     resolved = "cuda" if requested == "cuda" and cuda_available else "cpu"
     if requested == "auto" and cuda_available:
         resolved = "cuda"
+
+    if resolved == "cpu":
+        memory_pressure = "cpu"
+    elif free_vram_gb is None or vram_gb is None:
+        memory_pressure = "unknown"
+    elif free_vram_gb < 2.0 or free_vram_gb / max(vram_gb, 1e-6) < 0.15:
+        memory_pressure = "critical"
+    elif free_vram_gb / max(vram_gb, 1e-6) < 0.30:
+        memory_pressure = "high"
+    else:
+        memory_pressure = "normal"
 
     if not cuda_available or resolved == "cpu":
         tier = "cpu"
@@ -94,12 +113,22 @@ def resolve_policy(requested_device: str = "auto") -> HardwarePolicy:
             "Never keep VideoScore2 and another VLM resident together.",
         )
 
+    if memory_pressure in {"high", "critical"}:
+        viclip_default = False
+        notes = notes + (
+            "Free VRAM is under pressure; disable optional ViCLIP to avoid OOM.",
+        )
+
     return HardwarePolicy(
         tier=tier,
         requested_device=requested,
         resolved_device=resolved,
         cuda_available=cuda_available,
         vram_gb=round(vram_gb, 2) if vram_gb is not None else None,
+        free_vram_gb=(
+            round(free_vram_gb, 2) if free_vram_gb is not None else None
+        ),
+        memory_pressure=memory_pressure,
         serial_models=True,
         judge_model=judge_model,
         viclip_enabled_by_default=viclip_default,

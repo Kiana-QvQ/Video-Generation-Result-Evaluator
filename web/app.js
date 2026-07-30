@@ -181,7 +181,9 @@ function attachFileInput(id) {
     const file = files[0];
     if (!file) return;
     name.textContent = input.multiple
-      ? `${files.length} reference image${files.length === 1 ? "" : "s"}`
+      ? id === "reference-video"
+        ? `已选择 ${files.length} 段参考视频`
+        : `${files.length} reference image${files.length === 1 ? "" : "s"}`
       : file.name;
     zone.classList.add("is-loaded");
     if (imageList) {
@@ -221,7 +223,9 @@ function attachFileInput(id) {
           const seconds = Number.isFinite(preview.duration)
             ? ` · ${preview.duration.toFixed(1)}s`
             : "";
-          name.textContent = `${file.name}${seconds}`;
+          if (!input.multiple) {
+            name.textContent = `${file.name}${seconds}`;
+          }
         },
         { once: true },
       );
@@ -697,8 +701,8 @@ function renderAuTemporalEvidence(au) {
         <small>${escapeHtml(
           `${meshEnabled ? "Face Mesh + AU 交叉验证 · " : "AU 单独分析 · "}${
             au.driver_au
-              ? "有参考动作视频 · 可比较节奏"
-              : "未提供参考动作视频 · 仅分析生成视频"
+              ? "有参考视频 · 可比较节奏"
+              : "未提供参考视频 · 仅分析生成视频"
           }`,
         )}</small>
       </div>
@@ -735,8 +739,8 @@ function renderAuTemporalEvidence(au) {
       <p class="au-presence-note">
         ${escapeHtml(
           au.driver_au
-            ? "已提供参考动作视频，可进一步比较表情变化节奏。"
-            : "未提供参考动作视频，以上内容只说明生成视频中什么时候出现了什么表情。",
+            ? "已提供参考视频，可进一步比较表情变化节奏。"
+            : "未提供参考视频，以上内容只说明生成视频中什么时候出现了什么表情。",
         )}
       </p>
     </div>
@@ -913,7 +917,7 @@ function renderWangxingResult(result) {
     <p class="wangxing-result-note">
       ${escapeHtml(
         decisionNote ||
-          "以王兴 AU 画像为主判据；身份图和参考动作视频为可选证据。",
+          "以王兴 AU 画像为主判据；身份图和参考视频为可选证据。",
       )}
     </p>
     <div class="wangxing-result-meta">
@@ -1307,7 +1311,11 @@ function setStoredUpload(inputId, filename, url) {
   zone.classList.add("is-loaded");
   zone.classList.remove("video-preview-failed");
   if (fallback) fallback.classList.remove("is-visible");
-  name.textContent = `已保存：${filename}`;
+  if (Array.isArray(filename) && inputId === "reference-video") {
+    name.textContent = `已保存：${filename.length} 段参考视频`;
+  } else {
+    name.textContent = `已保存：${filename}`;
+  }
 
   if (preview && url) {
     preview.src = url;
