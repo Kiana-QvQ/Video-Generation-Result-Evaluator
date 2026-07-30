@@ -13,7 +13,9 @@ import numpy as np
 
 from .video_metrics import (
     _aligned_sample_indices,
+    _aggregate_face_box,
     _align_ground_truth_frame,
+    _default_face_detector,
     _read_frames,
     _resize_like,
     DEFAULT_SAMPLE_FPS,
@@ -28,6 +30,7 @@ from .video_metrics import (
     probe_video,
 )
 from .runtime import MODEL_CACHE_DIR, OUTPUT_DIR, prepare_pyiqa_checkpoint
+from .face_detection import FaceDetector
 from .model_profile import get_recommended_model
 from .etva_judge import evaluate_etva_judge, etva_service_available
 from .hardware_policy import resolve_policy
@@ -303,8 +306,17 @@ def _sample_aligned_videos(
     )
     result_frames = _read_frames(result_info["path"], result_indices)
     reference_frames = _read_frames(reference_info["path"], reference_indices)
+    face_box = _aggregate_face_box(
+        reference_frames,
+        _default_face_detector(),
+    )
     reference_frames = [
-        _align_ground_truth_frame(reference_frame, result_frame)
+        _align_ground_truth_frame(
+            reference_frame,
+            result_frame,
+            face_box=face_box,
+            detect_face=False,
+        )
         for result_frame, reference_frame in zip(result_frames, reference_frames)
     ]
     return result_info, result_indices, result_frames, reference_frames
@@ -332,39 +344,7 @@ def _read_reference_image(
     return frames
 
 
-class _FaceDetector:
-    def __init__(self) -> None:
-        cascade_path = Path(cv2.data.haarcascades) / "haarcascade_frontalface_default.xml"
-        classifier_path = cascade_path
-        # OpenCV on Windows may fail to open model paths containing Chinese
-        # characters. Copy the bundled cascade to an ASCII temp path first.
-        if cascade_path.exists() and any(ord(char) > 127 for char in str(cascade_path)):
-            try:
-                temp_dir = Path(tempfile.gettempdir()) / "video_evaluator_models"
-                temp_dir.mkdir(parents=True, exist_ok=True)
-                temp_path = temp_dir / cascade_path.name
-                if not temp_path.exists() or temp_path.stat().st_size != cascade_path.stat().st_size:
-                    shutil.copyfile(cascade_path, temp_path)
-                classifier_path = temp_path
-            except OSError:
-                pass
-        self.classifier = cv2.CascadeClassifier(str(classifier_path))
-        self.available = not self.classifier.empty()
-
-    def detect(self, frame: np.ndarray) -> tuple[int, int, int, int] | None:
-        if not self.available:
-            return None
-        gray = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
-        faces = self.classifier.detectMultiScale(
-            gray,
-            scaleFactor=1.1,
-            minNeighbors=5,
-            minSize=(24, 24),
-        )
-        if len(faces) == 0:
-            return None
-        x, y, width, height = max(faces, key=lambda item: int(item[2]) * int(item[3]))
-        return int(x), int(y), int(width), int(height)
+_FaceDetector = FaceDetector
 
 
 def _crop_face(
@@ -898,6 +878,7 @@ def evaluate_texture(
             gt_eval_boxes,
         ):
             gt_frame = _align_ground_truth_frame(gt_frame, result_frame)
+            gt_bbox = detector.detect(gt_frame)
             result_value = _high_frequency_energy(result_frame, result_bbox)
             gt_value = _high_frequency_energy(gt_frame, gt_bbox)
             ratio_values.append(

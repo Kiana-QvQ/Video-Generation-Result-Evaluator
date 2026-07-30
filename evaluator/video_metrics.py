@@ -3,12 +3,14 @@ from __future__ import annotations
 import math
 import os
 from dataclasses import asdict, dataclass
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Iterable
 
 import cv2
 import numpy as np
 
+from .face_detection import FaceDetector
 from .runtime import MODEL_CACHE_DIR
 
 try:
@@ -397,6 +399,51 @@ def _read_frames(path: str, indices: Iterable[int]) -> list[np.ndarray]:
     return frames
 
 
+NormalizedFaceBox = tuple[float, float, float, float]
+
+
+@lru_cache(maxsize=1)
+def _default_face_detector() -> FaceDetector:
+    return FaceDetector()
+
+
+def _normalized_face_box(
+    frame: np.ndarray,
+    detector: FaceDetector,
+) -> NormalizedFaceBox | None:
+    height, width = frame.shape[:2]
+    if height <= 0 or width <= 0:
+        return None
+    bbox = detector.detect(frame)
+    if bbox is None:
+        return None
+    x, y, box_width, box_height = bbox
+    x0 = max(0.0, min(1.0, x / width))
+    y0 = max(0.0, min(1.0, y / height))
+    x1 = max(x0, min(1.0, (x + box_width) / width))
+    y1 = max(y0, min(1.0, (y + box_height) / height))
+    return x0, y0, x1, y1
+
+
+def _aggregate_face_box(
+    frames: Iterable[np.ndarray],
+    detector: FaceDetector,
+) -> NormalizedFaceBox | None:
+    boxes = [
+        box
+        for frame in frames
+        if (box := _normalized_face_box(frame, detector)) is not None
+    ]
+    if not boxes:
+        return None
+    return (
+        min(box[0] for box in boxes),
+        min(box[1] for box in boxes),
+        max(box[2] for box in boxes),
+        max(box[3] for box in boxes),
+    )
+
+
 def _resize_like(frame: np.ndarray, target: np.ndarray) -> np.ndarray:
     if frame.shape[:2] == target.shape[:2]:
         return frame
@@ -427,15 +474,108 @@ def _center_crop_to_aspect(
     return frame[top : top + cropped_height, :]
 
 
+def _face_protected_crop_to_aspect(
+    frame: np.ndarray,
+    target_aspect_ratio: float,
+    face_box: NormalizedFaceBox | None,
+) -> tuple[np.ndarray, dict[str, Any]]:
+    height, width = frame.shape[:2]
+    current_aspect_ratio = width / max(height, 1)
+    metadata: dict[str, Any] = {
+        "face_protection_status": "not_needed",
+        "face_box_normalized": list(face_box) if face_box else None,
+        "crop": {
+            "left": 0,
+            "top": 0,
+            "width": width,
+            "height": height,
+        },
+    }
+    if (
+        height <= 0
+        or width <= 0
+        or target_aspect_ratio <= 0
+        or abs(current_aspect_ratio - target_aspect_ratio) <= 0.01
+    ):
+        return frame, metadata
+
+    face_margin = 0.20
+    if current_aspect_ratio > target_aspect_ratio:
+        crop_width = max(1, int(round(height * target_aspect_ratio)))
+        max_left = max(0, width - crop_width)
+        left = max(0, (width - crop_width) // 2)
+        protected = False
+        if face_box is not None:
+            face_left = face_box[0] * width
+            face_right = face_box[2] * width
+            padding = (face_right - face_left) * face_margin
+            keep_left = max(0.0, face_left - padding)
+            keep_right = min(float(width), face_right + padding)
+            lower = max(0, int(math.ceil(keep_right - crop_width)))
+            upper = min(max_left, int(math.floor(keep_left)))
+            desired = int(round((keep_left + keep_right) / 2 - crop_width / 2))
+            if lower <= upper:
+                left = max(lower, min(upper, desired))
+                protected = True
+        crop = frame[:, left : left + crop_width]
+        metadata["crop"] = {
+            "left": left,
+            "top": 0,
+            "width": crop_width,
+            "height": height,
+        }
+    else:
+        crop_height = max(1, int(round(width / target_aspect_ratio)))
+        max_top = max(0, height - crop_height)
+        top = max(0, (height - crop_height) // 2)
+        protected = False
+        if face_box is not None:
+            face_top = face_box[1] * height
+            face_bottom = face_box[3] * height
+            padding = (face_bottom - face_top) * face_margin
+            keep_top = max(0.0, face_top - padding)
+            keep_bottom = min(float(height), face_bottom + padding)
+            lower = max(0, int(math.ceil(keep_bottom - crop_height)))
+            upper = min(max_top, int(math.floor(keep_top)))
+            desired = int(round((keep_top + keep_bottom) / 2 - crop_height / 2))
+            if lower <= upper:
+                top = max(lower, min(upper, desired))
+                protected = True
+        crop = frame[top : top + crop_height, :]
+        metadata["crop"] = {
+            "left": 0,
+            "top": top,
+            "width": width,
+            "height": crop_height,
+        }
+
+    metadata["face_protection_status"] = (
+        "applied"
+        if protected
+        else ("fallback_center" if face_box is None else "face_not_fully_contained")
+    )
+    return crop, metadata
+
+
 def _align_ground_truth_frame(
     frame: np.ndarray,
     target: np.ndarray,
-) -> np.ndarray:
-    cropped = _center_crop_to_aspect(
+    *,
+    face_box: NormalizedFaceBox | None = None,
+    detect_face: bool = True,
+    return_metadata: bool = False,
+) -> np.ndarray | tuple[np.ndarray, dict[str, Any]]:
+    if face_box is None and detect_face:
+        face_box = _normalized_face_box(frame, _default_face_detector())
+    cropped, metadata = _face_protected_crop_to_aspect(
         frame,
         target.shape[1] / max(target.shape[0], 1),
+        face_box,
     )
-    return _resize_like(cropped, target)
+    aligned = _resize_like(cropped, target)
+    if return_metadata:
+        return aligned, metadata
+    return aligned
 
 
 def _ssim(result: np.ndarray, ground_truth: np.ndarray) -> float:
@@ -615,12 +755,6 @@ def evaluate_full_reference(
         (result_info.width / result_info.height)
         - (ground_truth_info.width / ground_truth_info.height)
     )
-    alignment_mode = (
-        "center_crop_gt_to_result_aspect"
-        if aspect_ratio_delta > 0.01
-        else "resize_gt_to_result"
-    )
-
     sample_count, result_indices, ground_truth_indices, timestamps = (
         _aligned_sample_indices(result_info, ground_truth_info, max_frames)
     )
@@ -629,10 +763,39 @@ def evaluate_full_reference(
         ground_truth_info.path,
         ground_truth_indices,
     )
-    aligned_ground_truth_frames = [
-        _align_ground_truth_frame(frame, result_frames[i])
+    face_box = (
+        _aggregate_face_box(
+            ground_truth_frames,
+            _default_face_detector(),
+        )
+        if aspect_ratio_delta > 0.01
+        else None
+    )
+    aligned_with_metadata = [
+        _align_ground_truth_frame(
+            frame,
+            result_frames[i],
+            face_box=face_box,
+            detect_face=False,
+            return_metadata=True,
+        )
         for i, frame in enumerate(ground_truth_frames)
     ]
+    aligned_ground_truth_frames = [
+        aligned for aligned, _ in aligned_with_metadata
+    ]
+    alignment_metadata = (
+        aligned_with_metadata[0][1] if aligned_with_metadata else {}
+    )
+    alignment_mode = (
+        (
+            "face_protected_crop_gt_to_result_aspect"
+            if alignment_metadata.get("face_protection_status") == "applied"
+            else "center_crop_gt_to_result_aspect"
+        )
+        if aspect_ratio_delta > 0.01
+        else "resize_gt_to_result"
+    )
 
     psnr_values: list[float] = []
     mse_values: list[float] = []
@@ -659,10 +822,20 @@ def evaluate_full_reference(
 
     warnings: list[str] = []
     if aspect_ratio_delta > 0.01:
+        face_status = alignment_metadata.get(
+            "face_protection_status",
+            "fallback_center",
+        )
+        if face_status == "applied":
+            crop_note = "已对 GT 做人脸保护裁剪"
+        elif face_status == "face_not_fully_contained":
+            crop_note = "人脸保护窗口无法完整容纳人脸，已回退居中裁剪"
+        else:
+            crop_note = "未检测到可靠人脸，已回退居中裁剪"
         warnings.append(
             f"GT 与结果视频宽高比不同（结果 {result_info.width}:{result_info.height} / "
             f"GT {ground_truth_info.width}:{ground_truth_info.height}）；"
-            "未拉伸画面，已对 GT 做居中裁剪后再比较，指标仅代表居中共同区域。"
+            f"未拉伸画面，{crop_note}后再比较，指标仅代表裁剪后的共同区域。"
         )
     elif result_info.width != ground_truth_info.width or result_info.height != ground_truth_info.height:
         warnings.append(
@@ -713,10 +886,20 @@ def evaluate_full_reference(
             "mode": alignment_mode,
             "aspect_ratio_delta": float(aspect_ratio_delta),
             "comparison_region": (
-                "center_crop_gt_to_result_aspect"
+                alignment_mode
                 if aspect_ratio_delta > 0.01
                 else "full_frame"
             ),
+            "face_protection": {
+                "status": alignment_metadata.get(
+                    "face_protection_status",
+                    "not_needed",
+                ),
+                "face_box_normalized": alignment_metadata.get(
+                    "face_box_normalized"
+                ),
+                "crop": alignment_metadata.get("crop"),
+            },
         },
         "metrics": {
             "psnr_db": (
