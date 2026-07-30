@@ -2220,7 +2220,10 @@ def evaluate_all(
         "EVALUATOR_ALLOW_COPRESENT_MODELS",
         "0",
     ).lower() in {"1", "true", "yes", "on"}
-    use_viclip = not qwen_service_active or allow_copresent
+    use_viclip = (
+        policy.viclip_enabled_by_default
+        and not qwen_service_active
+    ) or allow_copresent
     identity = evaluate_identity(
         result_path,
         reference_image,

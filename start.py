@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import argparse
+import importlib
 import importlib.util
 import json
 import urllib.error
@@ -100,11 +101,16 @@ def _local_vlm_missing_dependencies() -> list[str]:
         "qwen_vl_utils": "qwen-vl-utils",
         "awq": "autoawq",
     }
-    return [
-        package
-        for module, package in required.items()
-        if importlib.util.find_spec(module) is None
-    ]
+    missing: list[str] = []
+    for module, package in required.items():
+        if importlib.util.find_spec(module) is None:
+            missing.append(package)
+            continue
+        try:
+            importlib.import_module(module)
+        except Exception as exc:
+            missing.append(f"{package} (import failed: {type(exc).__name__})")
+    return missing
 
 
 def _docker_ready() -> bool:

@@ -77,7 +77,12 @@ if ($VLM) {
     Write-Host "Installing the local Qwen VLM backend..."
     & $python -m pip install -r (Join-Path $root "requirements\vlm_local.txt")
     if ($LASTEXITCODE -ne 0) {
-        throw "Local Qwen VLM installation failed."
+        throw "Local Qwen VLM base dependency installation failed."
+    }
+    Write-Host "Installing the Windows-compatible AutoAWQ wheel without Triton..."
+    & $python -m pip install --no-deps "autoawq==0.2.7.post3"
+    if ($LASTEXITCODE -ne 0) {
+        throw "AutoAWQ installation failed. The local Qwen backend needs AutoAWQ to load the cached AWQ checkpoint."
     }
 }
 

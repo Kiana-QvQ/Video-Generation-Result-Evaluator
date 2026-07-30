@@ -33,7 +33,7 @@ from evaluator.holistic_evaluator import (
 )
 from evaluator.au_compliance import AU_EVALUATOR_VERSION
 from evaluator.hardware_policy import resolve_policy
-from evaluator.media import transcode_video_for_browser
+from evaluator.media import concatenate_videos, transcode_video_for_browser
 from evaluator.runtime import OUTPUT_DIR, PROJECT_ROOT
 from evaluator.video_metrics import is_video_path, probe_video
 
@@ -82,6 +82,7 @@ JOB_WORKER_HEARTBEAT = 0.0
 JOB_RECONCILE_INTERVAL_SECONDS = 2.0
 JOB_STALE_RUNNING_SECONDS = 10 * 60
 JOB_PROCESS_JOIN_TIMEOUT_SECONDS = 5
+JOB_SCHEDULER_NAME = "hrrn_per_client_fifo_v1"
 
 
 class JobUpdate(BaseModel):
@@ -496,6 +497,9 @@ def _job_response(
         "stage": job.get("stage", "queued"),
         "progress": float(job.get("progress", 0)),
         "queue_position": queue_position,
+        "scheduler": JOB_SCHEDULER_NAME,
+        "estimated_seconds": _estimate_job_seconds(job),
+        "wait_seconds": round(_job_wait_seconds(job), 1),
         "created_at": job.get("created_at"),
         "queued_at": job.get("queued_at"),
         "started_at": job.get("started_at"),
@@ -555,6 +559,99 @@ def _queued_positions(
         str(job["job_id"]): index
         for index, job in enumerate(queued, start=1)
     }
+
+
+def _estimate_job_seconds(job: dict[str, Any]) -> float:
+    """Estimate relative job cost without reading media or loading models."""
+    parameters = job.get("parameters", {})
+    max_frames = max(1, int(parameters.get("max_frames", 64)))
+    estimate = 8.0 + max_frames * 0.45
+    if bool(parameters.get("calculate_lpips", True)):
+        estimate += 10.0
+    files = job.get("files", {})
+    if files.get("gt_video"):
+        estimate += 8.0
+    if files.get("reference_video"):
+        estimate += 7.0
+    if files.get("reference_images"):
+        estimate += min(8.0, 2.0 * len(files["reference_images"]))
+    if bool(parameters.get("wangxing_au_enabled", False)):
+        estimate += 20.0
+    if parameters.get("prompt_text"):
+        estimate += 4.0
+    return round(max(1.0, estimate), 1)
+
+
+def _job_wait_seconds(job: dict[str, Any]) -> float:
+    timestamp = job.get("queued_at") or job.get("created_at")
+    if not timestamp:
+        return 0.0
+    try:
+        parsed = datetime.fromisoformat(str(timestamp))
+    except ValueError:
+        return 0.0
+    if parsed.tzinfo is None:
+        parsed = parsed.astimezone()
+    return max(0.0, (datetime.now().astimezone() - parsed).total_seconds())
+
+
+def _scheduler_score(job: dict[str, Any]) -> tuple[float, float]:
+    """Use HRRN so short jobs finish quickly while old jobs gain priority."""
+    service_seconds = _estimate_job_seconds(job)
+    wait_seconds = _job_wait_seconds(job)
+    response_ratio = (wait_seconds + service_seconds) / service_seconds
+    return response_ratio, wait_seconds
+
+
+def _peek_queued_job(client_ip: str) -> dict[str, Any] | None:
+    with JOB_LOCK:
+        ip_queue = JOB_QUEUES_BY_IP.get(client_ip)
+        while ip_queue:
+            job = _read_job(str(ip_queue[0]))
+            if job is not None and job.get("status") == "queued":
+                return job
+            ip_queue.popleft()
+        if ip_queue is not None and not ip_queue:
+            JOB_SCHEDULED_IPS.discard(client_ip)
+            JOB_QUEUES_BY_IP.pop(client_ip, None)
+    return None
+
+
+def _drain_dispatch_tokens() -> None:
+    while True:
+        try:
+            JOB_DISPATCH_QUEUE.get_nowait()
+        except queue.Empty:
+            return
+        else:
+            JOB_DISPATCH_QUEUE.task_done()
+
+
+def _select_next_dispatch_ip() -> str | None:
+    """Pick one FIFO head per client using HRRN with aging."""
+    _drain_dispatch_tokens()
+    with JOB_LOCK:
+        client_ips = sorted(JOB_SCHEDULED_IPS)
+    candidates = [
+        (client_ip, job)
+        for client_ip in client_ips
+        if (job := _peek_queued_job(client_ip)) is not None
+    ]
+    if not candidates:
+        return None
+
+    candidates.sort(
+        key=lambda item: str(item[1].get("queued_at") or "")
+    )
+    selected_ip, _ = max(
+        candidates,
+        key=lambda item: _scheduler_score(item[1]),
+    )
+    with JOB_LOCK:
+        for client_ip, _ in candidates:
+            if client_ip != selected_ip:
+                JOB_DISPATCH_QUEUE.put(client_ip)
+    return selected_ip
 
 
 def _display_jobs(jobs: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -639,6 +736,7 @@ def _worker_snapshot() -> dict[str, Any]:
     return {
         "state": state if worker is not None and worker.is_alive() else "stopped",
         "alive": bool(worker is not None and worker.is_alive()),
+        "scheduler": JOB_SCHEDULER_NAME,
         "heartbeat_age_seconds": (
             round(max(0.0, time.monotonic() - heartbeat), 2)
             if heartbeat
@@ -827,6 +925,53 @@ def _save_upload(
     return target
 
 
+def _save_reference_videos(
+    uploads: list[UploadFile] | None,
+    run_dir: Path,
+) -> Path | None:
+    valid_uploads = [
+        upload for upload in (uploads or []) if upload is not None and upload.filename
+    ]
+    if not valid_uploads:
+        return None
+    if len(valid_uploads) == 1:
+        return _save_upload(
+            valid_uploads[0],
+            run_dir,
+            "reference_motion",
+            VIDEO_SUFFIXES,
+        )
+
+    segment_paths = [
+        saved
+        for index, upload in enumerate(valid_uploads, start=1)
+        if (
+            saved := _save_upload(
+                upload,
+                run_dir,
+                f"reference_motion_{index:02d}",
+                VIDEO_SUFFIXES,
+            )
+        )
+    ]
+    if not segment_paths:
+        return None
+    return concatenate_videos(segment_paths, run_dir / "reference_motion.mp4")
+
+
+def _original_reference_video_names(
+    uploads: list[UploadFile] | None,
+) -> str | list[str] | None:
+    names = [
+        Path(upload.filename).name
+        for upload in (uploads or [])
+        if upload is not None and upload.filename
+    ]
+    if not names:
+        return None
+    return names[0] if len(names) == 1 else names
+
+
 def _validate_video(path: Path, label: str) -> None:
     try:
         probe_video(path)
@@ -914,7 +1059,7 @@ def _prepare_job(
     result_video: UploadFile,
     gt_video: UploadFile | None,
     reference_images: list[UploadFile] | None,
-    reference_video: UploadFile | None,
+    reference_video: list[UploadFile] | None,
     prompt_text: str,
     max_frames: int,
     calculate_lpips: bool,
@@ -969,12 +1114,7 @@ def _prepare_job(
                 )
             )
         ]
-        uploaded["reference_video"] = _save_upload(
-            reference_video,
-            run_dir,
-            "reference_motion",
-            VIDEO_SUFFIXES,
-        )
+        uploaded["reference_video"] = _save_reference_videos(reference_video, run_dir)
         result_path = uploaded["result_video"]
         if result_path is None:
             raise HTTPException(status_code=422, detail="Result video is required.")
@@ -1011,11 +1151,7 @@ def _prepare_job(
             for image in (reference_images or [])
             if image.filename
         ],
-        "reference_video": (
-            Path(reference_video.filename).name
-            if reference_video is not None and reference_video.filename
-            else None
-        ),
+        "reference_video": _original_reference_video_names(reference_video),
     }
     parameters = {
         "prompt_text": prompt,
@@ -1311,8 +1447,10 @@ def _queue_worker_loop() -> None:
         job_id: str | None = None
         client_ip: str | None = None
         try:
-            client_ip = JOB_DISPATCH_QUEUE.get(timeout=0.5)
-            job_id = _take_next_job(client_ip)
+            JOB_DISPATCH_QUEUE.get(timeout=0.5)
+            JOB_DISPATCH_QUEUE.task_done()
+            client_ip = _select_next_dispatch_ip()
+            job_id = _take_next_job(client_ip) if client_ip is not None else None
             if job_id is not None:
                 with JOB_LOCK:
                     JOB_WORKER_STATE = "running"
@@ -1329,8 +1467,6 @@ def _queue_worker_loop() -> None:
                     _reschedule_ip(client_ip)
                 except Exception as exc:
                     _record_worker_error(exc)
-                finally:
-                    JOB_DISPATCH_QUEUE.task_done()
             with JOB_LOCK:
                 JOB_WORKER_HEARTBEAT = time.monotonic()
                 JOB_WORKER_STATE = "idle"
@@ -1453,7 +1589,7 @@ def create_job(
     result_video: UploadFile = File(...),
     gt_video: UploadFile | None = File(None),
     reference_images: list[UploadFile] | None = File(None),
-    reference_video: UploadFile | None = File(None),
+    reference_video: list[UploadFile] | None = File(None),
     prompt_text: str = Form(""),
     max_frames: int = Form(64),
     calculate_lpips: bool = Form(True),
@@ -1751,7 +1887,7 @@ def evaluate(
     result_video: UploadFile = File(...),
     gt_video: UploadFile | None = File(None),
     reference_images: list[UploadFile] | None = File(None),
-    reference_video: UploadFile | None = File(None),
+    reference_video: list[UploadFile] | None = File(None),
     prompt_text: str = Form(""),
     max_frames: int = Form(64),
     calculate_lpips: bool = Form(True),
@@ -1804,12 +1940,7 @@ def evaluate(
                 )
             )
         ]
-        uploaded["reference_video"] = _save_upload(
-            reference_video,
-            run_dir,
-            "reference_motion",
-            VIDEO_SUFFIXES,
-        )
+        uploaded["reference_video"] = _save_reference_videos(reference_video, run_dir)
         result_path = uploaded["result_video"]
         if result_path is None:
             raise HTTPException(status_code=422, detail="Result video is required.")

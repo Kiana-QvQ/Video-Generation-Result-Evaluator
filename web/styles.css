@@ -874,7 +874,7 @@ h2 em {
 }
 
 .reference-grid {
-  grid-template-columns: minmax(0, 1.35fr) minmax(0, 0.65fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   margin-top: 10px;
 }
 
@@ -1192,13 +1192,14 @@ h2 em {
 }
 
 .compact-upload {
-  min-height: 102px;
+  min-height: 130px;
   position: relative;
   display: flex;
   flex-direction: column;
-  justify-content: center;
+  justify-content: flex-start;
   gap: 6px;
-  padding: 16px;
+  min-width: 0;
+  padding: 34px 16px 16px;
   border: 1px solid var(--line-dark);
   border-radius: 12px;
   transition: border-color 180ms ease, background 180ms ease;
@@ -1212,8 +1213,11 @@ h2 em {
   position: absolute;
   top: 15px;
   right: 16px;
+  max-width: calc(100% - 32px);
   color: var(--acid-dark);
   font: 10px var(--mono);
+  line-height: 1.2;
+  text-align: right;
   text-transform: uppercase;
 }
 
@@ -1239,8 +1243,10 @@ h2 em {
 }
 
 .compact-label {
+  max-width: 100%;
   font-weight: 700;
   font-size: 14px;
+  line-height: 1.25;
 }
 
 .compact-upload .file-name {
