@@ -56,7 +56,7 @@ SHA256。基础评估不依赖这些大模型；缺失时网页端会显示 `OPT
 ```powershell
 .\setup.ps1 -VLM
 .\scripts\download-vlm-judge.ps1
-.\run.ps1 -WithVlm -VlmBackend local
+.\run.ps1
 ```
 
 12GB 升级模型：
@@ -66,8 +66,8 @@ SHA256。基础评估不依赖这些大模型；缺失时网页端会显示 `OPT
 .\run.ps1 -WithVlm -VlmModel 2.5-3b -VlmBackend local
 ```
 
-服务默认监听 `127.0.0.1:30000`。下载权重不会自动启动服务，评估期间需要保持
-本地 Judge 进程运行。若本地依赖或 AWQ 后端不可用，可显式改用
+服务默认监听 `127.0.0.1:30000`。启动评估器时会自动拉起本地 Judge；
+若本地依赖或 AWQ 后端不可用，可显式改用
 `.\run.ps1 -WithVlm -VlmBackend docker`。
 
 ## VBench
