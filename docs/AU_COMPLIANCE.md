@@ -33,6 +33,8 @@ same name in different `CL_*` directories do not overwrite each other:
 .\.venv\Scripts\python.exe scripts\extract_libreface_au.py `
     --input-root data\MD_CL `
     --output-root data\au\MD_CL `
+    --exclude-dir "CL_FACS*" `
+    --exclude-dir "CL_HeadMove" `
     --device cuda `
     --batch-size 64 `
     --num-workers 2 `
@@ -42,6 +44,8 @@ same name in different `CL_*` directories do not overwrite each other:
 Existing CSV files are skipped by default. Add `--force` to rebuild them.
 With `--continue-on-error`, videos that have no detectable face are recorded
 in `data\au\MD_CL\_failures.json` and do not interrupt the remaining batch.
+Keep `CL_yanwu*`: the original-emotion profile maps those clips to
+`disgust` (厌恶).
 Use `--limit 1 --device cpu` first if you want to smoke-test the LibreFace
 environment before starting the full extraction.
 
@@ -57,6 +61,7 @@ Extract original AU CSV files into `data\au\MD_CL` first. The directory name is
 used as the class label: `CL_kaixin` -> `smile`, `CL_fennu` -> `anger`,
 `CL_jingya` -> `surprise`, `CL_kongju` -> `fear`, `CL_shengqi` -> `annoyance`,
 and `CL_beishang` -> `sadness`.
+`CL_yanwu` -> `disgust`.
 
 ```powershell
 .\.venv\Scripts\python.exe scripts\build_original_emotion_au_profile.py `
@@ -69,10 +74,10 @@ at least two emotion classes and three labeled files per class. This prevents a
 partial dataset from producing a confident but misleading class such as
 `annoyance`.
 
-The profile uses the six canonical emotion classes:
+The profile uses the seven canonical emotion classes:
 
 ```text
-smile, anger, surprise, fear, annoyance, sadness
+smile, anger, surprise, fear, annoyance, sadness, disgust
 ```
 
 `anger` is `FenNu` and means explosive anger. `annoyance` is `ShengQi`
