@@ -841,6 +841,7 @@ function renderWangxingResult(result) {
     missing_personal_au: "缂哄皯涓汉 AU",
     missing_driver_expression: "缂哄皯鍙傝€冩�夊姩杞ㄨ抗",
     missing_temporal_alignment: "缂哄皯鍔ㄤ綔鏃堕棿瀵归綈",
+    automatic_expression_class_unavailable: "鑷姩琛ㄦ儏褰掔被涓嶅彲鐢",
     face_quality_low: "人脸质量不足",
     evidence_quality_low: "证据质量不足",
     wangxing_au_below_threshold: "AU 画像偏离",

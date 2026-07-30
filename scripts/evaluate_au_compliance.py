@@ -114,6 +114,14 @@ def main() -> int:
         driver_expression_threshold=args.driver_expression_threshold,
         leakage_threshold=args.leakage_threshold,
     )
+    uncertainty_reasons = list(au_result.get("uncertainty_reasons", []))
+    if (
+        args.expected_class is None
+        and au_result.get("selected_expression_class") == "unknown"
+    ):
+        uncertainty_reasons.append(
+            "automatic_expression_class_unavailable"
+        )
     wangxing_targeted = fuse_wangxing_targeted_scores(
         personal_au_score_0_1=au_result["personal_au_score_0_1"],
         driver_expression_score_0_1=au_result[
@@ -132,7 +140,7 @@ def main() -> int:
         evidence_confidence_0_1=au_result.get(
             "evidence_confidence_0_1"
         ),
-        uncertainty_reasons=au_result.get("uncertainty_reasons", []),
+        uncertainty_reasons=uncertainty_reasons,
         personal_au_threshold=args.personal_au_threshold,
         driver_expression_threshold=args.driver_expression_threshold,
         leakage_threshold=args.leakage_threshold,
