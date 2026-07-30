@@ -88,10 +88,11 @@ $env:FRAME_AUDIT_TRUST_PROXY_HEADERS = "true"
 # 8GB 本地 VLM Judge（不使用 Docker）
 .\setup.ps1 -VLM
 .\scripts\download-vlm-judge.ps1
-.\run.ps1 -WithVlm -VlmBackend local
+.\run.ps1
 ```
 
-VBench 和 VLM Judge 都是可选能力，不会自动启动，也不影响基础五类评估。
+VBench 是可选能力；Qwen VLM Judge 默认随 `run.ps1` 和 `run-grpc.ps1`
+自动以本地 Transformers 后端启动。使用 `--without-vlm` 可关闭。
 本地 Qwen Judge 读取 `model_cache/vlm_judge/` 中的权重；如果需要 Docker，
 必须显式使用 `.\run.ps1 -WithVlm -VlmBackend docker`。
 

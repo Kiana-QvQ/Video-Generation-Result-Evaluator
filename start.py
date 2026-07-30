@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import argparse
+import importlib.util
 import json
 import urllib.error
 import urllib.request
@@ -94,6 +95,18 @@ def _vlm_model_weights_available(model_path: Path) -> bool:
     ).is_file()
 
 
+def _local_vlm_missing_dependencies() -> list[str]:
+    required = {
+        "qwen_vl_utils": "qwen-vl-utils",
+        "awq": "autoawq",
+    }
+    return [
+        package
+        for module, package in required.items()
+        if importlib.util.find_spec(module) is None
+    ]
+
+
 def _docker_ready() -> bool:
     try:
         result = subprocess.run(
@@ -143,6 +156,15 @@ def _start_vlm_judge(
 
     backend = backend.lower()
     if backend == "local":
+        missing_dependencies = _local_vlm_missing_dependencies()
+        if missing_dependencies:
+            print(
+                "Local Qwen Judge dependencies are missing: "
+                f"{', '.join(missing_dependencies)}. "
+                "Run .\\setup.ps1 -VLM once, then restart the evaluator.",
+                flush=True,
+            )
+            return None
         if not VLM_LOCAL_SCRIPT.is_file():
             print(f"Local Qwen Judge launcher is missing: {VLM_LOCAL_SCRIPT}", flush=True)
             return None
@@ -248,7 +270,7 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         "--with-vlm",
         dest="with_vlm",
         action="store_true",
-        help="Start the cached Qwen VLM Judge on port 30000.",
+        help="Start the cached Qwen VLM Judge on port 30000 (default).",
     )
     vlm_group.add_argument(
         "--without-vlm",
@@ -257,9 +279,7 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         action="store_false",
         help="Do not start the Qwen VLM Judge.",
     )
-    parser.set_defaults(
-        with_vlm=False,
-    )
+    parser.set_defaults(with_vlm=True)
     parser.add_argument(
         "--vlm-backend",
         choices=("local", "docker"),

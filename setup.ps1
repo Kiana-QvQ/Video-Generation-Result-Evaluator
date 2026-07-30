@@ -92,7 +92,7 @@ if ($VBench) {
     Write-Host "VBench package is ready. Download its assets with: .\scripts\download-vbench-models.ps1"
 }
 if ($VLM) {
-    Write-Host "Local Qwen VLM backend is ready. Start with: .\run.ps1 -WithVlm -VlmBackend local"
+    Write-Host "Local Qwen VLM backend is ready. Start with: .\run.ps1"
 }
 if ($Grpc) {
     Write-Host "gRPC transport is ready. Start the alternative endpoint with: .\run-grpc.ps1"
