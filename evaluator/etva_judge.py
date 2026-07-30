@@ -48,8 +48,15 @@ def etva_service_available(timeout_seconds: float = 0.25) -> bool:
     )
     try:
         with urllib.request.urlopen(models_url, timeout=timeout_seconds) as response:
-            return 200 <= int(response.status) < 300
-    except (OSError, urllib.error.URLError, ValueError):
+            if not 200 <= int(response.status) < 300:
+                return False
+            payload = json.loads(response.read().decode("utf-8"))
+        models = payload.get("data", []) if isinstance(payload, dict) else []
+        return any(
+            isinstance(item, dict) and bool(item.get("id"))
+            for item in models
+        )
+    except (OSError, urllib.error.URLError, ValueError, json.JSONDecodeError):
         return False
 
 

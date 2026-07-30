@@ -66,6 +66,11 @@ COMPLIANCE_COMPONENT_WEIGHTS = {
     "personal_au": 0.40,
     "driver_expression": 0.20,
 }
+WANGXING_TARGETED_COMPONENT_WEIGHTS = {
+    "personal_au": 0.40,
+    "driver_expression": 0.35,
+    "temporal_alignment": 0.25,
+}
 DEFAULT_COACTIVATION_PAIRS = (
     (1, 2),
     (1, 4),
@@ -2742,30 +2747,43 @@ def fuse_wangxing_targeted_scores(
     driver_expression_threshold: float = 0.50,
     leakage_threshold: float = 0.50,
 ) -> dict[str, Any]:
-    """Judge Wang Xing-specific expression fit without requiring identity evidence."""
-    driver_scores = [
-        float(score)
-        for score in (
-            driver_expression_score_0_1,
-            temporal_alignment_score_0_1,
-        )
+    """Judge Wang Xing-specific expression fit with explicit evidence coverage."""
+    components = {
+        "personal_au": personal_au_score_0_1,
+        "driver_expression": driver_expression_score_0_1,
+        "temporal_alignment": temporal_alignment_score_0_1,
+    }
+    valid_components = {
+        name: float(score)
+        for name, score in components.items()
         if score is not None and math.isfinite(float(score))
+    }
+    score_weight_coverage = sum(
+        WANGXING_TARGETED_COMPONENT_WEIGHTS[name]
+        for name in valid_components
+    )
+    expression_fit = (
+        sum(
+            WANGXING_TARGETED_COMPONENT_WEIGHTS[name] * score
+            for name, score in valid_components.items()
+        )
+        / score_weight_coverage
+        if score_weight_coverage
+        else None
+    )
+    driver_scores = [
+        valid_components[name]
+        for name in ("driver_expression", "temporal_alignment")
+        if name in valid_components
     ]
     driver_fit = (
         sum(driver_scores) / len(driver_scores)
         if driver_scores
         else None
     )
-    expression_scores = [
-        float(score)
-        for score in (personal_au_score_0_1, driver_fit)
-        if score is not None and math.isfinite(float(score))
+    missing_evidence = [
+        name for name, score in components.items() if score is None
     ]
-    expression_fit = (
-        sum(expression_scores) / len(expression_scores)
-        if expression_scores
-        else None
-    )
     reasons: list[str] = []
     if (
         personal_au_score_0_1 is not None
@@ -2787,6 +2805,12 @@ def fuse_wangxing_targeted_scores(
         and leakage_risk_0_1 >= leakage_threshold
     ):
         reasons.append("identity_leakage_risk")
+    if personal_au_score_0_1 is None:
+        reasons.append("missing_personal_au")
+    if driver_expression_score_0_1 is None:
+        reasons.append("missing_driver_expression")
+    if temporal_alignment_score_0_1 is None:
+        reasons.append("missing_temporal_alignment")
     for reason in uncertainty_reasons:
         if reason not in reasons:
             reasons.append(str(reason))
@@ -2794,23 +2818,30 @@ def fuse_wangxing_targeted_scores(
         if "evidence_quality_low" not in reasons:
             reasons.append("evidence_quality_low")
 
-    if personal_au_score_0_1 is None:
-        decision = "review"
-    elif evidence_quality_status in {"partial", "uncertain"}:
-        decision = "review"
-    elif reasons:
-        decision = "review"
-    else:
-        decision = "allow"
+    status = (
+        "complete"
+        if (
+            score_weight_coverage >= 1.0
+            and evidence_quality_status == "pass"
+            and not reasons
+        )
+        else ("partial" if expression_fit is not None else "unavailable")
+    )
+    decision = "allow" if status == "complete" else "review"
 
     return {
         "wangxing_expression_fit_score_0_1": expression_fit,
+        "status": status,
         "decision": decision,
         "decision_reasons": reasons,
+        "required_evidence": list(WANGXING_TARGETED_COMPONENT_WEIGHTS),
+        "missing_evidence": missing_evidence,
+        "score_weight_coverage": score_weight_coverage,
+        "evidence_coverage_0_1": score_weight_coverage,
         "decision_policy": (
-            "score_and_review_only: threshold misses lower the score or "
-            "request review; this specialization never blocks uploads or "
-            "generic evaluation"
+            "A complete allow decision requires personal AU, reference "
+            "driver trajectory, and temporal alignment. Missing evidence "
+            "keeps the score partial and requests review."
         ),
         "evidence": {
             "personal_au": personal_au_score_0_1,
@@ -2822,8 +2853,8 @@ def fuse_wangxing_targeted_scores(
         "evidence_quality_status": evidence_quality_status,
         "evidence_confidence_0_1": evidence_confidence_0_1,
         "aggregation": (
-            "mean of available personal AU, driver expression, and "
-            "temporal alignment evidence; no fixed identity weight"
+            "weighted mean of personal AU (40%), driver expression (35%), "
+            "and temporal alignment (25%) over available evidence"
         ),
         "thresholds": {
             "personal_au": personal_au_threshold,

@@ -2,6 +2,7 @@ param(
     [switch]$Public,
     [switch]$WithGrpc,
     [switch]$WithVlm,
+    [switch]$WithoutVlm,
     [ValidateSet("2b", "2.5-3b")]
     [string]$VlmModel = "2b",
     [ValidateSet("local", "docker")]
@@ -12,6 +13,10 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+
+if ($WithVlm -and $WithoutVlm) {
+    throw "Use either -WithVlm or -WithoutVlm, not both."
+}
 
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $python = Join-Path $root ".venv\Scripts\python.exe"
@@ -56,6 +61,8 @@ if ($WithVlm) {
     $startArguments += $VlmModel
     $startArguments += "--vlm-backend"
     $startArguments += $VlmBackend
+} elseif ($WithoutVlm) {
+    $startArguments += "--without-vlm"
 }
 & $python (Join-Path $root "start.py") @startArguments
 exit $LASTEXITCODE

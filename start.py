@@ -5,6 +5,7 @@ import argparse
 import importlib
 import importlib.util
 import json
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -30,6 +31,12 @@ VLM_CONTAINER_NAMES = {
     "2b": "frame-audit-qwen-2b",
     "2.5-3b": "frame-audit-qwen-2.5-3b",
 }
+VLM_STARTUP_TIMEOUT_SECONDS = 300.0
+VLM_STARTUP_POLL_SECONDS = 0.5
+
+
+class VLMStartupError(RuntimeError):
+    """Raised when the Qwen Judge cannot become OpenAI-compatible and ready."""
 
 
 def _restart_in_project_venv() -> None:
@@ -85,6 +92,58 @@ def _vlm_service_models() -> list[str]:
 
 def _vlm_service_available() -> bool:
     return bool(_vlm_service_models())
+
+
+def _vlm_startup_timeout_seconds() -> float:
+    raw_value = os.environ.get(
+        "EVALUATOR_VLM_STARTUP_TIMEOUT_SECONDS",
+        str(VLM_STARTUP_TIMEOUT_SECONDS),
+    )
+    try:
+        value = float(raw_value)
+    except ValueError:
+        value = VLM_STARTUP_TIMEOUT_SECONDS
+    return max(1.0, value)
+
+
+def _wait_for_vlm_service(
+    process: subprocess.Popen[bytes],
+    model: str,
+    backend: str,
+    resource: str = "",
+) -> list[str]:
+    """Wait until /v1/models exposes a usable model before starting evaluation."""
+    deadline = time.monotonic() + _vlm_startup_timeout_seconds()
+    last_models: list[str] = []
+    while True:
+        last_models = _vlm_service_models()
+        expected_model = VLM_SERVED_NAMES[model]
+        if expected_model in last_models:
+            print(
+                "Qwen Judge is ready on 127.0.0.1:30000 "
+                f"({', '.join(last_models)}).",
+                flush=True,
+            )
+            return last_models
+
+        return_code = process.poll()
+        if return_code is not None and (
+            backend == "local" or return_code != 0
+        ):
+            raise VLMStartupError(
+                "Qwen Judge process exited before /v1/models became ready "
+                f"(backend={backend}, return_code={return_code}, "
+                f"model={expected_model})."
+            )
+        if time.monotonic() >= deadline:
+            resource_note = f" resource={resource!r}" if resource else ""
+            raise VLMStartupError(
+                "Timed out waiting for Qwen Judge /v1/models after "
+                f"{_vlm_startup_timeout_seconds():.0f}s "
+                f"(backend={backend}{resource_note}, "
+                f"last_models={last_models or 'none'})."
+            )
+        time.sleep(VLM_STARTUP_POLL_SECONDS)
 
 
 def _vlm_model_weights_available(model_path: Path) -> bool:
@@ -149,12 +208,10 @@ def _start_vlm_judge(
         return None
     model_path = VLM_MODEL_PATHS[model]
     if not _vlm_model_weights_available(model_path):
-        print(
+        raise VLMStartupError(
             f"Qwen Judge weights are missing at {model_path}; "
-            "HTTP service will remain disabled.",
-            flush=True,
+            "download the model or start with --without-vlm.",
         )
-        return None
     served_name = VLM_SERVED_NAMES[model]
     os.environ.setdefault("ETVA_JUDGE_MODEL", served_name)
     environment = os.environ.copy()
@@ -164,16 +221,16 @@ def _start_vlm_judge(
     if backend == "local":
         missing_dependencies = _local_vlm_missing_dependencies()
         if missing_dependencies:
-            print(
+            raise VLMStartupError(
                 "Local Qwen Judge dependencies are missing: "
                 f"{', '.join(missing_dependencies)}. "
-                "Run .\\setup.ps1 -VLM once, then restart the evaluator.",
-                flush=True,
+                "Run .\\setup.ps1 -VLM once, then restart the evaluator, "
+                "or use --without-vlm.",
             )
-            return None
         if not VLM_LOCAL_SCRIPT.is_file():
-            print(f"Local Qwen Judge launcher is missing: {VLM_LOCAL_SCRIPT}", flush=True)
-            return None
+            raise VLMStartupError(
+                f"Local Qwen Judge launcher is missing: {VLM_LOCAL_SCRIPT}."
+            )
         command = [
             sys.executable,
             str(VLM_LOCAL_SCRIPT),
@@ -190,33 +247,37 @@ def _start_vlm_judge(
             f"Starting local Qwen Judge ({model}) on 127.0.0.1:30000...",
             flush=True,
         )
-        process = subprocess.Popen(command, cwd=ROOT, env=environment)
-        return process, "local", ""
+        try:
+            process = subprocess.Popen(command, cwd=ROOT, env=environment)
+        except OSError as exc:
+            raise VLMStartupError(
+                f"Unable to launch the local Qwen Judge: {exc}"
+            ) from exc
+        handle = (process, "local", "")
+        try:
+            _wait_for_vlm_service(process, model, "local")
+        except VLMStartupError:
+            _stop_vlm_judge(handle)
+            raise
+        return handle
 
     if backend != "docker":
-        print(
+        raise VLMStartupError(
             f"Unsupported Qwen Judge backend {backend!r}; "
-            "HTTP service will remain disabled.",
-            flush=True,
+            "use --vlm-backend local or docker.",
         )
-        return None
     if not VLM_SCRIPT.is_file():
-        print(f"Qwen Judge launcher is missing: {VLM_SCRIPT}", flush=True)
-        return None
+        raise VLMStartupError(f"Qwen Judge launcher is missing: {VLM_SCRIPT}.")
     if shutil.which("docker") is None:
-        print(
-            "Docker is not available; Qwen Judge HTTP service will remain "
-            "disabled.",
-            flush=True,
+        raise VLMStartupError(
+            "Docker is not available; install/start Docker or use "
+            "--vlm-backend local."
         )
-        return None
     if not _docker_ready():
-        print(
-            "Docker Desktop/daemon is not running; Qwen Judge HTTP service "
-            "will remain disabled.",
-            flush=True,
+        raise VLMStartupError(
+            "Docker Desktop/daemon is not running; start Docker or use "
+            "--vlm-backend local."
         )
-        return None
     command = [
         "powershell.exe",
         "-NoProfile",
@@ -231,8 +292,20 @@ def _start_vlm_judge(
         f"Starting Qwen Judge ({model}) on 127.0.0.1:30000...",
         flush=True,
     )
-    process = subprocess.Popen(command, cwd=ROOT, env=environment)
-    return process, "docker", VLM_CONTAINER_NAMES[model]
+    try:
+        process = subprocess.Popen(command, cwd=ROOT, env=environment)
+    except OSError as exc:
+        raise VLMStartupError(
+            f"Unable to launch the Docker Qwen Judge: {exc}"
+        ) from exc
+    resource = VLM_CONTAINER_NAMES[model]
+    handle = (process, "docker", resource)
+    try:
+        _wait_for_vlm_service(process, model, "docker", resource)
+    except VLMStartupError:
+        _stop_vlm_judge(handle)
+        raise
+    return handle
 
 
 def _stop_vlm_judge(
@@ -474,26 +547,28 @@ def main(argv: Sequence[str] | None = None) -> None:
         raise SystemExit(_run_au_training(args))
 
     grpc_process = None
-    if args.transport in {"grpc", "both"}:
-        print(
-            f"gRPC listening on {args.grpc_host}:{args.grpc_port}",
-            flush=True,
-        )
-        grpc_process = _start_grpc_process(args)
-        if grpc_process.poll() is not None:
-            raise SystemExit("gRPC service failed to start.")
-
-    vlm_handle = (
-        _start_vlm_judge(args.vlm_model, args.vlm_backend)
-        if args.with_vlm
-        else None
-    )
+    vlm_handle = None
     if args.transport == "grpc":
         try:
+            if args.with_vlm:
+                vlm_handle = _start_vlm_judge(
+                    args.vlm_model,
+                    args.vlm_backend,
+                )
+            print(
+                f"gRPC listening on {args.grpc_host}:{args.grpc_port}",
+                flush=True,
+            )
+            grpc_process = _start_grpc_process(args)
+            if grpc_process.poll() is not None:
+                raise SystemExit("gRPC service failed to start.")
             return_code = grpc_process.wait() if grpc_process else 0
             if return_code:
                 raise SystemExit(return_code)
             return
+        except VLMStartupError as exc:
+            print(f"Qwen Judge failed to start: {exc}", file=sys.stderr, flush=True)
+            raise SystemExit(1) from exc
         except KeyboardInterrupt:
             return
         finally:
@@ -501,6 +576,19 @@ def main(argv: Sequence[str] | None = None) -> None:
             _stop_vlm_judge(vlm_handle)
 
     try:
+        if args.with_vlm:
+            vlm_handle = _start_vlm_judge(
+                args.vlm_model,
+                args.vlm_backend,
+            )
+        if args.transport in {"grpc", "both"}:
+            print(
+                f"gRPC listening on {args.grpc_host}:{args.grpc_port}",
+                flush=True,
+            )
+            grpc_process = _start_grpc_process(args)
+            if grpc_process.poll() is not None:
+                raise SystemExit("gRPC service failed to start.")
         import uvicorn
 
         print(
@@ -513,6 +601,9 @@ def main(argv: Sequence[str] | None = None) -> None:
             port=args.http_port,
             reload=False,
         )
+    except VLMStartupError as exc:
+        print(f"Qwen Judge failed to start: {exc}", file=sys.stderr, flush=True)
+        raise SystemExit(1) from exc
     finally:
         _stop_process(grpc_process)
         _stop_vlm_judge(vlm_handle)

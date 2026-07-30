@@ -127,6 +127,86 @@ class WebAppTests(unittest.TestCase):
             self.assertEqual(run.call_args.kwargs["env"]["PYTHONIOENCODING"], "utf-8")
             self.assertEqual(run.call_args.kwargs["env"]["PYTHONUTF8"], "1")
 
+    def test_expression_fusion_keeps_missing_reference_evidence_partial(self) -> None:
+        result = {
+            "status": "partial",
+            "categories": {
+                "identity": {
+                    "status": "available",
+                    "metrics": {"score_0_1": 0.8},
+                },
+                "texture": {
+                    "status": "available",
+                    "metrics": {"score_0_1": 0.7},
+                },
+                "expression": {
+                    "status": "partial",
+                    "reference_source": "none",
+                    "score_0_1": 0.7,
+                    "backend": "prompt_clip",
+                    "metrics": {
+                        "generic_style_score_0_1": None,
+                        "prompt_semantic_score_0_1": 0.7,
+                        "prompt_semantic_backend": "clip",
+                    },
+                },
+                "temporal": {
+                    "status": "available",
+                    "metrics": {"stability_score_0_1": 0.9},
+                },
+                "aesthetics": {
+                    "status": "manual",
+                    "metrics": {"manual_score_0_to_1": 0.8},
+                },
+            },
+            "summary": [
+                {},
+                {},
+                {
+                    "类别": "3. 表情准确",
+                    "权重": "15%",
+                    "状态": "partial",
+                    "标准化分数": "0.7000",
+                    "核心结果": "prompt",
+                    "后端": "prompt_clip",
+                },
+            ],
+        }
+        au = {
+            "status": "available",
+            "wangxing_targeted": {
+                "status": "partial",
+                "wangxing_expression_fit_score_0_1": 0.55,
+                "score_weight_coverage": 0.4,
+                "missing_evidence": [
+                    "driver_expression",
+                    "temporal_alignment",
+                ],
+                "evidence": {
+                    "personal_au": 0.55,
+                    "driver_expression": None,
+                    "temporal_alignment": None,
+                },
+            },
+        }
+
+        web_app._fuse_expression_evidence(
+            result,
+            wangxing_au=au,
+            prompt_text="人物微笑",
+            driver_source=None,
+        )
+
+        expression = result["categories"]["expression"]
+        self.assertEqual(expression["status"], "partial")
+        self.assertIn("expression_reference_style", expression["missing_evidence"])
+        self.assertIn("au_driver_expression", expression["missing_evidence"])
+        self.assertAlmostEqual(
+            expression["metrics"]["wangxing_au_score_0_1"],
+            0.55,
+        )
+        self.assertLess(expression["evidence_coverage_0_1"], 1.0)
+
     def test_multiple_reference_videos_are_joined_for_evaluation(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             run_dir = Path(directory) / "run"

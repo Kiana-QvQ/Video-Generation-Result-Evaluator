@@ -773,6 +773,7 @@ function renderWangxingResult(result) {
   }
   const targeted = payload.wangxing_targeted ?? {};
   const au = payload.au_compliance ?? {};
+  const fusion = payload.fusion ?? {};
   const quality = au.quality?.generated ?? au.generated_au?.quality ?? {};
   const identity = normalizeScore(
     payload.identity_preservation?.metrics?.score_0_1,
@@ -780,7 +781,10 @@ function renderWangxingResult(result) {
   const score = normalizeScore(
     targeted.wangxing_expression_fit_score_0_1,
   );
-  const rawDecision = String(targeted.decision ?? "review");
+  const rawDecision =
+    fusion.decision === "allow" && targeted.decision === "allow"
+      ? "allow"
+      : "review";
   const uncertain = targeted.evidence_quality_status === "uncertain";
   const decision =
     rawDecision === "block" ||
@@ -834,6 +838,9 @@ function renderWangxingResult(result) {
     available: "FACE QUALITY / AVAILABLE",
   }[qualityStatus] ?? "FACE QUALITY / CHECK";
   const reasonLabels = {
+    missing_personal_au: "缂哄皯涓汉 AU",
+    missing_driver_expression: "缂哄皯鍙傝€冩�夊姩杞ㄨ抗",
+    missing_temporal_alignment: "缂哄皯鍔ㄤ綔鏃堕棿瀵归綈",
     face_quality_low: "人脸质量不足",
     evidence_quality_low: "证据质量不足",
     wangxing_au_below_threshold: "AU 画像偏离",
@@ -844,6 +851,17 @@ function renderWangxingResult(result) {
   const reasons = (targeted.decision_reasons ?? [])
     .map((reason) => reasonLabels[reason] ?? reason)
     .join(" / ");
+  const missingEvidence = [
+    ...(fusion.missing_evidence ?? []),
+    ...(targeted.missing_evidence ?? []),
+  ]
+    .filter((item, index, values) => values.indexOf(item) === index)
+    .map((item) => reasonLabels[item] ?? item)
+    .join(" / ");
+  const evidenceCoverage = normalizeScore(
+    targeted.score_weight_coverage ??
+      targeted.evidence_coverage_0_1,
+  );
   const formatEvidence = (value) =>
     value === null ? "—" : `${(value * 100).toFixed(1)}`;
   const thresholdNotes = [];
@@ -874,6 +892,10 @@ function renderWangxingResult(result) {
       ? autoClassificationNote
       : "",
     reasons,
+    missingEvidence ? `缂哄皯璇佹嵁：${missingEvidence}` : "",
+    evidenceCoverage !== null
+      ? `璇佹嵁瑕嗙洊 ${formatEvidence(evidenceCoverage)}`
+      : "",
     thresholdNotes.join(" / "),
   ]
     .filter(Boolean)
@@ -894,6 +916,13 @@ function renderWangxingResult(result) {
       <strong>${escapeHtml(scoreText)}</strong>
       <span>/100 · ${escapeHtml(classContext)}</span>
     </div>
+    <p class="wangxing-result-note">
+      ${escapeHtml(
+        evidenceCoverage === null
+          ? "AU evidence coverage unavailable"
+          : `AU evidence coverage ${formatEvidence(evidenceCoverage)}; missing evidence does not mean a complete match`,
+      )}
+    </p>
     <div class="wangxing-result-evidence">
       <span><strong>${formatEvidence(personal)}</strong>王兴 AU 画像</span>
       <span><strong>${formatEvidence(driver)}</strong>参考动作轨迹</span>
@@ -970,6 +999,30 @@ function renderResult(payload) {
   renderEvidence(result);
   renderDownloads(payload.downloads);
   document.querySelector("#report-panel").scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function renderEmptyReport(status = "queued") {
+  emptyReport.classList.remove("is-hidden");
+  reportContent.classList.add("is-hidden");
+  reportMode.textContent =
+    status === "failed"
+      ? "FAILED"
+      : status === "canceled"
+        ? "CANCELED"
+        : "WAITING";
+  reportMode.classList.remove("success");
+  overallScore.textContent = "--";
+  scoreCaption.textContent = "覆盖情况";
+  coverageValue.textContent = "0/5";
+  coverageRing.style.setProperty("--coverage", "0%");
+  document.querySelector("#radar-chart").innerHTML = "";
+  categoryList.innerHTML = "";
+  evidenceGrid.innerHTML = "";
+  downloadRow.innerHTML = "";
+  wangxingResult.classList.add("is-hidden");
+  wangxingResult.innerHTML = "";
+  qwenFeedback.classList.add("is-hidden");
+  qwenFeedback.innerHTML = "";
 }
 
 function setBusy(isBusy) {
@@ -1371,10 +1424,7 @@ function startNewEvaluation() {
   updateQueueProgressPanel(null);
   progressBar.classList.remove("is-complete");
   progressBar.style.width = "0%";
-  emptyReport.classList.remove("is-hidden");
-  reportContent.classList.add("is-hidden");
-  reportMode.textContent = "WAITING";
-  reportMode.classList.remove("success");
+  renderEmptyReport();
   setQueueBusy(false);
   setFormNote("已清空当前表单，可以开始新的评估。", "success");
   document.querySelector(".intake-panel").scrollIntoView({
@@ -1465,6 +1515,8 @@ async function getQueueJob(jobId, shouldScroll = false) {
         block: "start",
       });
     }
+  } else {
+    renderEmptyReport(payload.status);
   }
   return payload;
 }
@@ -1563,6 +1615,9 @@ async function refreshQueue() {
       selectedJob = selected;
       setFormEditState(selected);
       updateQueueProgressPanel(selected);
+      if (selected.status !== "completed") {
+        renderEmptyReport(selected.status);
+      }
       const previousStatus = queueKnownStatuses.get(selected.job_id);
       if (
         selected.status === "completed" &&
