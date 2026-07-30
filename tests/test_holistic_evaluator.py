@@ -31,6 +31,7 @@ from evaluator.video_metrics import (
     _aligned_sample_indices,
     _face_protected_crop_to_aspect,
     _mean,
+    _resize_frame_for_evaluation,
     _sample_timestamps,
     sample_aligned_video_windows,
     sample_video_windows,
@@ -123,6 +124,17 @@ class HolisticEvaluatorTests(unittest.TestCase):
         self.assertEqual(len(frames), 1)
         self.assertEqual(frames[0].shape, (12, 16, 3))
         self.assertEqual(int(frames[0][0, 0, 1]), 180)
+
+    def test_high_resolution_frames_are_bounded_for_evaluation(self) -> None:
+        frame = np.zeros((3840, 2160, 3), dtype=np.uint8)
+        with patch.dict(
+            os.environ,
+            {"EVALUATOR_MAX_FRAME_DIMENSION": "1920"},
+            clear=False,
+        ):
+            resized = _resize_frame_for_evaluation(frame)
+
+        self.assertEqual(resized.shape, (1920, 1080, 3))
 
     def test_time_sampling_uses_fixed_rate_before_max_frame_cap(self) -> None:
         timestamps = _sample_timestamps(5.0, 256, sample_fps=8.0)

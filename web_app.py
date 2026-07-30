@@ -564,7 +564,7 @@ def _queued_positions(
 def _estimate_job_seconds(job: dict[str, Any]) -> float:
     """Estimate relative job cost without reading media or loading models."""
     parameters = job.get("parameters", {})
-    max_frames = max(1, int(parameters.get("max_frames", 64)))
+    max_frames = max(1, int(parameters.get("max_frames", 8)))
     estimate = 8.0 + max_frames * 0.45
     if bool(parameters.get("calculate_lpips", True)):
         estimate += 10.0
@@ -1206,9 +1206,9 @@ def _execute_job(job_id: str) -> None:
             reference_image=reference_paths,
             reference_video=reference_video_path,
             prompt_text=parameters.get("prompt_text") or None,
-            max_frames=int(parameters.get("max_frames", 64)),
+            max_frames=int(parameters.get("max_frames", 8)),
             calculate_lpips=bool(parameters.get("calculate_lpips", True)),
-            device=str(parameters.get("device", "cpu")),
+            device=str(parameters.get("device", "auto")),
             manual_expression_score=parameters.get("manual_expression_score"),
             manual_aesthetic_score=parameters.get("manual_aesthetic_score"),
             vbench_output_root=_job_dir(job_id),
@@ -1227,7 +1227,7 @@ def _execute_job(job_id: str) -> None:
                 reference_image_paths=reference_paths,
                 reference_video_path=reference_video_path,
                 expected_class=expected_class,
-                device=str(parameters.get("device", "cpu")),
+                device=str(parameters.get("device", "auto")),
                 run_dir=_job_dir(job_id),
             )
         else:
@@ -1591,7 +1591,7 @@ def create_job(
     reference_images: list[UploadFile] | None = File(None),
     reference_video: list[UploadFile] | None = File(None),
     prompt_text: str = Form(""),
-    max_frames: int = Form(64),
+    max_frames: int = Form(8),
     calculate_lpips: bool = Form(True),
     device: str = Form("auto"),
     manual_expression_score: str = Form(""),
@@ -1889,7 +1889,7 @@ def evaluate(
     reference_images: list[UploadFile] | None = File(None),
     reference_video: list[UploadFile] | None = File(None),
     prompt_text: str = Form(""),
-    max_frames: int = Form(64),
+    max_frames: int = Form(8),
     calculate_lpips: bool = Form(True),
     device: str = Form("auto"),
     manual_expression_score: str = Form(""),
