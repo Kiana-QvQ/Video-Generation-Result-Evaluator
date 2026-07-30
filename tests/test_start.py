@@ -3,7 +3,21 @@ from __future__ import annotations
 import unittest
 from unittest.mock import patch
 
-from start import _parse_args, _run_au_training
+from start import (
+    VLMStartupError,
+    _parse_args,
+    _run_au_training,
+    _start_vlm_judge,
+    _wait_for_vlm_service,
+)
+
+
+class _FakeProcess:
+    def __init__(self, return_code: int | None = None) -> None:
+        self.return_code = return_code
+
+    def poll(self) -> int | None:
+        return self.return_code
 
 
 class StartArgumentTests(unittest.TestCase):
@@ -57,6 +71,52 @@ class StartArgumentTests(unittest.TestCase):
         self.assertIn("12", command)
         self.assertIn("--device", command)
         self.assertIn("cpu", command)
+
+    def test_vlm_waits_for_a_model_to_appear(self) -> None:
+        process = _FakeProcess()
+        with (
+            patch(
+                "start._vlm_service_models",
+                side_effect=[[], [], ["qwen2-vl-2b-awq"]],
+            ),
+            patch("start.time.sleep") as sleep,
+            patch.dict(
+                "os.environ",
+                {"EVALUATOR_VLM_STARTUP_TIMEOUT_SECONDS": "5"},
+                clear=False,
+            ),
+        ):
+            models = _wait_for_vlm_service(process, "2b", "local")
+
+        self.assertEqual(models, ["qwen2-vl-2b-awq"])
+        self.assertEqual(sleep.call_count, 2)
+
+    def test_vlm_startup_fails_when_local_process_exits_early(self) -> None:
+        process = _FakeProcess(return_code=1)
+        with (
+            patch("start._vlm_service_models", return_value=[]),
+            patch.dict(
+                "os.environ",
+                {"EVALUATOR_VLM_STARTUP_TIMEOUT_SECONDS": "5"},
+                clear=False,
+            ),
+        ):
+            with self.assertRaisesRegex(
+                VLMStartupError,
+                "exited before /v1/models became ready",
+            ):
+                _wait_for_vlm_service(process, "2b", "local")
+
+    def test_vlm_weights_missing_is_a_startup_error(self) -> None:
+        with (
+            patch("start._vlm_service_models", return_value=[]),
+            patch("start._vlm_model_weights_available", return_value=False),
+        ):
+            with self.assertRaisesRegex(
+                VLMStartupError,
+                "download the model or start with --without-vlm",
+            ):
+                _start_vlm_judge("2b", "local")
 
 
 if __name__ == "__main__":

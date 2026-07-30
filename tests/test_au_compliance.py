@@ -439,13 +439,17 @@ class AUComplianceTests(unittest.TestCase):
         self.assertEqual(result["decision"], "review")
         self.assertIn("driver_identity_leakage", result["decision_reasons"])
 
-    def test_wangxing_targeted_fit_does_not_require_identity_or_driver(self) -> None:
+    def test_wangxing_targeted_fit_reviews_missing_driver_evidence(self) -> None:
         result = fuse_wangxing_targeted_scores(
             personal_au_score_0_1=0.8,
             driver_expression_score_0_1=None,
             leakage_risk_0_1=0.1,
         )
-        self.assertEqual(result["decision"], "allow")
+        self.assertEqual(result["decision"], "review")
+        self.assertEqual(result["status"], "partial")
+        self.assertIn("driver_expression", result["missing_evidence"])
+        self.assertIn("temporal_alignment", result["missing_evidence"])
+        self.assertAlmostEqual(result["score_weight_coverage"], 0.4)
         self.assertAlmostEqual(
             result["wangxing_expression_fit_score_0_1"],
             0.8,

@@ -7,7 +7,7 @@ import subprocess
 import sys
 from typing import Sequence
 
-from start import _start_vlm_judge, _stop_vlm_judge
+from start import VLMStartupError, _start_vlm_judge, _stop_vlm_judge
 
 
 ROOT = Path(__file__).resolve().parent
@@ -122,16 +122,20 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     os.environ["EVALUATOR_GRPC_HOST"] = args.host
     os.environ["EVALUATOR_GRPC_PORT"] = str(args.port)
-    print(f"gRPC starting on {args.host}:{args.port}", flush=True)
-    vlm_handle = (
-        _start_vlm_judge(args.vlm_model, args.vlm_backend)
-        if args.with_vlm
-        else None
-    )
+    vlm_handle = None
     try:
+        if args.with_vlm:
+            vlm_handle = _start_vlm_judge(
+                args.vlm_model,
+                args.vlm_backend,
+            )
+        print(f"gRPC starting on {args.host}:{args.port}", flush=True)
         from grpc_server import serve
 
         serve()
+    except VLMStartupError as exc:
+        print(f"Qwen Judge failed to start: {exc}", file=sys.stderr, flush=True)
+        raise SystemExit(1) from exc
     finally:
         _stop_vlm_judge(vlm_handle)
 

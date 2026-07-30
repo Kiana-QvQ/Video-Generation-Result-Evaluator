@@ -12,7 +12,7 @@ import cv2
 import numpy as np
 
 import evaluator.runtime as runtime
-from evaluator.etva_judge import evaluate_etva_judge
+from evaluator.etva_judge import etva_service_available, evaluate_etva_judge
 from evaluator.holistic_evaluator import (
     TEMPORAL_LANDMARK_INDICES,
     WEIGHTS,
@@ -243,6 +243,18 @@ class HolisticEvaluatorTests(unittest.TestCase):
         self.assertIn("weights are cached", result["reason"])
         self.assertIn("HTTP service is not connected", result["reason"])
         self.assertEqual(result["model"], "qwen2-vl-2b-awq")
+
+    def test_etva_service_requires_a_model_from_models_endpoint(self) -> None:
+        with patch("evaluator.etva_judge.urllib.request.urlopen") as urlopen:
+            response = urlopen.return_value.__enter__.return_value
+            response.status = 200
+            response.read.return_value = b'{"object":"list","data":[]}'
+            self.assertFalse(etva_service_available())
+
+            response.read.return_value = (
+                b'{"object":"list","data":[{"id":"qwen2-vl-2b-awq"}]}'
+            )
+            self.assertTrue(etva_service_available())
 
     def test_identity_tail_uses_lowest_scores(self) -> None:
         self.assertEqual(_lower_tail([0.95, 0.2, 0.8, 0.7], 0.5), [0.2, 0.7])

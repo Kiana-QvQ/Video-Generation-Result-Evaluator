@@ -27,6 +27,7 @@ from fastapi import FastAPI
 from pydantic import BaseModel, Field
 
 from evaluator.holistic_evaluator import (
+    WEIGHTS,
     evaluate_all,
     get_model_inventory,
     get_model_recommendation,
@@ -67,6 +68,15 @@ ORIGINAL_EMOTION_AU_PROFILE_PATH = (
 WANGXING_AU_CACHE_ROOT = OUTPUT_DIR / "au_cache"
 
 WEB_RUNS_DIR.mkdir(parents=True, exist_ok=True)
+
+GENERIC_EXPRESSION_EVIDENCE_WEIGHTS = {
+    "reference_style": 0.60,
+    "prompt_semantic": 0.40,
+}
+EXPRESSION_TRACK_WEIGHTS = {
+    "generic_expression": 0.50,
+    "wangxing_au": 0.50,
+}
 
 JOB_DISPATCH_QUEUE: queue.Queue[str] = queue.Queue()
 JOB_QUEUES_BY_IP: dict[str, deque[str]] = {}
@@ -371,6 +381,8 @@ def _run_wangxing_au_assessment(
     expected_class: str | None,
     device: str,
     run_dir: Path,
+    prompt_text: str | None = None,
+    driver_source: str | None = None,
 ) -> dict[str, Any]:
     status = _wangxing_au_status()
     if not status["ready"]:
@@ -469,13 +481,274 @@ def _run_wangxing_au_assessment(
         }
 
     try:
-        return json.loads(output_path.read_text(encoding="utf-8"))
+        payload = json.loads(output_path.read_text(encoding="utf-8"))
+        payload["driver_source"] = (
+            driver_source if reference_video_path is not None else None
+        )
+        payload["prompt_evidence"] = {
+            "provided": bool((prompt_text or "").strip()),
+            "note": (
+                "Prompt is evaluated by the generic expression semantic "
+                "track; it does not replace AU driver trajectory evidence."
+            ),
+        }
+        return payload
     except (OSError, json.JSONDecodeError) as exc:
         return {
             "status": "unavailable",
             "reason": "Wang Xing AU report was not written.",
             "error_type": type(exc).__name__,
         }
+
+
+def _finite_score(value: Any) -> float | None:
+    try:
+        score = float(value)
+    except (TypeError, ValueError):
+        return None
+    return score if math.isfinite(score) else None
+
+
+def _fuse_expression_evidence(
+    result: dict[str, Any],
+    *,
+    wangxing_au: dict[str, Any],
+    prompt_text: str | None,
+    driver_source: str | None,
+) -> None:
+    """Merge generic expression and AU evidence without hiding gaps."""
+    categories = result.get("categories")
+    if not isinstance(categories, dict):
+        return
+    expression = categories.get("expression")
+    if not isinstance(expression, dict):
+        return
+
+    metrics = expression.setdefault("metrics", {})
+    old_expression_status = str(expression.get("status", "unavailable"))
+    generic_score = _finite_score(expression.get("score_0_1"))
+    style_score = _finite_score(metrics.get("generic_style_score_0_1"))
+    prompt_score = _finite_score(metrics.get("prompt_semantic_score_0_1"))
+    reference_source = str(expression.get("reference_source") or "")
+    has_reference_source = reference_source not in {"", "none"}
+    reference_style_score = style_score if has_reference_source else None
+    if style_score is None and prompt_score is None and generic_score is not None:
+        style_score = generic_score
+
+    generic_components = {
+        "reference_style": reference_style_score,
+        "prompt_semantic": prompt_score,
+    }
+    generic_weight_coverage = sum(
+        GENERIC_EXPRESSION_EVIDENCE_WEIGHTS[name]
+        for name, score in generic_components.items()
+        if score is not None
+    )
+    generic_missing = [
+        name for name, score in generic_components.items() if score is None
+    ]
+    generic_available = [
+        (
+            GENERIC_EXPRESSION_EVIDENCE_WEIGHTS[name],
+            score,
+        )
+        for name, score in generic_components.items()
+        if score is not None
+    ]
+    if generic_available:
+        generic_score = sum(weight * score for weight, score in generic_available) / sum(
+            weight for weight, _ in generic_available
+        )
+
+    targeted = wangxing_au.get("wangxing_targeted", {})
+    au_score = _finite_score(
+        targeted.get("wangxing_expression_fit_score_0_1")
+    )
+    au_coverage = _finite_score(
+        targeted.get(
+            "score_weight_coverage",
+            targeted.get("evidence_coverage_0_1"),
+        )
+    )
+    if au_coverage is None:
+        au_components = (
+            ("personal_au", targeted.get("evidence", {}).get("personal_au")),
+            (
+                "driver_expression",
+                targeted.get("evidence", {}).get("driver_expression"),
+            ),
+            (
+                "temporal_alignment",
+                targeted.get("evidence", {}).get("temporal_alignment"),
+            ),
+        )
+        au_coverage = sum(
+            weight
+            for name, weight in (
+                ("personal_au", 0.40),
+                ("driver_expression", 0.35),
+                ("temporal_alignment", 0.25),
+            )
+            if _finite_score(dict(au_components).get(name)) is not None
+        )
+    au_coverage = max(0.0, min(1.0, au_coverage or 0.0))
+    au_missing = list(targeted.get("missing_evidence", []))
+    if not au_missing and wangxing_au.get("status") != "available":
+        au_missing = ["wangxing_au"]
+
+    tracks = [
+        (EXPRESSION_TRACK_WEIGHTS["generic_expression"], generic_score),
+        (EXPRESSION_TRACK_WEIGHTS["wangxing_au"], au_score),
+    ]
+    available_tracks = [
+        (weight, score)
+        for weight, score in tracks
+        if score is not None
+    ]
+    fused_score = (
+        sum(weight * score for weight, score in available_tracks)
+        / sum(weight for weight, _ in available_tracks)
+        if available_tracks
+        else None
+    )
+    expression_coverage = (
+        EXPRESSION_TRACK_WEIGHTS["generic_expression"]
+        * generic_weight_coverage
+        + EXPRESSION_TRACK_WEIGHTS["wangxing_au"] * au_coverage
+    )
+    missing_evidence = [
+        f"expression_{name}" for name in generic_missing
+    ] + [f"au_{name}" for name in au_missing]
+    complete = (
+        generic_weight_coverage >= 1.0
+        and au_coverage >= 1.0
+        and has_reference_source
+        and old_expression_status in {"available", "manual"}
+        and targeted.get("status") == "complete"
+    )
+    expression_status = (
+        "complete"
+        if complete
+        else ("partial" if fused_score is not None else "unavailable")
+    )
+    expression["score_0_1"] = fused_score
+    expression["status"] = expression_status
+    expression["backend"] = (
+        f'{expression.get("backend", "generic_expression")} + '
+        "wangxing_au_evidence_fusion"
+    )
+    expression["evidence_coverage_0_1"] = expression_coverage
+    expression["missing_evidence"] = missing_evidence
+    metrics.update(
+        {
+            "generic_expression_score_0_1": generic_score,
+            "wangxing_au_score_0_1": au_score,
+            "generic_evidence_coverage_0_1": generic_weight_coverage,
+            "wangxing_au_evidence_coverage_0_1": au_coverage,
+            "expression_evidence_coverage_0_1": expression_coverage,
+        }
+    )
+    expression["evidence_sources"] = {
+        "reference_style": driver_source or (
+            "ground_truth"
+            if result.get("ground_truth_video")
+            else None
+        ),
+        "prompt_semantic": (
+            metrics.get("prompt_semantic_backend")
+            if prompt_text and prompt_text.strip()
+            else None
+        ),
+        "wangxing_au": (
+            "generated_au_vs_profile"
+            if au_score is not None
+            else None
+        ),
+    }
+    if missing_evidence:
+        expression["note"] = (
+            f'{expression.get("note", "")} '
+            f"缺少证据：{', '.join(missing_evidence)}。"
+        ).strip()
+
+    categories["expression"] = expression
+    category_scores = {
+        "identity": categories["identity"].get("metrics", {}).get("score_0_1"),
+        "texture": categories["texture"].get("metrics", {}).get("score_0_1"),
+        "expression": expression.get("score_0_1"),
+        "temporal": categories["temporal"].get("metrics", {}).get(
+            "stability_score_0_1"
+        ),
+        "aesthetics": categories["aesthetics"].get("score_0_1"),
+    }
+    if category_scores["aesthetics"] is None:
+        category_scores["aesthetics"] = categories["aesthetics"].get(
+            "metrics", {}
+        ).get("manual_score_0_to_1")
+    result["category_scores"] = category_scores
+    valid_scores = [
+        (WEIGHTS[name], _finite_score(score))
+        for name, score in category_scores.items()
+        if _finite_score(score) is not None
+    ]
+    weight_coverage = sum(weight for weight, _ in valid_scores)
+    result["weighted_score_0_1"] = (
+        sum(weight * score for weight, score in valid_scores) / weight_coverage
+        if weight_coverage
+        else None
+    )
+    result["weighted_score_0_100"] = (
+        result["weighted_score_0_1"] * 100
+        if result["weighted_score_0_1"] is not None
+        else None
+    )
+    result["weighted_score_weight_coverage"] = weight_coverage
+    result["coverage"] = f"{len(valid_scores)}/5"
+    result["status"] = (
+        "complete"
+        if len(valid_scores) == len(WEIGHTS)
+        and all(
+            categories[name].get("status") in {"available", "manual"}
+            for name in WEIGHTS
+        )
+        else "partial"
+    )
+    result["weighted_score_status"] = result["status"]
+    result["expression_evidence"] = {
+        "generic": {
+            "score_0_1": generic_score,
+            "coverage_0_1": generic_weight_coverage,
+            "missing_evidence": generic_missing,
+        },
+        "wangxing_au": {
+            "score_0_1": au_score,
+            "coverage_0_1": au_coverage,
+            "missing_evidence": au_missing,
+        },
+        "fused": {
+            "score_0_1": fused_score,
+            "coverage_0_1": expression_coverage,
+            "missing_evidence": missing_evidence,
+        },
+    }
+    if isinstance(result.get("summary"), list) and len(result["summary"]) > 2:
+        summary_entry = result["summary"][2]
+        summary_keys = list(summary_entry)
+        if len(summary_keys) >= 6:
+            summary_entry[summary_keys[2]] = expression_status
+            summary_entry[summary_keys[3]] = _format_score_for_report(
+                fused_score
+            )
+            summary_entry[summary_keys[4]] = (
+                f"普通表情 {_format_score_for_report(generic_score)}；"
+                f"王兴 AU {_format_score_for_report(au_score)}；"
+                f"证据覆盖 {expression_coverage:.2f}"
+            )
+            summary_entry[summary_keys[5]] = expression["backend"]
+
+
+def _format_score_for_report(value: float | None) -> str:
+    return "不可用" if value is None else f"{value:.4f}"
 
 
 def _job_response(
@@ -1222,13 +1495,28 @@ def _execute_job(job_id: str) -> None:
             expected_class = _normalize_wangxing_class(
                 str(parameters.get("wangxing_expected_class", "auto"))
             )
-            result["wangxing_au"] = _run_wangxing_au_assessment(
+            driver_video_path = reference_video_path or gt_path
+            driver_source = (
+                "reference_video"
+                if reference_video_path is not None
+                else ("ground_truth" if gt_path is not None else None)
+            )
+            wangxing_au = _run_wangxing_au_assessment(
                 result_path=result_path,
                 reference_image_paths=reference_paths,
-                reference_video_path=reference_video_path,
+                reference_video_path=driver_video_path,
                 expected_class=expected_class,
                 device=str(parameters.get("device", "auto")),
                 run_dir=_job_dir(job_id),
+                prompt_text=parameters.get("prompt_text"),
+                driver_source=driver_source,
+            )
+            result["wangxing_au"] = wangxing_au
+            _fuse_expression_evidence(
+                result,
+                wangxing_au=wangxing_au,
+                prompt_text=parameters.get("prompt_text"),
+                driver_source=driver_source,
             )
         else:
             result["wangxing_au"] = {
@@ -1983,15 +2271,34 @@ def evaluate(
                 detail=f"Input videos cannot be evaluated: {exc}",
             ) from exc
         if wangxing_au_enabled:
-            result["wangxing_au"] = _run_wangxing_au_assessment(
+            driver_video_path = uploaded["reference_video"] or uploaded["gt_video"]
+            driver_source = (
+                "reference_video"
+                if uploaded["reference_video"] is not None
+                else (
+                    "ground_truth"
+                    if uploaded["gt_video"] is not None
+                    else None
+                )
+            )
+            wangxing_au = _run_wangxing_au_assessment(
                 result_path=result_path,
                 reference_image_paths=uploaded["reference_images"],
-                reference_video_path=uploaded["reference_video"],
+                reference_video_path=driver_video_path,
                 expected_class=_normalize_wangxing_class(
                     wangxing_expected_class
                 ),
                 device=device,
                 run_dir=run_dir,
+                prompt_text=prompt or None,
+                driver_source=driver_source,
+            )
+            result["wangxing_au"] = wangxing_au
+            _fuse_expression_evidence(
+                result,
+                wangxing_au=wangxing_au,
+                prompt_text=prompt or None,
+                driver_source=driver_source,
             )
         else:
             result["wangxing_au"] = {

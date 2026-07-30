@@ -94,12 +94,22 @@ def get_model_inventory() -> list[dict[str, Any]]:
     ).exists()
     qwen_vlm_ready = (
         importlib.util.find_spec("transformers") is not None
+        and (cache / "vlm_judge" / "Qwen2-VL-2B-Instruct-AWQ").is_dir()
         and (
-            cache
-            / "vlm_judge"
-            / "Qwen2-VL-2B-Instruct-AWQ"
-            / "model.safetensors"
-        ).exists()
+            any(
+                (
+                    cache
+                    / "vlm_judge"
+                    / "Qwen2-VL-2B-Instruct-AWQ"
+                ).glob("*.safetensors")
+            )
+            or (
+                cache
+                / "vlm_judge"
+                / "Qwen2-VL-2B-Instruct-AWQ"
+                / "pytorch_model.bin"
+            ).is_file()
+        )
     )
     onnx_cuda_ready = False
     try:
@@ -2315,6 +2325,15 @@ def evaluate_all(
         if text_score is not None
         else None
     )
+    expression.setdefault("metrics", {})[
+        "generic_style_score_0_1"
+    ] = expression_style_score
+    expression.setdefault("metrics", {})[
+        "prompt_semantic_score_0_1"
+    ] = semantic_score
+    expression.setdefault("metrics", {})[
+        "prompt_semantic_backend"
+    ] = semantic_backend
     if semantic_score is not None and semantic_backend:
         if expression_style_score is not None:
             expression["score_0_1"] = _clamp(
