@@ -27,7 +27,9 @@ $modelSpec = @{
     }
 }[$JudgeModel]
 $modelPath = Join-Path $root "model_cache\vlm_judge\$($modelSpec.Name)"
-if (-not (Test-Path (Join-Path $modelPath "model.safetensors"))) {
+$weightFiles = Get-ChildItem -LiteralPath $modelPath -File -ErrorAction SilentlyContinue |
+    Where-Object { $_.Extension -eq ".safetensors" -or $_.Name -eq "pytorch_model.bin" }
+if (-not (Test-Path $modelPath -PathType Container) -or -not $weightFiles) {
     throw "$($modelSpec.Name) is missing. Run .\scripts\download-vlm-judge.ps1 -JudgeModel $JudgeModel first."
 }
 

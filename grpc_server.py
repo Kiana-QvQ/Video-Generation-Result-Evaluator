@@ -108,7 +108,7 @@ def _options(request: pb2.JobOptions | None) -> dict[str, object]:
             "device": "auto",
             "manual_expression_score": "",
             "manual_aesthetic_score": "",
-            "wangxing_au_enabled": True,
+            "wangxing_au_enabled": False,
             "wangxing_expected_class": "auto",
         }
     return {
@@ -122,7 +122,7 @@ def _options(request: pb2.JobOptions | None) -> dict[str, object]:
         "device": request.device or "auto",
         "manual_expression_score": request.manual_expression_score,
         "manual_aesthetic_score": request.manual_aesthetic_score,
-        "wangxing_au_enabled": True,
+        "wangxing_au_enabled": False,
         "wangxing_expected_class": "auto",
     }
 

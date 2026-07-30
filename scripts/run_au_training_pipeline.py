@@ -80,6 +80,11 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Original AU CSV root used for general emotion classification.",
     )
     parser.add_argument(
+        "--original-video-root",
+        default="data/MD_CL",
+        help="Original video root used to verify AU extraction completeness.",
+    )
+    parser.add_argument(
         "--emotion-profile-output",
         default="data/au/original_emotion_au_profile.json",
     )
@@ -244,6 +249,8 @@ def run_pipeline(args: argparse.Namespace) -> dict[str, object]:
                 PROJECT_ROOT / "scripts/build_original_emotion_au_profile.py",
                 "--au-root",
                 args.original_au_root,
+                "--video-root",
+                args.original_video_root,
                 "--output",
                 args.emotion_profile_output,
                 "--min-samples-per-class",

@@ -3,6 +3,8 @@ param(
     [switch]$WithVlm,
     [ValidateSet("2b", "2.5-3b")]
     [string]$VlmModel = "2b",
+    [ValidateSet("local", "docker")]
+    [string]$VlmBackend = "local",
     [string]$BindHost,
     [int]$Port = 50051
 )
@@ -35,6 +37,8 @@ if ($WithVlm) {
     $startArguments += "--with-vlm"
     $startArguments += "--vlm-model"
     $startArguments += $VlmModel
+    $startArguments += "--vlm-backend"
+    $startArguments += $VlmBackend
 }
 & $python (Join-Path $root "start_grpc.py") @startArguments
 exit $LASTEXITCODE

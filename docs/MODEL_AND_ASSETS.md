@@ -51,23 +51,24 @@ SHA256。基础评估不依赖这些大模型；缺失时网页端会显示 `OPT
 
 ## VLM Judge
 
-默认 8GB 档位使用 Qwen2-VL-2B AWQ。下载并启动本地 OpenAI 兼容服务：
+默认 8GB 档位使用 Qwen2-VL-2B AWQ。推荐使用本地 Transformers 服务，不依赖 Docker：
 
 ```powershell
+.\setup.ps1 -VLM
 .\scripts\download-vlm-judge.ps1
-$env:ETVA_JUDGE_ENABLED = "1"
-.\scripts\run-vlm-judge-docker.ps1
+.\run.ps1 -WithVlm -VlmBackend local
 ```
 
 12GB 升级模型：
 
 ```powershell
 .\scripts\download-vlm-judge.ps1 -JudgeModel 2.5-3b
-.\scripts\run-vlm-judge-docker.ps1 -JudgeModel 2.5-3b
+.\run.ps1 -WithVlm -VlmModel 2.5-3b -VlmBackend local
 ```
 
-服务默认监听 `127.0.0.1:30000` 映射的 Docker 端口。下载权重不会自动
-启动服务，评估期间需要保持 Judge 容器运行。
+服务默认监听 `127.0.0.1:30000`。下载权重不会自动启动服务，评估期间需要保持
+本地 Judge 进程运行。若本地依赖或 AWQ 后端不可用，可显式改用
+`.\run.ps1 -WithVlm -VlmBackend docker`。
 
 ## VBench
 

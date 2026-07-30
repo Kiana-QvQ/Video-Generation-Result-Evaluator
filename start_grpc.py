@@ -65,7 +65,7 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         "--with-vlm",
         dest="with_vlm",
         action="store_true",
-        help="Start the cached Qwen VLM Judge on port 30000 (default).",
+        help="Start the cached Qwen VLM Judge on port 30000.",
     )
     vlm_group.add_argument(
         "--without-vlm",
@@ -74,7 +74,13 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         action="store_false",
         help="Do not start the Qwen VLM Judge.",
     )
-    parser.set_defaults(with_vlm=True)
+    parser.set_defaults(with_vlm=False)
+    parser.add_argument(
+        "--vlm-backend",
+        choices=("local", "docker"),
+        default=None,
+        help="Qwen Judge backend. Local transformers is the default.",
+    )
     parser.add_argument(
         "--vlm-model",
         choices=("2b", "2.5-3b"),
@@ -82,6 +88,8 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help="Cached Qwen Judge model to start.",
     )
     args = parser.parse_args(argv)
+    if args.vlm_backend is None:
+        args.vlm_backend = os.environ.get("EVALUATOR_VLM_BACKEND", "local")
 
     args.host = args.host or (
         "0.0.0.0"
@@ -115,7 +123,11 @@ def main(argv: Sequence[str] | None = None) -> None:
     os.environ["EVALUATOR_GRPC_HOST"] = args.host
     os.environ["EVALUATOR_GRPC_PORT"] = str(args.port)
     print(f"gRPC starting on {args.host}:{args.port}", flush=True)
-    vlm_handle = _start_vlm_judge(args.vlm_model) if args.with_vlm else None
+    vlm_handle = (
+        _start_vlm_judge(args.vlm_model, args.vlm_backend)
+        if args.with_vlm
+        else None
+    )
     try:
         from grpc_server import serve
 

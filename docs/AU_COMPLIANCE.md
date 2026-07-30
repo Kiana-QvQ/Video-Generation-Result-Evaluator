@@ -66,8 +66,13 @@ and `CL_beishang` -> `sadness`.
 ```powershell
 .\.venv\Scripts\python.exe scripts\build_original_emotion_au_profile.py `
     --au-root data\au\MD_CL `
+    --video-root data\MD_CL `
     --output data\au\original_emotion_au_profile.json
 ```
+
+The profile builder fails closed until every recognized emotion video has a
+valid AU CSV. A valid output has at least 32 rows and 10% unique frame-index
+coverage. Use `--allow-incomplete` only for debugging.
 
 The automatic emotion profile is intentionally marked unavailable until it has
 at least two emotion classes and three labeled files per class. This prevents a
@@ -266,6 +271,12 @@ main evidence; identity images and driver videos are optional. The general
 `fusion` section is a broader person-likeness decision and may remain
 `review` when identity or driver evidence is not supplied.
 
+The web evaluator keeps Wang Xing AU disabled by default because it is a
+target-specific specialization, not a generic generated-video quality gate.
+Enable `Wang Xing 专项 AU` only when the generated subject is intended to be
+Wang Xing. When it is disabled, the report marks this section
+`not_applicable` and the five general evaluation categories continue normally.
+
 The general fusion currently records the implemented weights explicitly:
 identity 40%, personal AU 40%, and driver expression 20%. Missing components
 are renormalized over the available evidence. The Wang Xing-targeted score is
@@ -280,6 +291,9 @@ face-quality or low usable-frame ratio forces the targeted decision to
 decisions are deterministic model evidence and should not be interpreted as
 human ground truth. AU dynamics are an individualized behavioral prior and
 evidence of pattern drift; they are not, by themselves, an identity verdict.
+The AU report is score-and-review-only: a low AU score or high leakage risk is
+reported as evidence and may produce `review`, but it does not block uploads
+or generic evaluation. The reasons and thresholds remain in the JSON report.
 
 Automatic expression selection uses both intensity AU and the auxiliary
 presence AU representation when it is available. The personal AU score uses

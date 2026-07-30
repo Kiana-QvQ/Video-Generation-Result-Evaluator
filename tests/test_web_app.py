@@ -149,7 +149,7 @@ class WebAppTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(
             response.json()["result"]["wangxing_au"]["status"],
-            "disabled",
+            "not_applicable",
         )
         runner.assert_not_called()
 
@@ -295,7 +295,7 @@ class WebAppTests(unittest.TestCase):
             job_id = job["job_id"]
             job_dir = Path("outputs/web_runs") / job_id
             self.assertEqual(job["original_files"]["result_video"], "result.mp4")
-            self.assertTrue(job["parameters"]["wangxing_au_enabled"])
+            self.assertFalse(job["parameters"]["wangxing_au_enabled"])
             self.assertEqual(
                 job["parameters"]["wangxing_expected_class"],
                 "auto",

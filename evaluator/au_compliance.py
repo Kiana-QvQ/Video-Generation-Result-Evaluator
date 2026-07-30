@@ -2704,9 +2704,7 @@ def fuse_compliance_scores(
         )
         if value is None
     ]
-    if reasons:
-        decision = "block"
-    elif missing_evidence:
+    if reasons or missing_evidence:
         decision = "review"
     else:
         decision = "allow"
@@ -2718,6 +2716,10 @@ def fuse_compliance_scores(
         "decision": decision,
         "decision_reasons": reasons,
         "missing_evidence": missing_evidence,
+        "decision_policy": (
+            "score_and_review_only: threshold misses lower the score or "
+            "request review; this report does not block uploads"
+        ),
         "thresholds": {
             "identity": identity_threshold,
             "personal_au": personal_au_threshold,
@@ -2792,9 +2794,7 @@ def fuse_wangxing_targeted_scores(
         if "evidence_quality_low" not in reasons:
             reasons.append("evidence_quality_low")
 
-    if leakage_risk_0_1 is not None and leakage_risk_0_1 >= leakage_threshold:
-        decision = "block"
-    elif personal_au_score_0_1 is None:
+    if personal_au_score_0_1 is None:
         decision = "review"
     elif evidence_quality_status in {"partial", "uncertain"}:
         decision = "review"
@@ -2807,6 +2807,11 @@ def fuse_wangxing_targeted_scores(
         "wangxing_expression_fit_score_0_1": expression_fit,
         "decision": decision,
         "decision_reasons": reasons,
+        "decision_policy": (
+            "score_and_review_only: threshold misses lower the score or "
+            "request review; this specialization never blocks uploads or "
+            "generic evaluation"
+        ),
         "evidence": {
             "personal_au": personal_au_score_0_1,
             "driver_expression": driver_expression_score_0_1,

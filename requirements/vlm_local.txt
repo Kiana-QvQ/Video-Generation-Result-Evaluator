@@ -1,0 +1,5 @@
+# Optional local Qwen2-VL AWQ HTTP backend.
+transformers>=4.49,<5
+accelerate>=1.2,<2
+qwen-vl-utils>=0.0.10
+autoawq>=0.2.7
