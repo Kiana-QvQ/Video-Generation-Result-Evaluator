@@ -1,6 +1,7 @@
 param(
     [ValidateSet("2b", "2.5-3b")]
-    [string]$JudgeModel = "2b"
+    [string]$JudgeModel = "2b",
+    [string]$SglangImage = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -8,6 +9,12 @@ $ErrorActionPreference = "Stop"
 $root = (Resolve-Path (Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) "..")).Path
 $env:DOCKER_CONFIG = Join-Path $root ".docker"
 New-Item -ItemType Directory -Force -Path $env:DOCKER_CONFIG | Out-Null
+if ([string]::IsNullOrWhiteSpace($SglangImage)) {
+    $SglangImage = $env:FRAME_AUDIT_SGLANG_IMAGE
+}
+if ([string]::IsNullOrWhiteSpace($SglangImage)) {
+    $SglangImage = "lmsysorg/sglang:latest"
+}
 
 $modelSpec = @{
     "2b" = @{
@@ -24,13 +31,23 @@ if (-not (Test-Path (Join-Path $modelPath "model.safetensors"))) {
     throw "$($modelSpec.Name) is missing. Run .\scripts\download-vlm-judge.ps1 -JudgeModel $JudgeModel first."
 }
 
+& docker image inspect $SglangImage *> $null
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "SGLang image is not cached locally; pulling $SglangImage..."
+    & docker pull $SglangImage
+    if ($LASTEXITCODE -ne 0) {
+        throw "Unable to pull $SglangImage. Docker Hub may be rate-limiting anonymous requests. Run 'docker login' or set FRAME_AUDIT_SGLANG_IMAGE to an accessible mirror."
+    }
+}
+
 docker run --rm --gpus all `
+    --pull never `
     --shm-size 32g `
     --ipc=host `
     -p 30000:30000 `
     --name "frame-audit-qwen-$JudgeModel" `
     -v "${modelPath}:/models/judge:ro" `
-    lmsysorg/sglang:latest `
+    $SglangImage `
     python3 -m sglang.launch_server `
     --model-path /models/judge `
     --host 0.0.0.0 `

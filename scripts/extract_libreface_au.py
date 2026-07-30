@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import json
 import os
 import shutil
@@ -73,15 +74,36 @@ def _manifest_inputs(
     return inputs
 
 
-def _input_root_inputs(input_root: Path) -> list[tuple[Path, str]]:
+def _input_root_inputs(
+    input_root: Path,
+    *,
+    exclude_dir_patterns: list[str] | None = None,
+) -> list[tuple[Path, str]]:
     input_root = _project_path(input_root)
     if not input_root.is_dir():
         raise SystemExit(f"Input root was not found: {input_root}")
 
+    excluded = [
+        pattern.casefold()
+        for pattern in (exclude_dir_patterns or [])
+        if pattern.strip()
+    ]
     inputs: list[tuple[Path, str]] = []
     for path in sorted(input_root.rglob("*")):
-        if path.is_file() and path.suffix.lower() == ".mp4":
-            inputs.append((path, path.relative_to(input_root).as_posix()))
+        if not path.is_file() or path.suffix.lower() != ".mp4":
+            continue
+        relative_path = path.relative_to(input_root)
+        top_directory = (
+            relative_path.parts[0]
+            if len(relative_path.parts) > 1
+            else ""
+        )
+        if any(
+            fnmatch.fnmatchcase(top_directory.casefold(), pattern)
+            for pattern in excluded
+        ):
+            continue
+        inputs.append((path, relative_path.as_posix()))
     return inputs
 
 
@@ -292,6 +314,15 @@ def main() -> int:
         "--input-root",
         help="Recursively process all MP4 files below this directory.",
     )
+    parser.add_argument(
+        "--exclude-dir",
+        action="append",
+        default=[],
+        help=(
+            "Exclude a top-level input directory by glob pattern. "
+            "Can be repeated."
+        ),
+    )
     parser.add_argument("--output-root", default="data/au/libreface")
     parser.add_argument("--only-emotions", action="store_true")
     parser.add_argument("--device", default="cpu")
@@ -314,7 +345,12 @@ def main() -> int:
     if args.input_root:
         if args.input:
             raise SystemExit("--input-root cannot be combined with --input.")
-        inputs = _input_root_inputs(_project_path(args.input_root))
+        inputs = _input_root_inputs(
+            _project_path(args.input_root),
+            exclude_dir_patterns=args.exclude_dir,
+        )
+    elif args.exclude_dir:
+        raise SystemExit("--exclude-dir requires --input-root.")
     elif args.input:
         inputs = [
             (_project_path(value), Path(value).name)

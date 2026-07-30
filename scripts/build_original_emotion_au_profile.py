@@ -27,6 +27,7 @@ ORIGINAL_CLASS_PREFIXES = {
     "kongju": "fear",
     "shengqi": "annoyance",
     "beishang": "sadness",
+    "yanwu": "disgust",
 }
 
 
