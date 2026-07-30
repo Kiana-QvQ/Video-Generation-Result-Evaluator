@@ -29,6 +29,7 @@ from evaluator.holistic_evaluator import (
 from evaluator.video_metrics import (
     VideoInfo,
     _aligned_sample_indices,
+    _face_protected_crop_to_aspect,
     _mean,
     _sample_timestamps,
     sample_aligned_video_windows,
@@ -594,6 +595,18 @@ class HolisticEvaluatorTests(unittest.TestCase):
                 "宽高比不同",
                 result["categories"]["texture"]["warnings"][0],
             )
+
+    def test_face_protected_crop_keeps_face_near_top_edge(self) -> None:
+        frame = np.zeros((1024, 576, 3), dtype=np.uint8)
+        cropped, metadata = _face_protected_crop_to_aspect(
+            frame,
+            target_aspect_ratio=576 / 768,
+            face_box=(0.40, 0.05, 0.60, 0.20),
+        )
+
+        self.assertEqual(cropped.shape[:2], (768, 576))
+        self.assertEqual(metadata["face_protection_status"], "applied")
+        self.assertEqual(metadata["crop"]["top"], 0)
 
     def test_expression_style_and_semantic_scores_are_combined(self) -> None:
         categories = {

@@ -430,9 +430,15 @@ function renderEvidence(result) {
   );
   const groundTruthWasCenterCropped =
     groundTruthAlignmentMode === "center_crop_gt_to_result_aspect";
+  const groundTruthWasFaceProtectedCropped =
+    groundTruthAlignmentMode === "face_protected_crop_gt_to_result_aspect";
+  const groundTruthWasCropped =
+    groundTruthWasCenterCropped || groundTruthWasFaceProtectedCropped;
   const textureReferenceDetail = fullReference
-    ? groundTruthWasCenterCropped
-      ? "GT 参考 / 居中裁剪对齐"
+    ? groundTruthWasCropped
+      ? groundTruthWasFaceProtectedCropped
+        ? "GT 参考 / 人脸保护裁剪对齐"
+        : "GT 参考 / 居中裁剪对齐"
       : "GT 参考"
     : groundTruthUploaded
       ? "GT 已上传 / 未通过对齐"
@@ -490,10 +496,12 @@ function renderEvidence(result) {
       },
     )
     .join("") +
-    (groundTruthUploaded && (!fullReference || groundTruthWasCenterCropped)
+    (groundTruthUploaded && (!fullReference || groundTruthWasCropped)
       ? `<div class="evidence-note"><strong>${
           fullReference
-            ? "GT 已使用，因宽高比不同采用居中裁剪对齐。"
+            ? groundTruthWasFaceProtectedCropped
+              ? "GT 已使用，因宽高比不同采用人脸保护裁剪对齐。"
+              : "GT 已使用，因宽高比不同采用居中裁剪对齐。"
             : "GT 已上传，但未用于 PSNR / SSIM / LPIPS。"
         }</strong><span>${escapeHtml(
           textureFallbackReason ||
