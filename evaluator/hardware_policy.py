@@ -119,6 +119,14 @@ def resolve_policy(requested_device: str = "auto") -> HardwarePolicy:
             "Free VRAM is under pressure; disable optional ViCLIP to avoid OOM.",
         )
 
+    etva_frames = 2 if memory_pressure == "critical" else (
+        4 if tier in {"cpu", "compact_8gb"} else 8
+    )
+    if memory_pressure == "critical":
+        notes = notes + (
+            "Free VRAM is critical; use two-frame Qwen windows and release CUDA cache between model phases.",
+        )
+
     return HardwarePolicy(
         tier=tier,
         requested_device=requested,
@@ -133,6 +141,6 @@ def resolve_policy(requested_device: str = "auto") -> HardwarePolicy:
         judge_model=judge_model,
         viclip_enabled_by_default=viclip_default,
         viclip_frames=8,
-        etva_frames=4 if tier in {"cpu", "compact_8gb"} else 8,
+        etva_frames=etva_frames,
         notes=notes,
     )
