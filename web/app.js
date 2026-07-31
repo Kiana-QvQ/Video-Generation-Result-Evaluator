@@ -339,15 +339,25 @@ function renderQwenFeedback(result) {
     : [];
   const isAvailable = judge.status === "available";
   const unavailableReason = String(judge.reason ?? "");
+  const isServiceActive =
+    judge.service_active === true ||
+    judge.failure_kind === "invalid_response" ||
+    /service is connected/i.test(unavailableReason);
   const isCachedButOffline =
-    !isAvailable && /cached|not connected|not reachable/i.test(unavailableReason);
+    !isAvailable &&
+    (judge.service_active === false ||
+      judge.failure_kind === "service_unavailable" ||
+      /weights are cached, but .*HTTP service is not connected/i.test(unavailableReason));
+  const hasInvalidResponse = !isAvailable && isServiceActive && !isCachedButOffline;
   const judgeModelLabel = String(judge.model || "qwen2-vl-2b-awq")
     .replaceAll("-awq", " AWQ")
     .replaceAll("qwen2-vl-2b", "Qwen2-VL-2B")
     .replaceAll("qwen2.5-vl-3b", "Qwen2.5-VL-3B");
   const unavailableMessage = isCachedButOffline
     ? "Qwen 权重已下载，但 Judge 服务未连接；下载模型不会自动启动 HTTP 服务。"
-    : "Qwen 模型未返回文字诊断，请重新评估或检查 VLM 服务。";
+    : hasInvalidResponse
+      ? "Qwen Judge 服务已连接，但未返回可解析的有效诊断，请检查服务日志。"
+      : "Qwen 模型未返回文字诊断，请重新评估或检查 VLM 服务。";
   const windowCount = Number(judge.metrics?.window_count);
   const statusText = isAvailable
     ? Number.isFinite(windowCount)
@@ -355,6 +365,8 @@ function renderQwenFeedback(result) {
       : `${judgeModelLabel} · 已完成复核`
     : isCachedButOffline
       ? `${judgeModelLabel} · 已下载，当前未连接`
+      : hasInvalidResponse
+        ? `${judgeModelLabel} · Judge 已连接，但未返回有效诊断`
       : `${judgeModelLabel} · 当前未返回诊断`;
 
   qwenFeedback.classList.remove("is-hidden");
@@ -366,7 +378,15 @@ function renderQwenFeedback(result) {
         <p>${escapeHtml(statusText)}</p>
       </div>
       <span class="qwen-feedback-badge ${isAvailable ? "ready" : "muted"}">
-        ${isAvailable ? "AI REVIEW" : isCachedButOffline ? "已下载 / 未连接" : "未连接"}
+        ${
+          isAvailable
+            ? "AI REVIEW"
+              : isCachedButOffline
+                ? "已下载 / 未连接"
+                : hasInvalidResponse
+                  ? "Judge 已连接 / 诊断失败"
+                : "诊断不可用"
+        }
       </span>
     </div>
     <div class="qwen-feedback-grid">
@@ -396,7 +416,9 @@ function renderQwenFeedback(result) {
             : `<p class="qwen-feedback-empty">${
                 isAvailable
                   ? "暂无额外调整建议。"
-                  : "启动 Qwen Judge 服务后重新评估，这里会显示具体调整方向。"
+                  : hasInvalidResponse
+                    ? "请检查 Judge 服务日志，确认模型返回的是有效 JSON 后再重新评估。"
+                    : "启动 Qwen Judge 服务后重新评估，这里会显示具体调整方向。"
               }</p>`
         }
       </div>

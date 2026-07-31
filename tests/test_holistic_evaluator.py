@@ -243,6 +243,39 @@ class HolisticEvaluatorTests(unittest.TestCase):
         self.assertIn("weights are cached", result["reason"])
         self.assertIn("HTTP service is not connected", result["reason"])
         self.assertEqual(result["model"], "qwen2-vl-2b-awq")
+        self.assertFalse(result["service_active"])
+        self.assertEqual(result["failure_kind"], "service_unavailable")
+
+    def test_etva_distinguishes_connected_service_with_invalid_response(self) -> None:
+        frame = np.zeros((8, 8, 3), dtype=np.uint8)
+        windows = [
+            {
+                "window_index": 0,
+                "start_seconds": 0.0,
+                "end_seconds": 1.0,
+                "frames": [frame] * 8,
+            }
+        ]
+        with (
+            patch("evaluator.etva_judge.sample_video_windows", return_value=({}, windows)),
+            patch(
+                "evaluator.etva_judge._request",
+                side_effect=ValueError("invalid judge output"),
+            ),
+        ):
+            result = evaluate_etva_judge(
+                "result.mp4",
+                "perform a wink",
+                None,
+                max_frames=8,
+                window_frames=8,
+                service_available=True,
+            )
+
+        self.assertEqual(result["status"], "unavailable")
+        self.assertTrue(result["service_active"])
+        self.assertEqual(result["failure_kind"], "invalid_response")
+        self.assertIn("service is connected", result["reason"])
 
     def test_etva_service_requires_a_model_from_models_endpoint(self) -> None:
         with patch("evaluator.etva_judge.urllib.request.urlopen") as urlopen:

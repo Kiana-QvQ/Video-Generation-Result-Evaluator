@@ -35,6 +35,7 @@ from .face_detection import FaceDetector
 from .model_profile import get_recommended_model
 from .etva_judge import evaluate_etva_judge, etva_service_available
 from .hardware_policy import resolve_policy
+from .gpu_memory import release_cuda_memory
 from .vbench_runner import run_vbench
 from .viclip_backend import (
     VICLIP_CHECKPOINT,
@@ -2291,12 +2292,15 @@ def evaluate_all(
     expression_style_score = expression.get("score_0_1")
     # Do not keep local ViCLIP resident while the external VLM judge runs.
     clear_viclip_cache()
+    # Release cached allocations from ArcFace, CLIP, IQA, and VBench phases.
+    release_cuda_memory()
+    judge_policy = resolve_policy(effective_device)
     etva_judge = evaluate_etva_judge(
         result_path=result_path,
         prompt_text=prompt_text,
         reference_path=reference_video or ground_truth,
         max_frames=max_frames,
-        window_frames=policy.etva_frames,
+        window_frames=judge_policy.etva_frames,
         service_available=qwen_service_active,
     )
     etva_score = (

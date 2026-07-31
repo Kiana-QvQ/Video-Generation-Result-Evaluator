@@ -27,6 +27,13 @@ ETVA_URL = os.environ.get(
     "http://127.0.0.1:30000/v1/chat/completions",
 )
 ETVA_MODEL = os.environ.get("ETVA_JUDGE_MODEL", "qwen2-vl-2b-awq")
+try:
+    ETVA_MAX_FRAME_DIMENSION = max(
+        224,
+        int(os.environ.get("ETVA_MAX_FRAME_DIMENSION", "768")),
+    )
+except ValueError:
+    ETVA_MAX_FRAME_DIMENSION = 768
 
 
 def _enabled() -> bool:
@@ -61,6 +68,18 @@ def etva_service_available(timeout_seconds: float = 0.25) -> bool:
 
 
 def _data_uri(frame: np.ndarray) -> str:
+    height, width = frame.shape[:2]
+    max_dimension = max(height, width)
+    if max_dimension > ETVA_MAX_FRAME_DIMENSION:
+        scale = ETVA_MAX_FRAME_DIMENSION / max_dimension
+        frame = cv2.resize(
+            frame,
+            (
+                max(1, int(round(width * scale))),
+                max(1, int(round(height * scale))),
+            ),
+            interpolation=cv2.INTER_AREA,
+        )
     ok, encoded = cv2.imencode(
         ".jpg",
         cv2.cvtColor(frame, cv2.COLOR_RGB2BGR),
@@ -196,8 +215,10 @@ def _unique_feedback(items: list[str], limit: int = 6) -> list[str]:
 def _unavailable_result(
     reason: str,
     warnings: list[str] | None = None,
+    service_active: bool | None = None,
+    failure_kind: str | None = None,
 ) -> dict[str, Any]:
-    return {
+    result: dict[str, Any] = {
         "status": "unavailable",
         "backend": "qwen2_vl_2b_awq_http",
         "model": ETVA_MODEL,
@@ -206,6 +227,11 @@ def _unavailable_result(
         "reason": reason,
         "warnings": warnings or [reason],
     }
+    if service_active is not None:
+        result["service_active"] = service_active
+    if failure_kind:
+        result["failure_kind"] = failure_kind
+    return result
 
 
 def _aggregate_window_scores(
@@ -248,7 +274,9 @@ def evaluate_etva_judge(
     if service_available is False:
         return _unavailable_result(
             "Qwen weights are cached, but the ETVA Judge HTTP service is not connected. "
-            f"Start the service and make sure {ETVA_URL} is reachable."
+            f"Start the service and make sure {ETVA_URL} is reachable.",
+            service_active=False,
+            failure_kind="service_unavailable",
         )
     reference_only = os.environ.get(
         "ETVA_JUDGE_REFERENCE_ONLY",
@@ -402,7 +430,18 @@ def evaluate_etva_judge(
             "warnings": warnings,
         }
     except (OSError, ValueError, KeyError, json.JSONDecodeError, urllib.error.URLError) as exc:
+        if service_available is True:
+            reason = (
+                "ETVA Judge service is connected, but it did not return a usable "
+                f"result: {exc}"
+            )
+            failure_kind = "invalid_response"
+        else:
+            reason = f"ETVA judge is not reachable or returned invalid output: {exc}"
+            failure_kind = "request_failed"
         return _unavailable_result(
-            f"ETVA judge is not reachable or returned invalid output: {exc}",
+            reason,
             [str(exc)],
+            service_active=service_available,
+            failure_kind=failure_kind,
         )
