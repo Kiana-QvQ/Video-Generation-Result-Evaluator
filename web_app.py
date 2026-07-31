@@ -33,6 +33,7 @@ from evaluator.holistic_evaluator import (
     get_model_recommendation,
 )
 from evaluator.au_compliance import AU_EVALUATOR_VERSION
+from evaluator.evaluation_lock import serialized_evaluation
 from evaluator.hardware_policy import resolve_policy
 from evaluator.media import concatenate_videos, transcode_video_for_browser
 from evaluator.runtime import OUTPUT_DIR, PROJECT_ROOT
@@ -373,6 +374,7 @@ def _wangxing_au_status() -> dict[str, Any]:
     }
 
 
+@serialized_evaluation
 def _run_wangxing_au_assessment(
     *,
     result_path: Path,

@@ -79,19 +79,30 @@ def resolve_policy(requested_device: str = "auto") -> HardwarePolicy:
     else:
         memory_pressure = "normal"
 
+    notes: tuple[str, ...] = ()
+    if resolved == "cuda" and memory_pressure == "critical":
+        resolved = "cpu"
+        notes = (
+            "Free VRAM is critical; run local evaluator models on CPU and reserve the GPU for the external Judge.",
+        )
+
     if not cuda_available or resolved == "cpu":
         tier = "cpu"
         judge_model = "qwen2_vl_2b_awq"
         viclip_default = False
-        notes = (
-            "CUDA is unavailable or CPU was requested.",
+        base_notes = (
+            (
+                "CUDA is unavailable or CPU was requested."
+                if memory_pressure != "critical"
+                else "Local evaluator models are using CPU because free VRAM is critical."
+            ),
             "Use explicit CUDA for ViCLIP and VLM acceleration.",
         )
     elif vram_gb is not None and vram_gb < 10:
         tier = "compact_8gb"
         judge_model = "qwen2_vl_2b_awq"
         viclip_default = True
-        notes = (
+        base_notes = (
             "Keep all heavyweight models serial.",
             "Use Qwen2-VL-2B AWQ as the 8GB ETVA judge.",
             "Do not auto-start VideoScore2 on this tier.",
@@ -100,7 +111,7 @@ def resolve_policy(requested_device: str = "auto") -> HardwarePolicy:
         tier = "balanced_12gb"
         judge_model = "qwen2_5_vl_3b_awq"
         viclip_default = True
-        notes = (
+        base_notes = (
             "Keep the VLM judge and ViCLIP mutually exclusive.",
             "Qwen2.5-VL-3B AWQ is the preferred judge upgrade.",
         )
@@ -108,10 +119,11 @@ def resolve_policy(requested_device: str = "auto") -> HardwarePolicy:
         tier = "full_24gb"
         judge_model = "videoscore2_bf16"
         viclip_default = True
-        notes = (
+        base_notes = (
             "VideoScore2 is an opt-in capability and still requires a verified backend.",
             "Never keep VideoScore2 and another VLM resident together.",
         )
+    notes += base_notes
 
     if memory_pressure in {"high", "critical"}:
         viclip_default = False

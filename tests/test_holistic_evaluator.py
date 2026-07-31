@@ -12,7 +12,11 @@ import cv2
 import numpy as np
 
 import evaluator.runtime as runtime
-from evaluator.etva_judge import etva_service_available, evaluate_etva_judge
+from evaluator.etva_judge import (
+    _request,
+    etva_service_available,
+    evaluate_etva_judge,
+)
 from evaluator.holistic_evaluator import (
     TEMPORAL_LANDMARK_INDICES,
     WEIGHTS,
@@ -288,6 +292,13 @@ class HolisticEvaluatorTests(unittest.TestCase):
                 b'{"object":"list","data":[{"id":"qwen2-vl-2b-awq"}]}'
             )
             self.assertTrue(etva_service_available())
+
+    def test_etva_rejects_a_success_response_without_message_content(self) -> None:
+        with patch("evaluator.etva_judge.urllib.request.urlopen") as urlopen:
+            response = urlopen.return_value.__enter__.return_value
+            response.read.return_value = b"{}"
+            with self.assertRaisesRegex(ValueError, "message content"):
+                _request([], timeout_seconds=1)
 
     def test_identity_tail_uses_lowest_scores(self) -> None:
         self.assertEqual(_lower_tail([0.95, 0.2, 0.8, 0.7], 0.5), [0.2, 0.7])

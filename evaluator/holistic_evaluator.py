@@ -2295,7 +2295,7 @@ def evaluate_all(
     clear_viclip_cache()
     # Release cached allocations from ArcFace, CLIP, IQA, and VBench phases.
     release_cuda_memory()
-    judge_policy = resolve_policy(effective_device)
+    judge_policy = resolve_policy(device)
     etva_judge = evaluate_etva_judge(
         result_path=result_path,
         prompt_text=prompt_text,
