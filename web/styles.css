@@ -524,9 +524,13 @@ h2 em {
   font-weight: 600;
 }
 
+.report-panel .panel-heading {
+  margin-bottom: 18px;
+}
+
 .process-queue {
-  margin: 0 0 20px;
-  padding: 13px 0 15px;
+  margin: 0 0 14px;
+  padding: 11px 0 12px;
   border-top: 1px solid var(--line-dark);
   border-bottom: 1px solid var(--line-dark);
 }
@@ -544,6 +548,37 @@ h2 em {
   align-items: baseline;
   gap: 10px;
   min-width: 0;
+}
+
+.queue-heading-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 0 0 auto;
+}
+
+.queue-search {
+  width: 132px;
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--line-dark);
+  border-radius: 8px;
+  outline: none;
+  background: #eeece6;
+  color: var(--ink);
+  font: 10px var(--mono);
+  transition: border-color 160ms ease, box-shadow 160ms ease, background 160ms ease;
+}
+
+.queue-search::placeholder {
+  color: #a0a0a1;
+  opacity: 1;
+}
+
+.queue-search:focus {
+  border-color: #718c1d;
+  background: #f2f1e9;
+  box-shadow: 0 0 0 3px rgba(215, 243, 106, 0.28);
 }
 
 .queue-kicker,
@@ -675,7 +710,7 @@ h2 em {
 .queue-list {
   display: grid;
   gap: 5px;
-  max-height: 224px;
+  max-height: 330px;
   overflow-y: auto;
   overflow-x: hidden;
   margin-top: 10px;
@@ -810,7 +845,8 @@ h2 em {
 #evaluation-form.is-readonly .compact-upload,
 #evaluation-form.is-readonly textarea,
 #evaluation-form.is-readonly select,
-#evaluation-form.is-readonly input[type="number"] {
+#evaluation-form.is-readonly input[type="number"],
+#evaluation-form.is-readonly input[type="text"] {
   cursor: not-allowed;
 }
 
@@ -821,7 +857,8 @@ h2 em {
 
 #evaluation-form.is-readonly textarea,
 #evaluation-form.is-readonly select,
-#evaluation-form.is-readonly input[type="number"] {
+#evaluation-form.is-readonly input[type="number"],
+#evaluation-form.is-readonly input[type="text"] {
   background: #e5e3dd;
 }
 
@@ -871,6 +908,10 @@ h2 em {
 
 .upload-grid {
   grid-template-columns: 1.2fr 0.8fr;
+}
+
+.evaluation-name-field {
+  grid-column: 1 / -1;
 }
 
 .reference-grid {
@@ -1277,7 +1318,8 @@ h2 em {
 
 textarea,
 select,
-input[type="number"] {
+input[type="number"],
+input[type="text"] {
   width: 100%;
   border: 1px solid var(--line-dark);
   border-radius: 10px;
@@ -1295,16 +1337,23 @@ textarea {
 }
 
 select,
-input[type="number"] {
+input[type="number"],
+input[type="text"] {
   height: 42px;
   padding: 0 12px;
 }
 
 textarea:focus,
 select:focus,
-input[type="number"]:focus {
+input[type="number"]:focus,
+input[type="text"]:focus {
   border-color: #718c1d;
   box-shadow: 0 0 0 3px rgba(215, 243, 106, 0.36);
+}
+
+input[type="text"]::placeholder {
+  color: #9a999c;
+  opacity: 1;
 }
 
 .advanced-settings {
@@ -1579,7 +1628,7 @@ input[type="number"]:focus {
 }
 
 .empty-report {
-  min-height: 520px;
+  min-height: 440px;
   align-items: stretch;
   justify-content: space-between;
   text-align: left;
@@ -1590,7 +1639,7 @@ input[type="number"]:focus {
   align-items: flex-start;
   justify-content: space-between;
   gap: 18px;
-  padding-bottom: 20px;
+  padding-bottom: 16px;
   border-bottom: 1px solid var(--line-dark);
 }
 
@@ -1616,8 +1665,8 @@ input[type="number"]:focus {
   display: flex;
   flex: 1;
   flex-direction: column;
-  justify-content: center;
-  padding: 14px 0;
+  justify-content: flex-start;
+  padding: 10px 0;
 }
 
 .preflight-row {
@@ -1625,7 +1674,7 @@ input[type="number"]:focus {
   grid-template-columns: 36px minmax(0, 1fr) auto;
   align-items: center;
   gap: 10px;
-  min-height: 59px;
+  min-height: 54px;
   border-bottom: 1px solid var(--line-dark);
 }
 
@@ -1666,7 +1715,7 @@ input[type="number"]:focus {
   display: flex;
   align-items: center;
   gap: 9px;
-  padding-top: 15px;
+  padding-top: 12px;
   border-top: 1px solid var(--line-dark);
   color: #77777a;
   font-size: 12px;
@@ -2461,7 +2510,7 @@ input[type="number"]:focus {
   }
 
   .empty-report {
-    min-height: 480px;
+    min-height: 0;
   }
 
   .report-overview {
@@ -2611,6 +2660,24 @@ input[type="number"]:focus {
 
   .empty-report-head {
     flex-direction: column;
+  }
+
+  .queue-heading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .queue-heading-actions {
+    justify-content: space-between;
+  }
+
+  .queue-search {
+    flex: 1 1 auto;
+    width: auto;
+  }
+
+  .queue-list {
+    max-height: 330px;
   }
 
   .queue-item {

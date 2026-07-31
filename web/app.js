@@ -33,6 +33,7 @@ const activeJobProgress = document.querySelector("#active-job-progress");
 const queueList = document.querySelector("#queue-list");
 const queueEmpty = document.querySelector("#queue-empty");
 const refreshQueueButton = document.querySelector("#refresh-queue");
+const queueSearch = document.querySelector("#queue-search");
 const previewUrls = new Map();
 
 const categoryOrder = [
@@ -1012,7 +1013,18 @@ function renderResult(payload) {
   };
   const coveragePercent = result.weighted_score_weight_coverage ?? 0;
   const scoreStatus = scoreStatusLabels[result.status] ?? result.status ?? "待确认";
-  scoreCaption.textContent = `权重覆盖 ${coveragePercent}% · ${scoreStatus}`;
+  const hardware = result.hardware_policy ?? {};
+  const deviceLabels = { cpu: "CPU", cuda: "CUDA" };
+  const actualDevice = deviceLabels[hardware.resolved_device] ?? "";
+  const requestedDevice = deviceLabels[hardware.requested_device] ?? "";
+  const deviceNote = actualDevice
+    ? ` · 实际设备 ${actualDevice}${
+        requestedDevice && requestedDevice !== actualDevice
+          ? `（请求 ${requestedDevice}）`
+          : ""
+      }`
+    : "";
+  scoreCaption.textContent = `权重覆盖 ${coveragePercent}% · ${scoreStatus}${deviceNote}`;
   const covered = Number.parseInt(coverage, 10) || 0;
   coverageRing.style.setProperty("--coverage", `${(covered / 5) * 100}%`);
   renderRadar(result);
@@ -1024,7 +1036,28 @@ function renderResult(payload) {
   document.querySelector("#report-panel").scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
-function renderEmptyReport(status = "queued") {
+function renderEmptyReport(status = "queued", errorMessage = "") {
+  const emptyTitle = emptyReport.querySelector("h3");
+  const emptyDescription = emptyReport.querySelector(
+    ".empty-report-head > div > p:last-child",
+  );
+  const emptySignal = emptyReport.querySelector(".empty-signal");
+  if (status === "failed") {
+    emptyTitle.textContent = "本次评估失败。";
+    emptyDescription.textContent =
+      errorMessage || "请检查输入文件、模型服务和显存状态后重试。";
+    emptySignal.textContent = "EVALUATION FAILED";
+  } else if (status === "canceled") {
+    emptyTitle.textContent = "本次任务已中断。";
+    emptyDescription.textContent =
+      "可以直接修改左侧参数并重新评估，已上传素材会继续复用。";
+    emptySignal.textContent = "TASK CANCELED";
+  } else {
+    emptyTitle.textContent = "上传视频后开始评分。";
+    emptyDescription.textContent =
+      "系统会根据你提供的 GT、参考图、参考视频和 Prompt，自动选择可用指标。";
+    emptySignal.textContent = "WAITING FOR VIDEO";
+  }
   emptyReport.classList.remove("is-hidden");
   reportContent.classList.add("is-hidden");
   reportMode.textContent =
@@ -1147,6 +1180,7 @@ form.addEventListener("submit", async (event) => {
 });
 
 loadModels();
+window.setInterval(loadModels, 15_000);
 
 window.queueMode = true;
 
@@ -1172,12 +1206,11 @@ const queueStatusLabels = {
 };
 const queueTerminalStatuses = new Set(["completed", "failed", "canceled"]);
 const activeQueueStatuses = new Set(["running", "canceling"]);
+const retryableStatuses = new Set(["failed", "canceled", "completed"]);
 const formLockedStatuses = new Set([
   "queued",
   "running",
   "canceling",
-  "completed",
-  "failed",
 ]);
 const queueKnownStatuses = new Map();
 let selectedJobId = null;
@@ -1186,6 +1219,7 @@ let formLocked = false;
 let formBusy = false;
 let queueRefreshInFlight = false;
 let queueMutationJobId = null;
+let latestQueuePayload = null;
 
 function setQueueBusy(isBusy) {
   formBusy = isBusy;
@@ -1193,21 +1227,34 @@ function setQueueBusy(isBusy) {
   newEvaluationButton.disabled = isBusy;
   evaluateButton.querySelector("span:first-child").textContent = isBusy
     ? "上传中..."
-    : "加入队列";
+    : retryableStatuses.has(selectedJob?.status)
+      ? "重新评估"
+      : "加入队列";
 }
 
 function setFormEditState(job) {
   formLocked = Boolean(job && formLockedStatuses.has(job.status));
+  const canReuseStoredFiles = Boolean(
+    job &&
+      retryableStatuses.has(job.status) &&
+      job.uploaded_files?.result_video,
+  );
   form.classList.toggle("is-readonly", formLocked);
   newEvaluationButton.disabled = formBusy;
   form.querySelectorAll("input, textarea, select").forEach((field) => {
     field.disabled = formLocked;
   });
+  const resultInput = document.querySelector("#result-video");
+  if (resultInput) {
+    resultInput.required = !canReuseStoredFiles;
+  }
   evaluateButton.disabled = formBusy || formLocked;
   if (!formBusy) {
     evaluateButton.querySelector("span:first-child").textContent = formLocked
       ? "请先中断任务"
-      : "加入队列";
+      : canReuseStoredFiles
+        ? "重新评估"
+        : "加入队列";
   }
 }
 
@@ -1272,6 +1319,15 @@ function formatQueueTimestamp(value) {
   return `${values.year}-${values.month}-${values.day} ${values.hour}:${values.minute}:${values.second}`;
 }
 
+function formatDuration(seconds) {
+  const value = Number(seconds);
+  if (!Number.isFinite(value) || value < 0) return "时间未知";
+  if (value < 60) return `${Math.max(1, Math.round(value))} 秒`;
+  const minutes = Math.floor(value / 60);
+  const remainder = Math.round(value % 60);
+  return remainder ? `${minutes} 分 ${remainder} 秒` : `${minutes} 分钟`;
+}
+
 function queueItemTimestamp(job) {
   return `评分时间 ${formatQueueTimestamp(
     job.finished_at || job.started_at || job.created_at || job.updated_at,
@@ -1279,7 +1335,17 @@ function queueItemTimestamp(job) {
 }
 
 function renderQueue(payload) {
+  latestQueuePayload = payload;
   const jobs = Array.isArray(payload.jobs) ? payload.jobs : [];
+  const searchTerm = String(queueSearch?.value ?? "").trim().toLowerCase();
+  const filteredJobs = searchTerm
+    ? jobs.filter((job) =>
+        [job.name, job.job_id, job.status, job.error]
+          .filter(Boolean)
+          .concat(queueStatusText(job.status))
+          .some((value) => String(value).toLowerCase().includes(searchTerm)),
+      )
+    : jobs;
   const active = jobs.find((job) => activeQueueStatuses.has(job.status));
   const activeRunning = active?.status === "running";
   queueSummary.textContent = `${activeRunning ? 1 : 0} 个运行 / ${
@@ -1290,7 +1356,19 @@ function renderQueue(payload) {
     activeJobName.textContent = active.name || active.job_id;
     activeJobStage.textContent =
       queueStageLabels[active.stage]?.[1] ?? active.stage;
-    activeJobTime.textContent = queueItemTimestamp(active);
+    const startedAt = Date.parse(
+      active.started_at || active.created_at || active.updated_at || "",
+    );
+    const elapsed = Number.isFinite(startedAt)
+      ? Math.max(0, (Date.now() - startedAt) / 1000)
+      : 0;
+    const remaining = Math.max(
+      0,
+      Number(active.estimated_seconds ?? 0) - elapsed,
+    );
+    activeJobTime.textContent = `开始时间 ${formatQueueTimestamp(
+      active.started_at || active.created_at || active.updated_at,
+    )} · 预计还需 ${formatDuration(remaining)}`;
     activeJobStatus.textContent = queueStatusText(active.status);
     activeJobStatus.className = `queue-status ${escapeHtml(active.status)}`;
     activeJobCancel.dataset.jobId = active.job_id;
@@ -1313,17 +1391,19 @@ function renderQueue(payload) {
     queueActive.classList.remove("is-selectable");
   }
 
-  const visibleJobs = jobs
-    .filter((job) => !activeQueueStatuses.has(job.status))
-    .slice(0, 10);
+  const visibleJobs = filteredJobs
+    .filter((job) => !activeQueueStatuses.has(job.status));
   queueList.innerHTML = visibleJobs
-    .map((job, index) => {
-      const position = job.queue_position ?? index + 1;
+    .map((job) => {
+      const position =
+        job.status === "queued" && job.queue_position != null
+          ? String(job.queue_position).padStart(2, "0")
+          : "·";
       const actions = [];
       if (job.status === "queued") {
         actions.push(["cancel", "取消"]);
       }
-      if (job.status === "failed" || job.status === "canceled") {
+      if (retryableStatuses.has(job.status)) {
         actions.push(["retry", "重试"]);
       }
       if (job.status !== "running" && job.status !== "canceling") {
@@ -1337,7 +1417,7 @@ function renderQueue(payload) {
         .join("");
       return `
         <div class="queue-item-row">
-          <span class="queue-item-index">${String(position).padStart(2, "0")}</span>
+          <span class="queue-item-index">${position}</span>
           <button class="queue-item" type="button" data-job-id="${escapeHtml(job.job_id)}">
             <span class="queue-item-copy">
               <strong>${escapeHtml(job.name || job.job_id)}</strong>
@@ -1353,7 +1433,10 @@ function renderQueue(payload) {
       `;
     })
     .join("");
-  queueEmpty.classList.toggle("is-hidden", jobs.length > 0);
+  queueEmpty.textContent = searchTerm
+    ? "没有匹配的任务"
+    : "队列为空 / 上传视频后开始";
+  queueEmpty.classList.toggle("is-hidden", filteredJobs.length > 0);
 
   queueList.querySelectorAll(".queue-item").forEach((item) => {
     item.addEventListener("click", () => selectQueueJob(item.dataset.jobId));
@@ -1444,6 +1527,7 @@ function startNewEvaluation() {
   clearUploadState("gt-video", "Optional reference");
   clearUploadState("reference-images", "optional");
   clearUploadState("reference-video", "optional");
+  document.querySelector("#result-video").required = true;
   updateQueueProgressPanel(null);
   progressBar.classList.remove("is-complete");
   progressBar.style.width = "0%";
@@ -1474,6 +1558,7 @@ function syncFormWithJob(job) {
     }
   };
 
+  setValue("#evaluation-name", job.name ?? "");
   setValue("#prompt-text", parameters.prompt_text ?? "");
   setValue('[name="max_frames"]', parameters.max_frames ?? 8);
   setValue('[name="device"]', parameters.device ?? "cuda");
@@ -1539,7 +1624,7 @@ async function getQueueJob(jobId, shouldScroll = false) {
       });
     }
   } else {
-    renderEmptyReport(payload.status);
+    renderEmptyReport(payload.status, payload.error);
   }
   return payload;
 }
@@ -1552,9 +1637,14 @@ async function selectQueueJob(jobId) {
     } else if (payload?.status === "canceling") {
       setFormNote("任务正在中断，暂时无法修改。");
     } else if (payload?.status === "canceled") {
-      setFormNote("任务已中断，可以修改左侧参数后重新选择文件提交。", "success");
+      setFormNote("任务已中断，可以修改左侧参数后直接重新评估。", "success");
+    } else if (payload?.status === "failed") {
+      setFormNote("任务失败，可以修改左侧参数后重新评估。", "error");
     } else if (payload?.status === "completed") {
-      setFormNote(`已加载报告 / ${payload.name}`, "success");
+      setFormNote(
+        `已加载报告，可以修改左侧参数后重新评估 / ${payload.name}`,
+        "success",
+      );
     } else if (payload?.error) {
       setFormNote(payload.error, "error");
     } else {
@@ -1601,10 +1691,7 @@ async function mutateQueueJob(jobId, action) {
       throw new Error(describeApiError(payload.detail, response.status));
     }
     if (selectedJobId === jobId && action === "delete") {
-      selectedJobId = null;
-      selectedJob = null;
-      setFormEditState(null);
-      processProgress.classList.add("is-hidden");
+      startNewEvaluation();
     }
     if (selectedJobId === jobId && action === "cancel") {
       selectedJob = payload;
@@ -1625,7 +1712,7 @@ async function refreshQueue() {
   if (queueRefreshInFlight) return;
   queueRefreshInFlight = true;
   try {
-    const response = await fetch("/api/jobs?limit=20");
+    const response = await fetch("/api/jobs?limit=100");
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
       throw new Error(describeApiError(payload.detail, response.status));
@@ -1639,7 +1726,7 @@ async function refreshQueue() {
       setFormEditState(selected);
       updateQueueProgressPanel(selected);
       if (selected.status !== "completed") {
-        renderEmptyReport(selected.status);
+        renderEmptyReport(selected.status, selected.error);
       }
       const previousStatus = queueKnownStatuses.get(selected.job_id);
       if (
@@ -1664,6 +1751,9 @@ async function refreshQueue() {
 }
 
 refreshQueueButton.addEventListener("click", refreshQueue);
+queueSearch?.addEventListener("input", () => {
+  if (latestQueuePayload) renderQueue(latestQueuePayload);
+});
 newEvaluationButton.addEventListener("click", startNewEvaluation);
 queueActive.addEventListener("click", (event) => {
   if (event.target.closest("#active-job-cancel")) return;
@@ -1682,7 +1772,38 @@ form.addEventListener("submit", async (event) => {
     return;
   }
   setQueueBusy(true);
-  setFormNote("正在上传文件并加入处理队列...");
+  const resultInput = document.querySelector("#result-video");
+  const hasNewUploads = Array.from(
+    form.querySelectorAll('input[type="file"]'),
+  ).some((input) => input.files?.length > 0);
+  const hasNewResult = Boolean(resultInput?.files?.length);
+  const canReuseStoredFiles = Boolean(
+    selectedJob &&
+      retryableStatuses.has(selectedJob.status) &&
+      selectedJob.uploaded_files?.result_video &&
+      !hasNewUploads,
+  );
+  const canReuseStoredOptionalFiles = Boolean(
+    selectedJob &&
+      selectedJobId &&
+      retryableStatuses.has(selectedJob.status) &&
+      hasNewResult,
+  );
+  if (hasNewUploads && !hasNewResult) {
+    setQueueBusy(false);
+    setFormNote(
+      "如果要更换参考素材，请同时重新选择结果视频；否则这些新文件不会进入本次评估。",
+      "error",
+    );
+    return;
+  }
+  setFormNote(
+    canReuseStoredFiles
+      ? "正在使用已保存素材并重新加入处理队列..."
+      : canReuseStoredOptionalFiles
+        ? "正在上传新结果视频并复用已保存参考素材..."
+        : "正在上传文件并加入处理队列...",
+  );
   try {
     const formData = new FormData(form);
     formData.set(
@@ -1693,10 +1814,47 @@ form.addEventListener("submit", async (event) => {
       "wangxing_au_enabled",
       form.querySelector('[name="wangxing_au_enabled"]').checked ? "true" : "false",
     );
-    const response = await fetch("/api/jobs", {
-      method: "POST",
-      body: formData,
-    });
+    if (canReuseStoredOptionalFiles) {
+      formData.set("reuse_job_id", selectedJobId);
+    } else {
+      formData.delete("reuse_job_id");
+    }
+    let response;
+    if (canReuseStoredFiles && selectedJobId) {
+      const optionalNumber = (name) => {
+        const value = formData.get(name);
+        return value === null || String(value).trim() === ""
+          ? null
+          : Number(value);
+      };
+      response = await fetch(
+        `/api/jobs/${encodeURIComponent(selectedJobId)}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "retry",
+            name: String(formData.get("name") ?? "").trim(),
+            prompt_text: String(formData.get("prompt_text") ?? ""),
+            max_frames: Number(formData.get("max_frames") ?? 8),
+            calculate_lpips: formData.get("calculate_lpips") === "true",
+            device: String(formData.get("device") ?? "auto"),
+            manual_expression_score: optionalNumber("manual_expression_score"),
+            manual_aesthetic_score: optionalNumber("manual_aesthetic_score"),
+            wangxing_au_enabled:
+              formData.get("wangxing_au_enabled") === "true",
+            wangxing_expected_class: String(
+              formData.get("wangxing_expected_class") ?? "auto",
+            ),
+          }),
+        },
+      );
+    } else {
+      response = await fetch("/api/jobs", {
+        method: "POST",
+        body: formData,
+      });
+    }
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
       throw new Error(describeApiError(payload.detail, response.status));
@@ -1705,7 +1863,9 @@ form.addEventListener("submit", async (event) => {
       throw new Error("队列没有返回任务编号。");
     }
     selectedJobId = payload.job_id;
+    selectedJob = payload;
     queueKnownStatuses.set(payload.job_id, payload.status);
+    setFormEditState(payload);
     updateQueueProgressPanel(payload);
     setFormNote(
       `已加入队列 / 第 ${payload.queue_position ?? "下一个"} 位 / ${payload.name}`,
