@@ -34,6 +34,7 @@ class WebAppTests(unittest.TestCase):
         self.assertIn("preflight-list", response.text)
         self.assertIn("process-queue", response.text)
         self.assertIn("new-evaluation", response.text)
+        self.assertIn('name="name"', response.text)
         self.assertIn("wangxing-au-card", response.text)
         self.assertIn("wangxing_expected_class", response.text)
         self.assertIn("wangxing-result", response.text)
@@ -421,6 +422,34 @@ class WebAppTests(unittest.TestCase):
         response = self.client.get("/api/runs/../requirements.txt")
         self.assertIn(response.status_code, {404, 422})
 
+    def test_incomplete_job_cannot_download_stale_report_files(self) -> None:
+        job_id = f"report-guard-{uuid4().hex}"
+        job_dir = Path("outputs/web_runs") / job_id
+        job = {
+            "job_id": job_id,
+            "client_ip": "127.0.0.1",
+            "name": "report.mp4",
+            "status": "queued",
+            "stage": "queued",
+            "progress": 0.0,
+            "created_at": "2026-07-31T12:00:00+08:00",
+            "queued_at": "2026-07-31T12:00:00+08:00",
+            "started_at": None,
+            "finished_at": None,
+            "updated_at": "2026-07-31T12:00:00+08:00",
+            "error": None,
+            "files": {},
+            "original_files": {},
+            "parameters": {},
+        }
+        web_app._write_job(job)
+        (job_dir / "result.json").write_text("stale", encoding="utf-8")
+        try:
+            response = self.client.get(f"/api/runs/{job_id}/result.json")
+            self.assertEqual(response.status_code, 404)
+        finally:
+            shutil.rmtree(job_dir, ignore_errors=True)
+
     def test_invalid_video_upload_returns_client_error(self) -> None:
         response = self.client.post(
             "/api/evaluate",
@@ -463,6 +492,7 @@ class WebAppTests(unittest.TestCase):
                     "/api/jobs",
                     files={"result_video": ("result.mp4", video, "video/mp4")},
                     data={
+                        "name": "consistency-v3",
                         "calculate_lpips": "false",
                         "max_frames": "2",
                         "device": "cpu",
@@ -473,6 +503,7 @@ class WebAppTests(unittest.TestCase):
             job_id = job["job_id"]
             job_dir = Path("outputs/web_runs") / job_id
             self.assertEqual(job["original_files"]["result_video"], "result.mp4")
+            self.assertEqual(job["name"], "consistency-v3")
             self.assertFalse(job["parameters"]["wangxing_au_enabled"])
             self.assertEqual(
                 job["parameters"]["wangxing_expected_class"],
@@ -489,7 +520,10 @@ class WebAppTests(unittest.TestCase):
 
             detail_response = self.client.get(f"/api/jobs/{job_id}")
             self.assertEqual(detail_response.status_code, 200)
-            self.assertEqual(detail_response.json()["status"], "queued")
+            self.assertIn(
+                detail_response.json()["status"],
+                {"queued", "running"},
+            )
 
             rename_response = self.client.patch(
                 f"/api/jobs/{job_id}",
@@ -507,10 +541,31 @@ class WebAppTests(unittest.TestCase):
 
             retry_response = self.client.patch(
                 f"/api/jobs/{job_id}",
-                json={"action": "retry"},
+                json={
+                    "action": "retry",
+                    "name": "consistency-v4",
+                    "prompt_text": "保持镜头稳定并自然微笑",
+                    "max_frames": 12,
+                    "calculate_lpips": True,
+                    "device": "auto",
+                    "manual_expression_score": 4,
+                    "manual_aesthetic_score": 5,
+                    "wangxing_au_enabled": True,
+                    "wangxing_expected_class": "smile",
+                },
             )
             self.assertEqual(retry_response.status_code, 200)
             self.assertEqual(retry_response.json()["status"], "queued")
+            self.assertEqual(retry_response.json()["name"], "consistency-v4")
+            self.assertEqual(
+                retry_response.json()["parameters"]["prompt_text"],
+                "保持镜头稳定并自然微笑",
+            )
+            self.assertEqual(retry_response.json()["parameters"]["max_frames"], 12)
+            self.assertEqual(
+                retry_response.json()["parameters"]["wangxing_expected_class"],
+                "smile",
+            )
 
             delete_response = self.client.delete(f"/api/jobs/{job_id}")
             self.assertEqual(delete_response.status_code, 200)
@@ -576,6 +631,172 @@ class WebAppTests(unittest.TestCase):
                     200,
                 )
             self.client.delete(f"/api/jobs/{job_id}")
+
+    def test_completed_job_can_be_retried_with_edited_parameters(self) -> None:
+        video_path = Path("outputs/test_result.mp4")
+        with patch("web_app._ensure_queue_worker"), patch(
+            "web_app._enqueue_job"
+        ):
+            with video_path.open("rb") as video:
+                response = self.client.post(
+                    "/api/jobs",
+                    files={"result_video": ("result.mp4", video, "video/mp4")},
+                    data={
+                        "calculate_lpips": "false",
+                        "max_frames": "2",
+                        "device": "cpu",
+                    },
+                )
+            self.assertEqual(response.status_code, 202)
+            job_id = response.json()["job_id"]
+            job_dir = Path("outputs/web_runs") / job_id
+            try:
+                web_app._update_job_state(
+                    job_id,
+                    status="completed",
+                    stage="completed",
+                    progress=1.0,
+                )
+                (job_dir / "result.json").write_text("old report", encoding="utf-8")
+                (job_dir / "summary.csv").write_text("old summary", encoding="utf-8")
+                retry = self.client.patch(
+                    f"/api/jobs/{job_id}",
+                    json={
+                        "action": "retry",
+                        "name": "",
+                        "prompt_text": "重新检查镜头稳定性",
+                        "max_frames": 16,
+                    },
+                )
+                self.assertEqual(retry.status_code, 200)
+                self.assertEqual(retry.json()["status"], "queued")
+                self.assertEqual(retry.json()["name"], "result.mp4")
+                self.assertEqual(
+                    retry.json()["parameters"]["prompt_text"],
+                    "重新检查镜头稳定性",
+                )
+                self.assertEqual(retry.json()["parameters"]["max_frames"], 16)
+                params = json.loads(
+                    (job_dir / "params.json").read_text(encoding="utf-8")
+                )
+                self.assertEqual(params["max_frames"], 16)
+                self.assertFalse((job_dir / "result.json").exists())
+                self.assertFalse((job_dir / "summary.csv").exists())
+            finally:
+                shutil.rmtree(job_dir, ignore_errors=True)
+
+    def test_replacing_result_video_reuses_optional_inputs(self) -> None:
+        video_path = Path("outputs/test_result.mp4")
+        with patch("web_app._ensure_queue_worker"), patch(
+            "web_app._enqueue_job"
+        ):
+            with (
+                video_path.open("rb") as result_video,
+                video_path.open("rb") as gt_video,
+            ):
+                source_response = self.client.post(
+                    "/api/jobs",
+                    files=[
+                        ("result_video", ("source-result.mp4", result_video, "video/mp4")),
+                        ("gt_video", ("source-gt.mp4", gt_video, "video/mp4")),
+                        ("reference_images", ("source-face.png", b"source-image", "image/png")),
+                    ],
+                    data={
+                        "name": "source-evaluation",
+                        "calculate_lpips": "false",
+                        "max_frames": "2",
+                        "device": "cpu",
+                    },
+                )
+            self.assertEqual(source_response.status_code, 202)
+            source_job_id = source_response.json()["job_id"]
+            source_dir = Path("outputs/web_runs") / source_job_id
+            web_app._update_job_state(
+                source_job_id,
+                status="completed",
+                stage="completed",
+                progress=1.0,
+            )
+
+            with video_path.open("rb") as replacement_video:
+                replacement_response = self.client.post(
+                    "/api/jobs",
+                    files={
+                        "result_video": (
+                            "replacement-result.mp4",
+                            replacement_video,
+                            "video/mp4",
+                        )
+                    },
+                    data={
+                        "reuse_job_id": source_job_id,
+                        "calculate_lpips": "false",
+                        "max_frames": "2",
+                        "device": "cpu",
+                    },
+                )
+            self.assertEqual(replacement_response.status_code, 202)
+            replacement_job = replacement_response.json()
+            replacement_dir = Path("outputs/web_runs") / replacement_job["job_id"]
+            try:
+                self.assertEqual(
+                    replacement_job["original_files"]["gt_video"],
+                    "source-gt.mp4",
+                )
+                self.assertEqual(
+                    replacement_job["original_files"]["reference_images"],
+                    ["source-face.png"],
+                )
+                self.assertEqual(
+                    (replacement_dir / "gt.mp4").read_bytes(),
+                    (source_dir / "gt.mp4").read_bytes(),
+                )
+                self.assertEqual(
+                    (replacement_dir / "reference_01.png").read_bytes(),
+                    b"source-image",
+                )
+            finally:
+                shutil.rmtree(source_dir, ignore_errors=True)
+                shutil.rmtree(replacement_dir, ignore_errors=True)
+
+    def test_deleting_job_removes_its_stale_dispatch_entry(self) -> None:
+        job_id = f"queued-delete-{uuid4().hex}"
+        client_ip = "testclient"
+        job_dir = Path("outputs/web_runs") / job_id
+        job = {
+            "job_id": job_id,
+            "client_ip": client_ip,
+            "name": "queued-delete.mp4",
+            "status": "completed",
+            "stage": "completed",
+            "progress": 1.0,
+            "created_at": "2026-07-31T12:00:00+08:00",
+            "queued_at": "2026-07-31T12:00:00+08:00",
+            "started_at": None,
+            "finished_at": "2026-07-31T12:01:00+08:00",
+            "updated_at": "2026-07-31T12:01:00+08:00",
+            "error": None,
+            "files": {},
+            "original_files": {},
+            "parameters": {},
+        }
+        web_app._write_job(job)
+        try:
+            with web_app.JOB_LOCK:
+                web_app.JOB_QUEUES_BY_IP[client_ip] = web_app.deque([job_id])
+                web_app.JOB_SCHEDULED_IPS.add(client_ip)
+            delete_response = self.client.delete(f"/api/jobs/{job_id}")
+            self.assertEqual(delete_response.status_code, 200)
+            with web_app.JOB_LOCK:
+                self.assertNotIn(
+                    job_id,
+                    web_app.JOB_QUEUES_BY_IP.get(client_ip, ()),
+                )
+        finally:
+            shutil.rmtree(job_dir, ignore_errors=True)
+            with web_app.JOB_LOCK:
+                web_app.JOB_QUEUES_BY_IP.pop(client_ip, None)
+                web_app.JOB_SCHEDULED_IPS.discard(client_ip)
 
     def test_ip_scheduler_is_fifo_and_round_robin(self) -> None:
         with web_app.JOB_LOCK:

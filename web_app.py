@@ -67,6 +67,12 @@ ORIGINAL_EMOTION_AU_PROFILE_PATH = (
     PROJECT_ROOT / "data/au/original_emotion_au_profile.json"
 )
 WANGXING_AU_CACHE_ROOT = OUTPUT_DIR / "au_cache"
+GENERATED_REPORT_FILES = {
+    "summary.csv",
+    "frame_metrics.csv",
+    "result.json",
+    "wangxing_au_result.json",
+}
 
 WEB_RUNS_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -99,6 +105,14 @@ JOB_SCHEDULER_NAME = "hrrn_per_client_fifo_v1"
 class JobUpdate(BaseModel):
     name: str | None = Field(default=None, max_length=120)
     action: Literal["cancel", "retry"] | None = None
+    prompt_text: str | None = Field(default=None, max_length=10_000)
+    max_frames: int | None = Field(default=None, ge=2, le=256)
+    calculate_lpips: bool | None = None
+    device: Literal["cpu", "auto", "cuda"] | None = None
+    manual_expression_score: float | None = Field(default=None, ge=1, le=5)
+    manual_aesthetic_score: float | None = Field(default=None, ge=1, le=5)
+    wangxing_au_enabled: bool | None = None
+    wangxing_expected_class: str | None = None
 
 
 @asynccontextmanager
@@ -328,6 +342,23 @@ def _result_downloads(job: dict[str, Any]) -> dict[str, str]:
         for key, filename in filenames.items()
         if (run_dir / filename).is_file()
     }
+
+
+def _job_name_fallback(job: dict[str, Any]) -> str:
+    original_files = job.get("original_files")
+    original_name = (
+        original_files.get("result_video")
+        if isinstance(original_files, dict)
+        else None
+    )
+    return Path(
+        str(original_name or job.get("name") or "result video")
+    ).name or "result video"
+
+
+def _job_display_name(job: dict[str, Any]) -> str:
+    name = str(job.get("name") or "").strip()
+    return name or _job_name_fallback(job)
 
 
 def _normalize_wangxing_class(value: str | None) -> str | None:
@@ -766,7 +797,7 @@ def _job_response(
     response: dict[str, Any] = {
         "job_id": job["job_id"],
         "run_id": job["job_id"],
-        "name": job.get("name") or "result video",
+        "name": _job_display_name(job),
         "storage_path": f"web_runs/{job['job_id']}",
         "status": job.get("status", "queued"),
         "stage": job.get("stage", "queued"),
@@ -982,6 +1013,18 @@ def _reschedule_ip(client_ip: str) -> None:
             JOB_QUEUES_BY_IP.pop(client_ip, None)
 
 
+def _remove_job_from_dispatch(job_id: str, client_ip: str) -> None:
+    ip_queue = JOB_QUEUES_BY_IP.get(client_ip)
+    if not ip_queue:
+        return
+    remaining = deque(item for item in ip_queue if item != job_id)
+    if remaining:
+        JOB_QUEUES_BY_IP[client_ip] = remaining
+        return
+    JOB_QUEUES_BY_IP.pop(client_ip, None)
+    JOB_SCHEDULED_IPS.discard(client_ip)
+
+
 def _clear_dispatch_state() -> None:
     """Drop stale in-memory dispatch entries before rebuilding them."""
     with JOB_LOCK:
@@ -1098,6 +1141,23 @@ def _safe_recovery_write(job: dict[str, Any]) -> bool:
         _record_worker_error(exc)
         return False
     return True
+
+
+def _remove_job_directory(run_dir: Path) -> None:
+    last_error: OSError | None = None
+    for attempt in range(5):
+        try:
+            shutil.rmtree(run_dir)
+            return
+        except FileNotFoundError:
+            return
+        except OSError as exc:
+            last_error = exc
+            if attempt == 4:
+                break
+            time.sleep(0.1 * (attempt + 1))
+    if last_error is not None:
+        raise last_error
 
 
 def _update_job_state(job_id: str, **changes: Any) -> dict[str, Any]:
@@ -1247,6 +1307,75 @@ def _original_reference_video_names(
     return names[0] if len(names) == 1 else names
 
 
+def _reuse_optional_uploads(
+    source_job: dict[str, Any],
+    run_dir: Path,
+    uploaded: dict[str, Any],
+) -> dict[str, Any]:
+    """Copy optional inputs from a prior job when replacing its result video."""
+    source_original_files = source_job.get("original_files")
+    source_original_files = (
+        source_original_files if isinstance(source_original_files, dict) else {}
+    )
+    reused_original_files: dict[str, Any] = {}
+
+    def copy_file(source_path: Path, target_path: Path) -> Path:
+        if not source_path.is_file():
+            raise HTTPException(
+                status_code=409,
+                detail="A saved reference file is no longer available.",
+            )
+        try:
+            shutil.copy2(source_path, target_path)
+        except OSError as exc:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Unable to reuse a saved reference file: {exc}",
+            ) from exc
+        return target_path
+
+    if uploaded.get("gt_video") is None:
+        source_path = _job_file_path(source_job, "gt_video")
+        if source_path is not None:
+            uploaded["gt_video"] = copy_file(source_path, run_dir / "gt.mp4")
+            reused_original_files["gt_video"] = (
+                source_original_files.get("gt_video") or source_path.name
+            )
+
+    if not uploaded.get("reference_images"):
+        source_paths = _job_file_paths(source_job, "reference_images")
+        if source_paths:
+            copied_paths = []
+            original_names = source_original_files.get("reference_images")
+            for index, source_path in enumerate(source_paths, start=1):
+                suffix = source_path.suffix.lower() or ".png"
+                copied_paths.append(
+                    copy_file(
+                        source_path,
+                        run_dir / f"reference_{index:02d}{suffix}",
+                    )
+                )
+            uploaded["reference_images"] = copied_paths
+            reused_original_files["reference_images"] = (
+                original_names
+                if isinstance(original_names, list) and original_names
+                else [path.name for path in source_paths]
+            )
+
+    if uploaded.get("reference_video") is None:
+        source_path = _job_file_path(source_job, "reference_video")
+        if source_path is not None:
+            uploaded["reference_video"] = copy_file(
+                source_path,
+                run_dir / "reference_motion.mp4",
+            )
+            reused_original_files["reference_video"] = (
+                source_original_files.get("reference_video") or source_path.name
+            )
+
+    return reused_original_files
+
+
 def _validate_video(path: Path, label: str) -> None:
     try:
         probe_video(path)
@@ -1331,6 +1460,8 @@ def _prepare_job(
     *,
     run_id: str,
     client_ip: str,
+    name: str,
+    reuse_source_job: dict[str, Any] | None,
     result_video: UploadFile,
     gt_video: UploadFile | None,
     reference_images: list[UploadFile] | None,
@@ -1360,6 +1491,10 @@ def _prepare_job(
         "manual_aesthetic_score",
     )
     expected_class = _normalize_wangxing_class(wangxing_expected_class)
+    requested_name = name.strip() if isinstance(name, str) else ""
+    display_name = requested_name or Path(
+        result_video.filename or "result video"
+    ).name
 
     run_dir = _job_dir(run_id)
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -1390,6 +1525,13 @@ def _prepare_job(
             )
         ]
         uploaded["reference_video"] = _save_reference_videos(reference_video, run_dir)
+        reused_original_files: dict[str, Any] = {}
+        if reuse_source_job is not None:
+            reused_original_files = _reuse_optional_uploads(
+                reuse_source_job,
+                run_dir,
+                uploaded,
+            )
         result_path = uploaded["result_video"]
         if result_path is None:
             raise HTTPException(status_code=422, detail="Result video is required.")
@@ -1428,6 +1570,8 @@ def _prepare_job(
         ],
         "reference_video": _original_reference_video_names(reference_video),
     }
+    for key, value in reused_original_files.items():
+        original_files[key] = value
     parameters = {
         "prompt_text": prompt,
         "max_frames": max_frames,
@@ -1442,7 +1586,7 @@ def _prepare_job(
     job = {
         "job_id": run_id,
         "client_ip": client_ip,
-        "name": Path(result_video.filename or "result video").name,
+        "name": display_name,
         "status": "queued",
         "stage": "queued",
         "progress": 0.0,
@@ -1876,6 +2020,8 @@ def hardware(device: str = "auto") -> dict[str, Any]:
 @app.post("/api/jobs", status_code=202)
 def create_job(
     request: Request,
+    name: str = Form(""),
+    reuse_job_id: str = Form(""),
     result_video: UploadFile = File(...),
     gt_video: UploadFile | None = File(None),
     reference_images: list[UploadFile] | None = File(None),
@@ -1890,6 +2036,24 @@ def create_job(
     wangxing_expected_class: str = Form("auto"),
 ) -> JSONResponse:
     client_ip = _client_ip(request)
+    normalized_reuse_job_id = (
+        reuse_job_id if isinstance(reuse_job_id, str) else ""
+    ).strip()
+    reuse_source_job = None
+    if normalized_reuse_job_id:
+        reuse_source_job = _read_job(normalized_reuse_job_id)
+        if reuse_source_job is None:
+            raise HTTPException(status_code=404, detail="Source job not found")
+        _assert_job_owner(reuse_source_job, client_ip)
+        if reuse_source_job.get("status") not in {
+            "completed",
+            "failed",
+            "canceled",
+        }:
+            raise HTTPException(
+                status_code=409,
+                detail="Only finished jobs can provide reusable reference files.",
+            )
     run_id = (
         datetime.now().strftime("%Y%m%d_%H%M%S")
         + "_"
@@ -1899,6 +2063,8 @@ def create_job(
         job = _prepare_job(
             run_id=run_id,
             client_ip=client_ip,
+            name=name,
+            reuse_source_job=reuse_source_job,
             result_video=result_video,
             gt_video=gt_video,
             reference_images=reference_images,
@@ -1988,8 +2154,6 @@ def update_job(
     update: JobUpdate,
 ) -> dict[str, Any]:
     _ensure_queue_worker()
-    if update.name is not None and not update.name.strip():
-        raise HTTPException(status_code=422, detail="Job name cannot be empty.")
 
     cancel_running = False
     enqueue_after_update = False
@@ -1999,6 +2163,13 @@ def update_job(
             raise HTTPException(status_code=404, detail="Job not found")
         _assert_job_owner(job, _client_ip(request))
         status = str(job.get("status"))
+        requested_name: str | None = None
+        if update.name is not None:
+            requested_name = update.name.strip()
+            if not requested_name and update.action == "retry":
+                requested_name = _job_name_fallback(job)
+            if not requested_name:
+                raise HTTPException(status_code=422, detail="Job name cannot be empty.")
         if update.action == "cancel":
             if status == "canceled":
                 pass
@@ -2051,11 +2222,39 @@ def update_job(
                     detail="只有排队中或运行中的任务可以取消。",
                 )
         elif update.action == "retry":
-            if status not in {"failed", "canceled"}:
+            if status not in {"failed", "canceled", "completed"}:
                 raise HTTPException(
                     status_code=409,
-                    detail="只有失败或已取消的任务可以重试。",
+                    detail="只有已完成、失败或已取消的任务可以重试。",
                 )
+            parameters = dict(job.get("parameters", {}))
+            parameter_fields = {
+                "prompt_text",
+                "max_frames",
+                "calculate_lpips",
+                "device",
+                "manual_expression_score",
+                "manual_aesthetic_score",
+                "wangxing_au_enabled",
+                "wangxing_expected_class",
+            }
+            for field_name in update.model_fields_set & parameter_fields:
+                value = getattr(update, field_name)
+                if field_name == "prompt_text":
+                    value = value or ""
+                elif field_name == "wangxing_expected_class":
+                    value = _normalize_wangxing_class(value) or "auto"
+                parameters[field_name] = value
+            job["parameters"] = parameters
+            run_dir = _job_dir(str(job["job_id"]))
+            for output_name in (
+                "result.json",
+                "summary.csv",
+                "frame_metrics.csv",
+                "wangxing_au_result.json",
+            ):
+                (run_dir / output_name).unlink(missing_ok=True)
+            shutil.rmtree(run_dir / "wangxing_au", ignore_errors=True)
             now = _now_iso()
             job.update(
                 {
@@ -2070,8 +2269,9 @@ def update_job(
                 }
             )
             enqueue_after_update = True
-        if update.name is not None:
-            job["name"] = update.name.strip()
+            _write_job_params(job)
+        if requested_name is not None:
+            job["name"] = requested_name
         if not cancel_running:
             job["updated_at"] = _now_iso()
             _write_job(job)
@@ -2111,8 +2311,8 @@ def update_job(
                         "cancel_previous_stage": None,
                     }
                 )
-                if update.name is not None:
-                    job["name"] = update.name.strip()
+                if requested_name is not None:
+                    job["name"] = requested_name
                 _write_job(job)
     if enqueue_after_update:
         _enqueue_job(str(job["job_id"]), _job_owner(job))
@@ -2141,7 +2341,14 @@ def delete_job(job_id: str, request: Request) -> dict[str, Any]:
                 detail="运行中的任务不能删除，请先中断任务。",
             )
         run_dir = _job_dir(job_id)
-        shutil.rmtree(run_dir, ignore_errors=False)
+        try:
+            _remove_job_directory(run_dir)
+        except OSError as exc:
+            raise HTTPException(
+                status_code=409,
+                detail="任务文件正在释放，请稍后重试。",
+            ) from exc
+        _remove_job_from_dispatch(job_id, _job_owner(job))
     return {"job_id": job_id, "deleted": True}
 
 
@@ -2162,6 +2369,8 @@ def download_run_file(
     job = _read_job(run_id)
     if job is not None:
         _assert_job_owner(job, _client_ip(request))
+        if filename in GENERATED_REPORT_FILES and job.get("status") != "completed":
+            raise HTTPException(status_code=404, detail="File not found")
     else:
         owner = _read_job_owner(run_id)
         if owner is not None and owner != _client_ip(request):

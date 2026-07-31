@@ -136,6 +136,19 @@
 
             <form id="evaluation-form">
               <div class="upload-grid">
+                <label class="field evaluation-name-field" for="evaluation-name">
+                  <span class="field-label">
+                    <span>评分名称</span>
+                    <small>用于队列与历史分类</small>
+                  </span>
+                  <input
+                    id="evaluation-name"
+                    name="name"
+                    type="text"
+                    maxlength="120"
+                    placeholder="例如：角色一致性测试 / 第 3 版"
+                  />
+                </label>
                 <label class="dropzone dropzone-primary" for="result-video">
                   <input
                     id="result-video"
@@ -347,9 +360,18 @@
                   <span class="queue-kicker">处理队列</span>
                   <strong id="queue-summary">0 个运行 / 0 个等待</strong>
                 </div>
-                <button id="refresh-queue" class="queue-refresh" type="button">
-                  刷新
-                </button>
+                <div class="queue-heading-actions">
+                  <input
+                    id="queue-search"
+                    class="queue-search"
+                    type="search"
+                    placeholder="搜索任务"
+                    aria-label="搜索评估任务"
+                  />
+                  <button id="refresh-queue" class="queue-refresh" type="button">
+                    刷新
+                  </button>
+                </div>
               </div>
               <div id="queue-active" class="queue-active is-hidden">
                 <div class="queue-active-head">
