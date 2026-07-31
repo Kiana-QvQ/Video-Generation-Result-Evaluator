@@ -18,7 +18,6 @@ from .video_metrics import (
     _default_face_detector,
     _read_frames,
     _resize_frame_for_evaluation,
-    _resize_like,
     DEFAULT_SAMPLE_FPS,
     SEMANTIC_WINDOW_FRAMES,
     SEMANTIC_WINDOW_OVERLAP,
@@ -34,6 +33,7 @@ from .runtime import MODEL_CACHE_DIR, OUTPUT_DIR, prepare_pyiqa_checkpoint
 from .face_detection import FaceDetector
 from .model_profile import get_recommended_model
 from .etva_judge import evaluate_etva_judge, etva_service_available
+from .evaluation_lock import serialized_evaluation
 from .hardware_policy import resolve_policy
 from .gpu_memory import release_cuda_memory
 from .vbench_runner import run_vbench
@@ -2214,6 +2214,7 @@ def _format_metric(value: Any, digits: int = 4) -> str:
     return str(value)
 
 
+@serialized_evaluation
 def evaluate_all(
     result_path: str | Path,
     ground_truth: str | Path | None,

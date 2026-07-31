@@ -70,6 +70,18 @@ SHA256。基础评估不依赖这些大模型；缺失时网页端会显示 `OPT
 若本地依赖或 AWQ 后端不可用，可显式改用
 `.\run.ps1 -WithVlm -VlmBackend docker`。
 
+评估器会在每次模型阶段之间释放 CUDA 缓存，并用单机互斥锁阻止同步
+HTTP/gRPC 评估与队列任务同时占用 GPU。8GB 档位在显存临界时会减少
+Qwen 时间窗和输入帧尺寸。可以按需调整：
+
+```powershell
+$env:ETVA_REQUEST_TIMEOUT_SECONDS = "45"
+$env:ETVA_MAX_FRAME_DIMENSION = "768"
+```
+
+这两个变量需要在启动评估器前设置；显存不足时，优先关闭其他 GPU
+进程，再重新启动本地 Judge。
+
 ## VBench
 
 VBench 是独立的可选后端，建议使用 Docker 运行：

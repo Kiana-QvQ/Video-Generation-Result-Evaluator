@@ -28,6 +28,13 @@ ETVA_URL = os.environ.get(
 )
 ETVA_MODEL = os.environ.get("ETVA_JUDGE_MODEL", "qwen2-vl-2b-awq")
 try:
+    ETVA_REQUEST_TIMEOUT_SECONDS = max(
+        5.0,
+        float(os.environ.get("ETVA_REQUEST_TIMEOUT_SECONDS", "45")),
+    )
+except ValueError:
+    ETVA_REQUEST_TIMEOUT_SECONDS = 45.0
+try:
     ETVA_MAX_FRAME_DIMENSION = max(
         224,
         int(os.environ.get("ETVA_MAX_FRAME_DIMENSION", "768")),
@@ -122,8 +129,13 @@ def _request(
         headers={"Content-Type": "application/json"},
         method="POST",
     )
-    with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
-        result = json.loads(response.read().decode("utf-8"))
+    try:
+        with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
+            result = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace").strip()
+        suffix = f": {detail[:500]}" if detail else ""
+        raise ValueError(f"ETVA HTTP {exc.code}{suffix}") from exc
     message = result["choices"][0]["message"]["content"]
     if isinstance(message, list):
         return "\n".join(
@@ -367,7 +379,10 @@ def evaluate_etva_judge(
                 )
 
             try:
-                raw = _request(content, timeout_seconds=4.0)
+                raw = _request(
+                    content,
+                    timeout_seconds=ETVA_REQUEST_TIMEOUT_SECONDS,
+                )
                 score, scores = _parse_result(raw)
                 if score is None:
                     raise ValueError(
