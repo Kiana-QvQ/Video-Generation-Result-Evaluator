@@ -16,11 +16,10 @@ from .video_metrics import (
     SEMANTIC_WINDOW_FRAMES,
     _read_frames,
     _sample_indices,
+    probe_video,
     sample_aligned_video_windows,
     sample_video_windows,
-    probe_video,
 )
-
 
 ETVA_URL = os.environ.get(
     "ETVA_JUDGE_URL",
@@ -82,8 +81,8 @@ def _data_uri(frame: np.ndarray) -> str:
         frame = cv2.resize(
             frame,
             (
-                max(1, int(round(width * scale))),
-                max(1, int(round(height * scale))),
+                max(1, round(width * scale)),
+                max(1, round(height * scale)),
             ),
             interpolation=cv2.INTER_AREA,
         )
@@ -136,7 +135,10 @@ def _request(
         detail = exc.read().decode("utf-8", errors="replace").strip()
         suffix = f": {detail[:500]}" if detail else ""
         raise ValueError(f"ETVA HTTP {exc.code}{suffix}") from exc
-    message = result["choices"][0]["message"]["content"]
+    try:
+        message = result["choices"][0]["message"]["content"]
+    except (AttributeError, IndexError, KeyError, TypeError) as exc:
+        raise ValueError("ETVA response did not contain message content.") from exc
     if isinstance(message, list):
         return "\n".join(
             str(item.get("text", item)) if isinstance(item, dict) else str(item)
@@ -389,7 +391,10 @@ def evaluate_etva_judge(
                         f"Could not parse a 0/0.5/1 score from: {raw[:500]}"
                     )
             except (
+                AttributeError,
+                IndexError,
                 OSError,
+                TypeError,
                 ValueError,
                 KeyError,
                 json.JSONDecodeError,
@@ -444,7 +449,16 @@ def evaluate_etva_judge(
             },
             "warnings": warnings,
         }
-    except (OSError, ValueError, KeyError, json.JSONDecodeError, urllib.error.URLError) as exc:
+    except (
+        AttributeError,
+        IndexError,
+        OSError,
+        TypeError,
+        ValueError,
+        KeyError,
+        json.JSONDecodeError,
+        urllib.error.URLError,
+    ) as exc:
         if service_available is True:
             reason = (
                 "ETVA Judge service is connected, but it did not return a usable "

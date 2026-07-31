@@ -44,6 +44,7 @@ class HardwarePolicyTests(unittest.TestCase):
             policy = resolve_policy("auto")
 
         self.assertEqual(policy.memory_pressure, "critical")
+        self.assertEqual(policy.resolved_device, "cpu")
         self.assertEqual(policy.etva_frames, 2)
         self.assertFalse(policy.viclip_enabled_by_default)
 
