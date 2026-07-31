@@ -100,7 +100,6 @@ def _canonical_au_id(value: str) -> int | None:
 
 
 def _column_priority(name: str) -> int:
-    normalized = str(name).lower().replace(" ", "")
     if _column_kind(name) == "intensity":
         return 0
     if _column_kind(name) == "presence":

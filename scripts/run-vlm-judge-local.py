@@ -178,7 +178,7 @@ def chat_completions(payload: dict[str, Any]) -> dict[str, Any]:
         raise HTTPException(status_code=503, detail="Model is still loading.")
     try:
         content = _judge.complete(payload)
-    except (OSError, ValueError, RuntimeError) as exc:
+    except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     return {
         "id": f"local-qwen-{time.time_ns()}",

@@ -156,7 +156,7 @@ def main(argv: list[str] | None = None) -> int:
             f"under {au_root}."
         )
 
-    profile = fit_au_profile(
+    fit_au_profile(
         labeled_sequences,
         output,
         au_ids=DEFAULT_AU_IDS,
