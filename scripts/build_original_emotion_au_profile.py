@@ -15,7 +15,7 @@ from evaluator.au_compliance import (  # noqa: E402
     DEFAULT_AU_IDS,
     DEFAULT_PRESENCE_AU_IDS,
     fit_au_profile,
-    load_au_table,
+    load_au_profile_tables,
 )
 from evaluator.au_dataset import (  # noqa: E402
     DEFAULT_MIN_AU_ROWS,
@@ -126,27 +126,17 @@ def main(argv: list[str] | None = None) -> int:
             skipped.append(f"{path}: {reason}")
             continue
         try:
-            sequence, supported, _ = load_au_table(
+            sequence, supported, presence, presence_supported = load_au_profile_tables(
                 path,
-                DEFAULT_AU_IDS,
-                feature_type="intensity",
-                strict=False,
+                intensity_au_ids=DEFAULT_AU_IDS,
+                presence_au_ids=DEFAULT_PRESENCE_AU_IDS,
             )
             if not supported:
                 skipped.append(f"{path}: no supported intensity AU")
                 continue
             labeled_sequences.append((expression_class, sequence))
-            try:
-                presence, _, _ = load_au_table(
-                    path,
-                    DEFAULT_PRESENCE_AU_IDS,
-                    feature_type="presence",
-                    strict=False,
-                    intensity_scale=1.0,
-                )
-            except ValueError:
-                continue
-            presence_sequences.append((expression_class, presence))
+            if presence is not None and presence_supported:
+                presence_sequences.append((expression_class, presence))
         except (OSError, ValueError) as exc:
             skipped.append(f"{path}: {exc}")
 
