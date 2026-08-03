@@ -191,6 +191,43 @@ class AUComplianceTests(unittest.TestCase):
         self.assertEqual(au_ids, (1, 4, 6, 12, 15, 25))
         self.assertTrue(np.allclose(sequence, 0.5))
 
+    def test_fallback_detection_score_contributes_to_quality(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "fallback.csv"
+            with path.open("w", encoding="utf-8", newline="") as handle:
+                writer = csv.writer(handle)
+                writer.writerow(
+                    [
+                        "frame_idx",
+                        "frame_time_in_ms",
+                        "face_alignment_method",
+                        "face_detection_score",
+                        "au_1_intensity",
+                    ]
+                )
+                writer.writerows(
+                    [
+                        [0, 0.0, "insightface_bbox", 0.2, 1.0],
+                        [1, 0.0333, "insightface_bbox", 0.8, 2.0],
+                    ]
+                )
+            _, _, metadata = load_au_table(
+                path,
+                (1,),
+                feature_type="intensity",
+            )
+
+        quality = metadata["quality"]
+        self.assertTrue(quality["available"])
+        self.assertEqual(quality["source"], "insightface_detection")
+        self.assertEqual(quality["status"], "partial")
+        self.assertAlmostEqual(quality["mean_frame_quality"], 0.5)
+        self.assertAlmostEqual(
+            metadata["frame_times_seconds"][1],
+            0.0333,
+            places=4,
+        )
+
     def test_profile_loader_reads_intensity_and_presence_in_one_pass(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "profile.csv"
