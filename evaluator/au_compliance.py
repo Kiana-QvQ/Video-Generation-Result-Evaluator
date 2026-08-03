@@ -87,6 +87,20 @@ DEFAULT_COACTIVATION_PAIRS = (
 )
 
 
+def atomic_write_text(
+    path: str | Path,
+    content: str,
+    *,
+    encoding: str = "utf-8",
+) -> None:
+    """Write a file beside the target, then replace the target atomically."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f"{path.stem}.new{path.suffix}")
+    temporary.write_text(content, encoding=encoding)
+    temporary.replace(path)
+
+
 def _canonical_au_id(value: str) -> int | None:
     match = re.search(
         r"\bau[\s_-]*0*(\d{1,2})(?!\d)",
@@ -223,6 +237,7 @@ def _quality_metadata(
     frame_quality: np.ndarray,
     *,
     available: bool,
+    source: str = "unknown",
 ) -> dict[str, Any]:
     frame_quality = np.asarray(frame_quality, dtype=np.float32)
     valid = frame_quality >= DEFAULT_FACE_QUALITY_THRESHOLD
@@ -236,9 +251,12 @@ def _quality_metadata(
         status = "partial"
     else:
         status = "pass"
+    if source in {"insightface_detection", "mixed"} and status == "pass":
+        status = "partial"
     return {
         "schema_version": AU_QUALITY_SCHEMA,
         "available": available,
+        "source": source,
         "status": status,
         "frame_count": int(len(frame_quality)),
         "usable_frame_count": int(np.sum(valid)),
@@ -283,12 +301,32 @@ def load_au_table(
         )
         landmark_x_columns, landmark_y_columns = _landmark_columns(fieldnames)
         landmark_pairs = _landmark_pairs(fieldnames)
-        quality_available = bool(
+        mesh_quality_available = bool(
             landmark_x_columns
             and landmark_y_columns
             and "pitch" in fieldnames
             and "yaw" in fieldnames
         )
+        alignment_method_field = _field_name(
+            fieldnames,
+            "face_alignment_method",
+        )
+        detection_score_field = _field_name(
+            fieldnames,
+            "face_detection_score",
+        )
+        fallback_quality_available = bool(
+            alignment_method_field and detection_score_field
+        )
+        quality_available = mesh_quality_available or fallback_quality_available
+        if mesh_quality_available and fallback_quality_available:
+            quality_source = "mixed"
+        elif mesh_quality_available:
+            quality_source = "face_mesh"
+        elif fallback_quality_available:
+            quality_source = "insightface_detection"
+        else:
+            quality_source = "not_available"
         candidates: dict[str, dict[int, list[tuple[int, str]]]] = {
             "intensity": {},
             "presence": {},
@@ -334,7 +372,7 @@ def load_au_table(
         landmark_rows: list[list[list[float]]] = []
         frame_quality: list[float] = []
         frame_indices: list[int] = []
-        frame_times_seconds: list[float | None] = []
+        raw_frame_times: list[float | None] = []
         for row_index, row in enumerate(reader):
             values = [
                 (
@@ -366,18 +404,47 @@ def load_au_table(
                 if frame_time_field
                 else None
             )
-            frame_times_seconds.append(
-                raw_time / 1000.0 if raw_time is not None else None
+            raw_frame_times.append(raw_time)
+            method = (
+                str(row.get(alignment_method_field, "")).casefold()
+                if alignment_method_field
+                else ""
             )
-            frame_quality.append(
-                _frame_quality(
-                    row,
-                    landmark_x_columns,
-                    landmark_y_columns,
+            if (
+                method == "insightface_bbox"
+                and detection_score_field is not None
+            ):
+                score = _optional_float(row.get(detection_score_field))
+                frame_quality.append(
+                    max(0.0, min(1.0, score)) if score is not None else 0.0
                 )
-                if quality_available
-                else 1.0
-            )
+            elif mesh_quality_available:
+                frame_quality.append(
+                    _frame_quality(
+                        row,
+                        landmark_x_columns,
+                        landmark_y_columns,
+                    )
+                )
+            else:
+                frame_quality.append(1.0)
+
+    finite_times = [
+        value for value in raw_frame_times if value is not None
+    ]
+    time_scale = 0.001
+    if (
+        frame_time_field
+        and finite_times
+        and max(finite_times) < max(100.0, len(raw_frame_times) * 2.0)
+    ):
+        # Older LibreFace exports call this column milliseconds but write
+        # seconds (for example 0.0333 for the second frame).
+        time_scale = 1.0
+    frame_times_seconds = [
+        value * time_scale if value is not None else None
+        for value in raw_frame_times
+    ]
 
     if not rows:
         raise ValueError(f"AU file contains no rows: {path}")
@@ -405,10 +472,12 @@ def load_au_table(
         "available_au_ids": sorted(available_candidates),
         "frame_indices": frame_indices,
         "frame_times_seconds": frame_times_seconds,
+        "frame_time_scale": time_scale,
         "landmark_indices": [index for index, _, _ in landmark_pairs],
         "quality": _quality_metadata(
             frame_quality_array,
             available=quality_available,
+            source=quality_source,
         ),
         "_feature_mask": np.asarray(
             [au_id in selected for au_id in requested],
@@ -790,8 +859,8 @@ def fit_au_profile(
         "classes": models,
     }
     output_path = Path(output_path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(
+    atomic_write_text(
+        output_path,
         json.dumps(profile, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )

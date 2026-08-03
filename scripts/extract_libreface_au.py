@@ -160,6 +160,8 @@ def _run_libreface(
     device: str,
     batch_size: int,
     num_workers: int,
+    face_fallback: str,
+    face_fallback_first: bool,
 ) -> None:
     # LibreFace's temporary frame handling is unreliable under non-ASCII
     # Windows paths, so stage both input and output in an ASCII directory.
@@ -211,7 +213,11 @@ def _run_libreface(
                 str(max(1, int(batch_size))),
                 "--num-workers",
                 str(max(0, int(num_workers))),
+                "--face-fallback",
+                face_fallback,
             ]
+            if face_fallback_first:
+                command.append("--face-fallback-first")
             print("RUN", " ".join(str(part) for part in command))
             try:
                 completed = subprocess.run(
@@ -333,6 +339,20 @@ def main() -> int:
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument("--num-workers", type=int, default=2)
+    parser.add_argument(
+        "--face-fallback",
+        choices=("none", "insightface"),
+        default="insightface",
+        help=(
+            "Recover difficult poses with the local InsightFace detector "
+            "before LibreFace AU inference."
+        ),
+    )
+    parser.add_argument(
+        "--face-fallback-first",
+        action="store_true",
+        help="Try InsightFace before MediaPipe when retrying difficult-pose videos.",
+    )
     parser.add_argument("--limit", type=int)
     parser.add_argument("--force", action="store_true")
     parser.add_argument("--min-output-rows", type=int, default=DEFAULT_MIN_AU_ROWS)
@@ -411,6 +431,8 @@ def main() -> int:
                 device=args.device,
                 batch_size=args.batch_size,
                 num_workers=args.num_workers,
+                face_fallback=args.face_fallback,
+                face_fallback_first=args.face_fallback_first,
             )
             valid, reason = validate_au_csv(
                 output_path,
@@ -435,13 +457,12 @@ def main() -> int:
             continue
         completed += 1
 
-    failure_log: Path | None = None
-    if failures:
-        failure_log = _project_path(
-            args.failure_log
-            if args.failure_log
-            else output_root / "_failures.json"
-        )
+    failure_log = _project_path(
+        args.failure_log
+        if args.failure_log
+        else output_root / "_failures.json"
+    )
+    if failures or failure_log.is_file():
         failure_log.parent.mkdir(parents=True, exist_ok=True)
         failure_log.write_text(
             json.dumps(
@@ -455,6 +476,8 @@ def main() -> int:
             + "\n",
             encoding="utf-8",
         )
+    else:
+        failure_log = None
 
     print(
         json.dumps(

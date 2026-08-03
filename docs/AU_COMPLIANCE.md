@@ -44,6 +44,28 @@ same name in different `CL_*` directories do not overwrite each other:
 Existing CSV files are skipped by default. Add `--force` to rebuild them.
 With `--continue-on-error`, videos that have no detectable face are recorded
 in `data\au\MD_CL\_failures.json` and do not interrupt the remaining batch.
+For difficult side-profile or extreme-pose clips, use the local InsightFace
+detector as a frame-alignment fallback:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\extract_libreface_au.py `
+    --input-root data\MD_CL `
+    --output-root data\au\MD_CL `
+    --exclude-dir "CL_FACS*" `
+    --exclude-dir "CL_HeadMove" `
+    --device cuda `
+    --batch-size 32 `
+    --num-workers 0 `
+    --face-fallback insightface `
+    --face-fallback-first `
+    --continue-on-error
+```
+
+The fallback supplies only a detected face crop; AU values are still produced
+by LibreFace. Each fallback row records `face_alignment_method` and the
+detection score. The AU worker does not load LibreFace's unrelated
+facial-expression or gaze models.
+
 Keep `CL_yanwu*`: the original-emotion profile maps those clips to
 `disgust` (厌恶).
 Use `--limit 1 --device cpu` first if you want to smoke-test the LibreFace

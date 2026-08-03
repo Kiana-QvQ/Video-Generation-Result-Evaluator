@@ -7,6 +7,8 @@ from pathlib import Path
 import re
 import sys
 
+import numpy as np
+
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
@@ -14,7 +16,10 @@ if str(PROJECT_ROOT) not in sys.path:
 from evaluator.au_compliance import (  # noqa: E402
     DEFAULT_AU_IDS,
     DEFAULT_PRESENCE_AU_IDS,
+    DEFAULT_FACE_QUALITY_THRESHOLD,
+    atomic_write_text,
     fit_au_profile,
+    load_au_table,
     load_au_profile_tables,
 )
 from evaluator.au_dataset import (  # noqa: E402
@@ -85,6 +90,9 @@ def main(argv: list[str] | None = None) -> int:
     skipped: list[str] = []
     expected_outputs: list[Path] = []
     incomplete_outputs: list[str] = []
+    quality_filtered_file_count = 0
+    quality_dropped_frame_count = 0
+    quality_source_file_counts: Counter[str] = Counter()
     if not video_root.is_dir() and not args.allow_incomplete:
         raise SystemExit(f"Original video root was not found: {video_root}")
     if video_root.is_dir():
@@ -134,6 +142,35 @@ def main(argv: list[str] | None = None) -> int:
             if not supported:
                 skipped.append(f"{path}: no supported intensity AU")
                 continue
+            _, _, quality_metadata = load_au_table(
+                path,
+                DEFAULT_AU_IDS,
+                feature_type="intensity",
+                strict=False,
+            )
+            quality = quality_metadata.get("quality", {})
+            quality_source_file_counts[
+                str(quality.get("source", "unknown"))
+            ] += 1
+            quality_mask = np.asarray(
+                quality_metadata.get(
+                    "_frame_quality",
+                    np.ones(len(sequence), dtype=np.float32),
+                ),
+                dtype=np.float32,
+            ) >= DEFAULT_FACE_QUALITY_THRESHOLD
+            if (
+                bool(quality.get("available"))
+                and len(quality_mask) == len(sequence)
+                and int(np.sum(quality_mask)) >= args.min_output_rows
+                and int(np.sum(quality_mask)) < len(sequence)
+            ):
+                dropped = len(sequence) - int(np.sum(quality_mask))
+                sequence = sequence[quality_mask]
+                if presence is not None and len(presence) == len(quality_mask):
+                    presence = presence[quality_mask]
+                quality_filtered_file_count += 1
+                quality_dropped_frame_count += dropped
             labeled_sequences.append((expression_class, sequence))
             if presence is not None and presence_supported:
                 presence_sequences.append((expression_class, presence))
@@ -177,9 +214,15 @@ def main(argv: list[str] | None = None) -> int:
                 )
             ),
             "skipped_file_count": len(skipped),
+            "quality_filtered_file_count": quality_filtered_file_count,
+            "quality_dropped_frame_count": quality_dropped_frame_count,
+            "quality_source_file_counts": dict(
+                sorted(quality_source_file_counts.items())
+            ),
         }
     )
-    output.write_text(
+    atomic_write_text(
+        output,
         json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
