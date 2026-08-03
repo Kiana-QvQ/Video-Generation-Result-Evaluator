@@ -19,6 +19,7 @@ from evaluator.au_compliance import (
     fuse_compliance_scores,
     fuse_wangxing_targeted_scores,
     load_au_table,
+    load_au_profile_tables,
     score_au_compliance,
     temporal_event_features,
 )
@@ -189,6 +190,52 @@ class AUComplianceTests(unittest.TestCase):
 
         self.assertEqual(au_ids, (1, 4, 6, 12, 15, 25))
         self.assertTrue(np.allclose(sequence, 0.5))
+
+    def test_profile_loader_reads_intensity_and_presence_in_one_pass(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "profile.csv"
+            with path.open("w", encoding="utf-8", newline="") as handle:
+                writer = csv.writer(handle)
+                writer.writerow(
+                    [
+                        "au_1_intensity",
+                        "au_1",
+                        "au_4_intensity",
+                        "au_4",
+                    ]
+                )
+                writer.writerow([2.5, 1, 0.5, 0])
+                writer.writerow([5.0, 0, 2.5, 1])
+            intensity, supported, presence, presence_supported = (
+                load_au_profile_tables(
+                    path,
+                    intensity_au_ids=(1, 4),
+                    presence_au_ids=(1, 4),
+                )
+            )
+
+        self.assertEqual(supported, (1, 4))
+        self.assertTrue(np.allclose(intensity, [[0.5, 0.1], [1.0, 0.5]]))
+        self.assertEqual(presence_supported, (1, 4))
+        self.assertIsNotNone(presence)
+        self.assertTrue(np.array_equal(presence, [[1.0, 0.0], [0.0, 1.0]]))
+
+    def test_profile_loader_keeps_missing_aus_as_nan(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "partial-profile.csv"
+            with path.open("w", encoding="utf-8", newline="") as handle:
+                writer = csv.writer(handle)
+                writer.writerow(["au_1_intensity", "au_1"])
+                writer.writerow([2.5, 1])
+            intensity, _, presence, _ = load_au_profile_tables(
+                path,
+                intensity_au_ids=(1, 4),
+                presence_au_ids=(1, 4),
+            )
+
+        self.assertTrue(np.isnan(intensity[:, 1]).all())
+        self.assertIsNotNone(presence)
+        self.assertTrue(np.isnan(presence[:, 1]).all())
 
     def test_dtw_identical_sequences_score_one(self) -> None:
         sequence = np.asarray([[0, 1, 0], [0.2, 0.8, 0.1]], dtype=np.float32)

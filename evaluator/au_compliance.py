@@ -423,6 +423,113 @@ def load_au_table(
     }
 
 
+def load_au_profile_tables(
+    path: str | Path,
+    *,
+    intensity_au_ids: Iterable[int] = DEFAULT_AU_IDS,
+    presence_au_ids: Iterable[int] = DEFAULT_PRESENCE_AU_IDS,
+) -> tuple[np.ndarray, tuple[int, ...], np.ndarray | None, tuple[int, ...]]:
+    """Load profile features in one pass without computing face landmarks."""
+    path = Path(path)
+    intensity_requested = tuple(int(value) for value in intensity_au_ids)
+    presence_requested = tuple(int(value) for value in presence_au_ids)
+    with path.open("r", encoding="utf-8-sig", newline="") as handle:
+        sample = handle.read(8192)
+        handle.seek(0)
+        first_line = sample.splitlines()[0] if sample.splitlines() else ""
+        delimiter = "\t" if "\t" in first_line else ","
+        reader = csv.reader(handle, delimiter=delimiter)
+        try:
+            fieldnames = next(reader)
+        except StopIteration as exc:
+            raise ValueError(f"AU file contains no rows: {path}") from exc
+
+        candidates: dict[str, dict[int, list[tuple[int, int]]]] = {
+            "intensity": {},
+            "presence": {},
+        }
+        for index, name in enumerate(fieldnames):
+            au_id = _canonical_au_id(name)
+            kind = _column_kind(name)
+            if au_id is None or kind == "unknown":
+                continue
+            candidates[kind].setdefault(au_id, []).append(
+                (_column_priority(name), index)
+            )
+
+        def select_columns(
+            requested: tuple[int, ...],
+            feature_type: Literal["intensity", "presence"],
+        ) -> tuple[dict[int, int], tuple[int, ...]]:
+            selected: dict[int, int] = {}
+            for au_id in requested:
+                choices = sorted(candidates[feature_type].get(au_id, []))
+                if choices:
+                    selected[au_id] = choices[0][1]
+            return selected, tuple(
+                au_id for au_id in requested if au_id in selected
+            )
+
+        selected_intensity, supported_intensity = select_columns(
+            intensity_requested,
+            "intensity",
+        )
+        if not supported_intensity:
+            raise ValueError(f"No AU intensity columns found in {path}.")
+        selected_presence, supported_presence = select_columns(
+            presence_requested,
+            "presence",
+        )
+
+        def read_value(
+            selected: dict[int, int],
+            au_id: int,
+            row: list[str],
+        ) -> float:
+            column_index = selected.get(au_id)
+            if column_index is None or column_index >= len(row):
+                return float("nan")
+            return _parse_float(row[column_index])
+
+        intensity_rows: list[list[float]] = []
+        presence_rows: list[list[float]] = []
+        for row in reader:
+            intensity_rows.append(
+                [
+                    read_value(selected_intensity, au_id, row)
+                    for au_id in intensity_requested
+                ]
+            )
+            if supported_presence:
+                presence_rows.append(
+                    [
+                        read_value(selected_presence, au_id, row)
+                        for au_id in presence_requested
+                    ]
+                )
+
+    if not intensity_rows:
+        raise ValueError(f"AU file contains no rows: {path}")
+    intensity_matrix = np.asarray(intensity_rows, dtype=np.float32)
+    finite_values = intensity_matrix[np.isfinite(intensity_matrix)]
+    if len(finite_values) and float(np.max(finite_values)) > 1.0 + 1e-6:
+        intensity_matrix = intensity_matrix / 5.0
+    intensity_matrix = np.clip(intensity_matrix, 0.0, 1.0)
+    presence_matrix = None
+    if presence_rows:
+        presence_matrix = np.clip(
+            np.asarray(presence_rows, dtype=np.float32),
+            0.0,
+            1.0,
+        )
+    return (
+        intensity_matrix,
+        supported_intensity,
+        presence_matrix,
+        supported_presence,
+    )
+
+
 def _summary_pairs(au_ids: Iterable[int]) -> list[tuple[int, int]]:
     au_ids = tuple(int(value) for value in au_ids)
     supported = set(au_ids)

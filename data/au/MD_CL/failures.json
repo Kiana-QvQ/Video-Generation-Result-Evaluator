@@ -1,0 +1,665 @@
+{
+  "failed": 132,
+  "records": [
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_beishang01\\040061620402.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_beishang01\\040061620402.csv",
+      "error": "RuntimeError: AU output quality check failed: only 9 rows; need at least 32"
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_beishang01\\040061620411.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_beishang01\\040061620411.csv",
+      "error": "RuntimeError: AU output quality check failed: only 4 rows; need at least 32"
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_beishang01\\040061620415.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_beishang01\\040061620415.csv",
+      "error": "CalledProcessError: Command '['S:\\\\.venv\\\\Scripts\\\\python.exe', 'S:\\\\scripts\\\\libreface_worker.py', '--input-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_12_ucrhq/normalized.mp4', '--output-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_12_ucrhq/output.csv', '--temp', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_12_ucrhq', '--weights-dir', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/weights_libreface', '--device', 'cuda', '--batch-size', '64', '--num-workers', '2']' returned non-zero exit status 1."
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_beishang01\\048070810278.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_beishang01\\048070810278.csv",
+      "error": "CalledProcessError: Command '['S:\\\\.venv\\\\Scripts\\\\python.exe', 'S:\\\\scripts\\\\libreface_worker.py', '--input-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_xfhq04oi/normalized.mp4', '--output-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_xfhq04oi/output.csv', '--temp', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_xfhq04oi', '--weights-dir', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/weights_libreface', '--device', 'cuda', '--batch-size', '64', '--num-workers', '2']' returned non-zero exit status 1."
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_beishang01\\049032710126.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_beishang01\\049032710126.csv",
+      "error": "CalledProcessError: Command '['S:\\\\.venv\\\\Scripts\\\\python.exe', 'S:\\\\scripts\\\\libreface_worker.py', '--input-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_qr7930wz/normalized.mp4', '--output-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_qr7930wz/output.csv', '--temp', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_qr7930wz', '--weights-dir', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/weights_libreface', '--device', 'cuda', '--batch-size', '64', '--num-workers', '2']' returned non-zero exit status 1."
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_beishang01\\049090310177.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_beishang01\\049090310177.csv",
+      "error": "CalledProcessError: Command '['S:\\\\.venv\\\\Scripts\\\\python.exe', 'S:\\\\scripts\\\\libreface_worker.py', '--input-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_lf4xz7_h/normalized.mp4', '--output-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_lf4xz7_h/output.csv', '--temp', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_lf4xz7_h', '--weights-dir', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/weights_libreface', '--device', 'cuda', '--batch-size', '64', '--num-workers', '2']' returned non-zero exit status 1."
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_beishang02\\040061620402.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_beishang02\\040061620402.csv",
+      "error": "CalledProcessError: Command '['S:\\\\.venv\\\\Scripts\\\\python.exe', 'S:\\\\scripts\\\\libreface_worker.py', '--input-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_3b5536zj/normalized.mp4', '--output-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_3b5536zj/output.csv', '--temp', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_3b5536zj', '--weights-dir', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/weights_libreface', '--device', 'cuda', '--batch-size', '64', '--num-workers', '2']' returned non-zero exit status 1."
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_beishang02\\040061620411.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_beishang02\\040061620411.csv",
+      "error": "RuntimeError: AU output quality check failed: only 3 rows; need at least 32"
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_beishang02\\040061620415.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_beishang02\\040061620415.csv",
+      "error": "CalledProcessError: Command '['S:\\\\.venv\\\\Scripts\\\\python.exe', 'S:\\\\scripts\\\\libreface_worker.py', '--input-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_lsxztph6/normalized.mp4', '--output-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_lsxztph6/output.csv', '--temp', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_lsxztph6', '--weights-dir', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/weights_libreface', '--device', 'cuda', '--batch-size', '64', '--num-workers', '2']' returned non-zero exit status 1."
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_beishang02\\048070810278.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_beishang02\\048070810278.csv",
+      "error": "CalledProcessError: Command '['S:\\\\.venv\\\\Scripts\\\\python.exe', 'S:\\\\scripts\\\\libreface_worker.py', '--input-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_ehirbmaw/normalized.mp4', '--output-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_ehirbmaw/output.csv', '--temp', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_ehirbmaw', '--weights-dir', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/weights_libreface', '--device', 'cuda', '--batch-size', '64', '--num-workers', '2']' returned non-zero exit status 1."
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_beishang02\\049032710126.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_beishang02\\049032710126.csv",
+      "error": "RuntimeError: AU output quality check failed: only 2 rows; need at least 32"
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_beishang02\\049090310177.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_beishang02\\049090310177.csv",
+      "error": "CalledProcessError: Command '['S:\\\\.venv\\\\Scripts\\\\python.exe', 'S:\\\\scripts\\\\libreface_worker.py', '--input-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_lmgsy4u2/normalized.mp4', '--output-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_lmgsy4u2/output.csv', '--temp', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_lmgsy4u2', '--weights-dir', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/weights_libreface', '--device', 'cuda', '--batch-size', '64', '--num-workers', '2']' returned non-zero exit status 1."
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_beishang03\\040061620402.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_beishang03\\040061620402.csv",
+      "error": "RuntimeError: AU output quality check failed: only 1 rows; need at least 32"
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_beishang03\\040061620411.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_beishang03\\040061620411.csv",
+      "error": "CalledProcessError: Command '['S:\\\\.venv\\\\Scripts\\\\python.exe', 'S:\\\\scripts\\\\libreface_worker.py', '--input-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run__2ucbs01/normalized.mp4', '--output-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run__2ucbs01/output.csv', '--temp', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run__2ucbs01', '--weights-dir', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/weights_libreface', '--device', 'cuda', '--batch-size', '64', '--num-workers', '2']' returned non-zero exit status 1."
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_beishang03\\040061620415.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_beishang03\\040061620415.csv",
+      "error": "CalledProcessError: Command '['S:\\\\.venv\\\\Scripts\\\\python.exe', 'S:\\\\scripts\\\\libreface_worker.py', '--input-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_kp3dbmbp/normalized.mp4', '--output-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_kp3dbmbp/output.csv', '--temp', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_kp3dbmbp', '--weights-dir', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/weights_libreface', '--device', 'cuda', '--batch-size', '64', '--num-workers', '2']' returned non-zero exit status 1."
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_beishang03\\048070810278.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_beishang03\\048070810278.csv",
+      "error": "CalledProcessError: Command '['S:\\\\.venv\\\\Scripts\\\\python.exe', 'S:\\\\scripts\\\\libreface_worker.py', '--input-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_caryauwy/normalized.mp4', '--output-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_caryauwy/output.csv', '--temp', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_caryauwy', '--weights-dir', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/weights_libreface', '--device', 'cuda', '--batch-size', '64', '--num-workers', '2']' returned non-zero exit status 1."
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_beishang03\\049032710126.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_beishang03\\049032710126.csv",
+      "error": "CalledProcessError: Command '['S:\\\\.venv\\\\Scripts\\\\python.exe', 'S:\\\\scripts\\\\libreface_worker.py', '--input-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_o7hv71kc/normalized.mp4', '--output-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_o7hv71kc/output.csv', '--temp', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_o7hv71kc', '--weights-dir', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/weights_libreface', '--device', 'cuda', '--batch-size', '64', '--num-workers', '2']' returned non-zero exit status 1."
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_beishang03\\049090310174.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_beishang03\\049090310174.csv",
+      "error": "RuntimeError: AU output quality check failed: only 2 rows; need at least 32"
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_beishang03\\049090310177.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_beishang03\\049090310177.csv",
+      "error": "CalledProcessError: Command '['S:\\\\.venv\\\\Scripts\\\\python.exe', 'S:\\\\scripts\\\\libreface_worker.py', '--input-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_nbritlew/normalized.mp4', '--output-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_nbritlew/output.csv', '--temp', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_nbritlew', '--weights-dir', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/weights_libreface', '--device', 'cuda', '--batch-size', '64', '--num-workers', '2']' returned non-zero exit status 1."
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_fennu01\\040061620402.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_fennu01\\040061620402.csv",
+      "error": "RuntimeError: AU output quality check failed: only 11 rows; need at least 32"
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_fennu01\\040061620411.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_fennu01\\040061620411.csv",
+      "error": "RuntimeError: AU output quality check failed: frame coverage 0.088 is below 0.100"
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_fennu01\\040061620415.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_fennu01\\040061620415.csv",
+      "error": "RuntimeError: AU output quality check failed: only 4 rows; need at least 32"
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_fennu01\\040061620416.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_fennu01\\040061620416.csv",
+      "error": "RuntimeError: AU output quality check failed: frame coverage 0.048 is below 0.100"
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_fennu01\\048070810278.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_fennu01\\048070810278.csv",
+      "error": "CalledProcessError: Command '['S:\\\\.venv\\\\Scripts\\\\python.exe', 'S:\\\\scripts\\\\libreface_worker.py', '--input-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_8_shgkmr/normalized.mp4', '--output-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_8_shgkmr/output.csv', '--temp', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_8_shgkmr', '--weights-dir', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/weights_libreface', '--device', 'cuda', '--batch-size', '64', '--num-workers', '2']' returned non-zero exit status 1."
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_fennu01\\049032710126.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_fennu01\\049032710126.csv",
+      "error": "RuntimeError: AU output quality check failed: only 1 rows; need at least 32"
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_fennu01\\049090310177.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_fennu01\\049090310177.csv",
+      "error": "CalledProcessError: Command '['S:\\\\.venv\\\\Scripts\\\\python.exe', 'S:\\\\scripts\\\\libreface_worker.py', '--input-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_9wpo16zc/normalized.mp4', '--output-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_9wpo16zc/output.csv', '--temp', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_9wpo16zc', '--weights-dir', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/weights_libreface', '--device', 'cuda', '--batch-size', '64', '--num-workers', '2']' returned non-zero exit status 1."
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_jingya01\\040061620402.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_jingya01\\040061620402.csv",
+      "error": "RuntimeError: AU output quality check failed: only 10 rows; need at least 32"
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_jingya01\\040061620411.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_jingya01\\040061620411.csv",
+      "error": "CalledProcessError: Command '['S:\\\\.venv\\\\Scripts\\\\python.exe', 'S:\\\\scripts\\\\libreface_worker.py', '--input-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_pogue994/normalized.mp4', '--output-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_pogue994/output.csv', '--temp', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_pogue994', '--weights-dir', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/weights_libreface', '--device', 'cuda', '--batch-size', '64', '--num-workers', '2']' returned non-zero exit status 1."
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_jingya01\\040061620415.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_jingya01\\040061620415.csv",
+      "error": "RuntimeError: AU output quality check failed: only 2 rows; need at least 32"
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_jingya01\\048070810278.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_jingya01\\048070810278.csv",
+      "error": "CalledProcessError: Command '['S:\\\\.venv\\\\Scripts\\\\python.exe', 'S:\\\\scripts\\\\libreface_worker.py', '--input-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_k91oeeou/normalized.mp4', '--output-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_k91oeeou/output.csv', '--temp', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_k91oeeou', '--weights-dir', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/weights_libreface', '--device', 'cuda', '--batch-size', '64', '--num-workers', '2']' returned non-zero exit status 1."
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_jingya01\\049032710126.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_jingya01\\049032710126.csv",
+      "error": "CalledProcessError: Command '['S:\\\\.venv\\\\Scripts\\\\python.exe', 'S:\\\\scripts\\\\libreface_worker.py', '--input-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_9s7y867n/normalized.mp4', '--output-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_9s7y867n/output.csv', '--temp', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_9s7y867n', '--weights-dir', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/weights_libreface', '--device', 'cuda', '--batch-size', '64', '--num-workers', '2']' returned non-zero exit status 1."
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_jingya01\\049090310177.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_jingya01\\049090310177.csv",
+      "error": "CalledProcessError: Command '['S:\\\\.venv\\\\Scripts\\\\python.exe', 'S:\\\\scripts\\\\libreface_worker.py', '--input-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_owoj82lc/normalized.mp4', '--output-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_owoj82lc/output.csv', '--temp', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_owoj82lc', '--weights-dir', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/weights_libreface', '--device', 'cuda', '--batch-size', '64', '--num-workers', '2']' returned non-zero exit status 1."
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_jingya02\\040061620402.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_jingya02\\040061620402.csv",
+      "error": "RuntimeError: AU output quality check failed: only 1 rows; need at least 32"
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_jingya02\\040061620411.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_jingya02\\040061620411.csv",
+      "error": "RuntimeError: AU output quality check failed: only 6 rows; need at least 32"
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_jingya02\\040061620415.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_jingya02\\040061620415.csv",
+      "error": "CalledProcessError: Command '['S:\\\\.venv\\\\Scripts\\\\python.exe', 'S:\\\\scripts\\\\libreface_worker.py', '--input-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_clb16kqd/normalized.mp4', '--output-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_clb16kqd/output.csv', '--temp', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_clb16kqd', '--weights-dir', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/weights_libreface', '--device', 'cuda', '--batch-size', '64', '--num-workers', '2']' returned non-zero exit status 1."
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_jingya02\\040061620416.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_jingya02\\040061620416.csv",
+      "error": "RuntimeError: AU output quality check failed: only 9 rows; need at least 32"
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_jingya02\\048070810278.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_jingya02\\048070810278.csv",
+      "error": "CalledProcessError: Command '['S:\\\\.venv\\\\Scripts\\\\python.exe', 'S:\\\\scripts\\\\libreface_worker.py', '--input-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_q4qpn3qt/normalized.mp4', '--output-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_q4qpn3qt/output.csv', '--temp', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_q4qpn3qt', '--weights-dir', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/weights_libreface', '--device', 'cuda', '--batch-size', '64', '--num-workers', '2']' returned non-zero exit status 1."
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_jingya02\\049032710126.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_jingya02\\049032710126.csv",
+      "error": "RuntimeError: AU output quality check failed: only 6 rows; need at least 32"
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_jingya02\\049090310177.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_jingya02\\049090310177.csv",
+      "error": "CalledProcessError: Command '['S:\\\\.venv\\\\Scripts\\\\python.exe', 'S:\\\\scripts\\\\libreface_worker.py', '--input-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_50jbwd0u/normalized.mp4', '--output-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_50jbwd0u/output.csv', '--temp', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_50jbwd0u', '--weights-dir', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/weights_libreface', '--device', 'cuda', '--batch-size', '64', '--num-workers', '2']' returned non-zero exit status 1."
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_jingya03\\040061620402.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_jingya03\\040061620402.csv",
+      "error": "RuntimeError: AU output quality check failed: only 3 rows; need at least 32"
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_jingya03\\040061620411.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_jingya03\\040061620411.csv",
+      "error": "RuntimeError: AU output quality check failed: only 16 rows; need at least 32"
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_jingya03\\040061620415.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_jingya03\\040061620415.csv",
+      "error": "CalledProcessError: Command '['S:\\\\.venv\\\\Scripts\\\\python.exe', 'S:\\\\scripts\\\\libreface_worker.py', '--input-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_imhz7856/normalized.mp4', '--output-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_imhz7856/output.csv', '--temp', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_imhz7856', '--weights-dir', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/weights_libreface', '--device', 'cuda', '--batch-size', '64', '--num-workers', '2']' returned non-zero exit status 1."
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_jingya03\\040061620416.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_jingya03\\040061620416.csv",
+      "error": "RuntimeError: AU output quality check failed: only 13 rows; need at least 32"
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_jingya03\\048070810278.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_jingya03\\048070810278.csv",
+      "error": "CalledProcessError: Command '['S:\\\\.venv\\\\Scripts\\\\python.exe', 'S:\\\\scripts\\\\libreface_worker.py', '--input-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_k0perey3/normalized.mp4', '--output-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_k0perey3/output.csv', '--temp', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_k0perey3', '--weights-dir', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/weights_libreface', '--device', 'cuda', '--batch-size', '64', '--num-workers', '2']' returned non-zero exit status 1."
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_jingya03\\049032710126.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_jingya03\\049032710126.csv",
+      "error": "CalledProcessError: Command '['S:\\\\.venv\\\\Scripts\\\\python.exe', 'S:\\\\scripts\\\\libreface_worker.py', '--input-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_2_vx9skg/normalized.mp4', '--output-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_2_vx9skg/output.csv', '--temp', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_2_vx9skg', '--weights-dir', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/weights_libreface', '--device', 'cuda', '--batch-size', '64', '--num-workers', '2']' returned non-zero exit status 1."
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_jingya03\\049090310177.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_jingya03\\049090310177.csv",
+      "error": "CalledProcessError: Command '['S:\\\\.venv\\\\Scripts\\\\python.exe', 'S:\\\\scripts\\\\libreface_worker.py', '--input-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_hnmjl57d/normalized.mp4', '--output-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_hnmjl57d/output.csv', '--temp', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_hnmjl57d', '--weights-dir', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/weights_libreface', '--device', 'cuda', '--batch-size', '64', '--num-workers', '2']' returned non-zero exit status 1."
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_kaixin01\\040061620402.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_kaixin01\\040061620402.csv",
+      "error": "CalledProcessError: Command '['S:\\\\.venv\\\\Scripts\\\\python.exe', 'S:\\\\scripts\\\\libreface_worker.py', '--input-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_jitayrk8/normalized.mp4', '--output-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_jitayrk8/output.csv', '--temp', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_jitayrk8', '--weights-dir', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/weights_libreface', '--device', 'cuda', '--batch-size', '64', '--num-workers', '2']' returned non-zero exit status 1."
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_kaixin01\\040061620411.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_kaixin01\\040061620411.csv",
+      "error": "CalledProcessError: Command '['S:\\\\.venv\\\\Scripts\\\\python.exe', 'S:\\\\scripts\\\\libreface_worker.py', '--input-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_67ozo9j6/normalized.mp4', '--output-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_67ozo9j6/output.csv', '--temp', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_67ozo9j6', '--weights-dir', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/weights_libreface', '--device', 'cuda', '--batch-size', '64', '--num-workers', '2']' returned non-zero exit status 1."
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_kaixin01\\040061620415.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_kaixin01\\040061620415.csv",
+      "error": "CalledProcessError: Command '['S:\\\\.venv\\\\Scripts\\\\python.exe', 'S:\\\\scripts\\\\libreface_worker.py', '--input-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_avcpm1y1/normalized.mp4', '--output-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_avcpm1y1/output.csv', '--temp', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_avcpm1y1', '--weights-dir', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/weights_libreface', '--device', 'cuda', '--batch-size', '64', '--num-workers', '2']' returned non-zero exit status 1."
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_kaixin01\\048070810278.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_kaixin01\\048070810278.csv",
+      "error": "CalledProcessError: Command '['S:\\\\.venv\\\\Scripts\\\\python.exe', 'S:\\\\scripts\\\\libreface_worker.py', '--input-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_ujeicqkr/normalized.mp4', '--output-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_ujeicqkr/output.csv', '--temp', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_ujeicqkr', '--weights-dir', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/weights_libreface', '--device', 'cuda', '--batch-size', '64', '--num-workers', '2']' returned non-zero exit status 1."
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_kaixin01\\049032710126.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_kaixin01\\049032710126.csv",
+      "error": "RuntimeError: AU output quality check failed: only 3 rows; need at least 32"
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_kaixin01\\049090310174.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_kaixin01\\049090310174.csv",
+      "error": "CalledProcessError: Command '['S:\\\\.venv\\\\Scripts\\\\python.exe', 'S:\\\\scripts\\\\libreface_worker.py', '--input-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_qo102rse/normalized.mp4', '--output-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_qo102rse/output.csv', '--temp', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_qo102rse', '--weights-dir', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/weights_libreface', '--device', 'cuda', '--batch-size', '64', '--num-workers', '2']' returned non-zero exit status 1."
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_kaixin01\\049090310177.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_kaixin01\\049090310177.csv",
+      "error": "CalledProcessError: Command '['S:\\\\.venv\\\\Scripts\\\\python.exe', 'S:\\\\scripts\\\\libreface_worker.py', '--input-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_toh0xjr5/normalized.mp4', '--output-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_toh0xjr5/output.csv', '--temp', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_toh0xjr5', '--weights-dir', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/weights_libreface', '--device', 'cuda', '--batch-size', '64', '--num-workers', '2']' returned non-zero exit status 1."
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_kaixin02\\040061620402.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_kaixin02\\040061620402.csv",
+      "error": "RuntimeError: AU output quality check failed: only 1 rows; need at least 32"
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_kaixin02\\040061620411.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_kaixin02\\040061620411.csv",
+      "error": "CalledProcessError: Command '['S:\\\\.venv\\\\Scripts\\\\python.exe', 'S:\\\\scripts\\\\libreface_worker.py', '--input-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_n50q6esd/normalized.mp4', '--output-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_n50q6esd/output.csv', '--temp', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_n50q6esd', '--weights-dir', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/weights_libreface', '--device', 'cuda', '--batch-size', '64', '--num-workers', '2']' returned non-zero exit status 1."
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_kaixin02\\040061620415.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_kaixin02\\040061620415.csv",
+      "error": "CalledProcessError: Command '['S:\\\\.venv\\\\Scripts\\\\python.exe', 'S:\\\\scripts\\\\libreface_worker.py', '--input-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_6p1v34cg/normalized.mp4', '--output-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_6p1v34cg/output.csv', '--temp', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_6p1v34cg', '--weights-dir', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/weights_libreface', '--device', 'cuda', '--batch-size', '64', '--num-workers', '2']' returned non-zero exit status 1."
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_kaixin02\\048070810278.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_kaixin02\\048070810278.csv",
+      "error": "CalledProcessError: Command '['S:\\\\.venv\\\\Scripts\\\\python.exe', 'S:\\\\scripts\\\\libreface_worker.py', '--input-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_cpwvk8xn/normalized.mp4', '--output-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_cpwvk8xn/output.csv', '--temp', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_cpwvk8xn', '--weights-dir', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/weights_libreface', '--device', 'cuda', '--batch-size', '64', '--num-workers', '2']' returned non-zero exit status 1."
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_kaixin02\\049032710126.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_kaixin02\\049032710126.csv",
+      "error": "RuntimeError: AU output quality check failed: only 10 rows; need at least 32"
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_kaixin02\\049090310174.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_kaixin02\\049090310174.csv",
+      "error": "RuntimeError: AU output quality check failed: only 1 rows; need at least 32"
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_kaixin02\\049090310177.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_kaixin02\\049090310177.csv",
+      "error": "CalledProcessError: Command '['S:\\\\.venv\\\\Scripts\\\\python.exe', 'S:\\\\scripts\\\\libreface_worker.py', '--input-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_6nlvb8z3/normalized.mp4', '--output-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_6nlvb8z3/output.csv', '--temp', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_6nlvb8z3', '--weights-dir', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/weights_libreface', '--device', 'cuda', '--batch-size', '64', '--num-workers', '2']' returned non-zero exit status 1."
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_kaixin03\\040061620402.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_kaixin03\\040061620402.csv",
+      "error": "CalledProcessError: Command '['S:\\\\.venv\\\\Scripts\\\\python.exe', 'S:\\\\scripts\\\\libreface_worker.py', '--input-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_idhovzcz/normalized.mp4', '--output-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_idhovzcz/output.csv', '--temp', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_idhovzcz', '--weights-dir', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/weights_libreface', '--device', 'cuda', '--batch-size', '64', '--num-workers', '2']' returned non-zero exit status 1."
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_kaixin03\\040061620411.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_kaixin03\\040061620411.csv",
+      "error": "RuntimeError: AU output quality check failed: only 2 rows; need at least 32"
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_kaixin03\\040061620412.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_kaixin03\\040061620412.csv",
+      "error": "RuntimeError: AU output quality check failed: only 25 rows; need at least 32"
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_kaixin03\\040061620415.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_kaixin03\\040061620415.csv",
+      "error": "CalledProcessError: Command '['S:\\\\.venv\\\\Scripts\\\\python.exe', 'S:\\\\scripts\\\\libreface_worker.py', '--input-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_13folqfi/normalized.mp4', '--output-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_13folqfi/output.csv', '--temp', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_13folqfi', '--weights-dir', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/weights_libreface', '--device', 'cuda', '--batch-size', '64', '--num-workers', '2']' returned non-zero exit status 1."
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_kaixin03\\040061620416.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_kaixin03\\040061620416.csv",
+      "error": "RuntimeError: AU output quality check failed: only 27 rows; need at least 32"
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_kaixin03\\048070810278.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_kaixin03\\048070810278.csv",
+      "error": "CalledProcessError: Command '['S:\\\\.venv\\\\Scripts\\\\python.exe', 'S:\\\\scripts\\\\libreface_worker.py', '--input-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_sma4tpm0/normalized.mp4', '--output-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_sma4tpm0/output.csv', '--temp', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_sma4tpm0', '--weights-dir', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/weights_libreface', '--device', 'cuda', '--batch-size', '64', '--num-workers', '2']' returned non-zero exit status 1."
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_kaixin03\\048072910106.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_kaixin03\\048072910106.csv",
+      "error": "RuntimeError: AU output quality check failed: only 1 rows; need at least 32"
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_kaixin03\\049032710126.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_kaixin03\\049032710126.csv",
+      "error": "RuntimeError: AU output quality check failed: only 4 rows; need at least 32"
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_kaixin03\\049090310174.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_kaixin03\\049090310174.csv",
+      "error": "CalledProcessError: Command '['S:\\\\.venv\\\\Scripts\\\\python.exe', 'S:\\\\scripts\\\\libreface_worker.py', '--input-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_k7b7s0lr/normalized.mp4', '--output-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_k7b7s0lr/output.csv', '--temp', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_k7b7s0lr', '--weights-dir', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/weights_libreface', '--device', 'cuda', '--batch-size', '64', '--num-workers', '2']' returned non-zero exit status 1."
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_kaixin03\\049090310177.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_kaixin03\\049090310177.csv",
+      "error": "CalledProcessError: Command '['S:\\\\.venv\\\\Scripts\\\\python.exe', 'S:\\\\scripts\\\\libreface_worker.py', '--input-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_ynuqnv7u/normalized.mp4', '--output-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_ynuqnv7u/output.csv', '--temp', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_ynuqnv7u', '--weights-dir', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/weights_libreface', '--device', 'cuda', '--batch-size', '64', '--num-workers', '2']' returned non-zero exit status 1."
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_kongju01\\040061620402.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_kongju01\\040061620402.csv",
+      "error": "CalledProcessError: Command '['S:\\\\.venv\\\\Scripts\\\\python.exe', 'S:\\\\scripts\\\\libreface_worker.py', '--input-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_uelay05t/normalized.mp4', '--output-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_uelay05t/output.csv', '--temp', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_uelay05t', '--weights-dir', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/weights_libreface', '--device', 'cuda', '--batch-size', '64', '--num-workers', '2']' returned non-zero exit status 1."
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_kongju01\\040061620411.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_kongju01\\040061620411.csv",
+      "error": "RuntimeError: AU output quality check failed: only 17 rows; need at least 32"
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_kongju01\\040061620415.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_kongju01\\040061620415.csv",
+      "error": "CalledProcessError: Command '['S:\\\\.venv\\\\Scripts\\\\python.exe', 'S:\\\\scripts\\\\libreface_worker.py', '--input-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run__l15fa4y/normalized.mp4', '--output-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run__l15fa4y/output.csv', '--temp', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run__l15fa4y', '--weights-dir', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/weights_libreface', '--device', 'cuda', '--batch-size', '64', '--num-workers', '2']' returned non-zero exit status 1."
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_kongju01\\040061620416.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_kongju01\\040061620416.csv",
+      "error": "RuntimeError: AU output quality check failed: only 13 rows; need at least 32"
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_kongju01\\048070810278.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_kongju01\\048070810278.csv",
+      "error": "CalledProcessError: Command '['S:\\\\.venv\\\\Scripts\\\\python.exe', 'S:\\\\scripts\\\\libreface_worker.py', '--input-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_xs8imfa8/normalized.mp4', '--output-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_xs8imfa8/output.csv', '--temp', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_xs8imfa8', '--weights-dir', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/weights_libreface', '--device', 'cuda', '--batch-size', '64', '--num-workers', '2']' returned non-zero exit status 1."
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_kongju01\\049032710126.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_kongju01\\049032710126.csv",
+      "error": "RuntimeError: AU output quality check failed: only 2 rows; need at least 32"
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_kongju01\\049090310177.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_kongju01\\049090310177.csv",
+      "error": "CalledProcessError: Command '['S:\\\\.venv\\\\Scripts\\\\python.exe', 'S:\\\\scripts\\\\libreface_worker.py', '--input-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_7d68vi9c/normalized.mp4', '--output-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_7d68vi9c/output.csv', '--temp', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_7d68vi9c', '--weights-dir', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/weights_libreface', '--device', 'cuda', '--batch-size', '64', '--num-workers', '2']' returned non-zero exit status 1."
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_kongju02\\040061620402.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_kongju02\\040061620402.csv",
+      "error": "CalledProcessError: Command '['S:\\\\.venv\\\\Scripts\\\\python.exe', 'S:\\\\scripts\\\\libreface_worker.py', '--input-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_bz1b1zvf/normalized.mp4', '--output-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_bz1b1zvf/output.csv', '--temp', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_bz1b1zvf', '--weights-dir', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/weights_libreface', '--device', 'cuda', '--batch-size', '64', '--num-workers', '2']' returned non-zero exit status 1."
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_kongju02\\040061620415.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_kongju02\\040061620415.csv",
+      "error": "CalledProcessError: Command '['S:\\\\.venv\\\\Scripts\\\\python.exe', 'S:\\\\scripts\\\\libreface_worker.py', '--input-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_o056rxxy/normalized.mp4', '--output-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_o056rxxy/output.csv', '--temp', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_o056rxxy', '--weights-dir', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/weights_libreface', '--device', 'cuda', '--batch-size', '64', '--num-workers', '2']' returned non-zero exit status 1."
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_kongju02\\040061620416.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_kongju02\\040061620416.csv",
+      "error": "RuntimeError: AU output quality check failed: only 21 rows; need at least 32"
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_kongju02\\048070810278.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_kongju02\\048070810278.csv",
+      "error": "CalledProcessError: Command '['S:\\\\.venv\\\\Scripts\\\\python.exe', 'S:\\\\scripts\\\\libreface_worker.py', '--input-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_garstrxb/normalized.mp4', '--output-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_garstrxb/output.csv', '--temp', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_garstrxb', '--weights-dir', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/weights_libreface', '--device', 'cuda', '--batch-size', '64', '--num-workers', '2']' returned non-zero exit status 1."
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_kongju02\\049032710126.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_kongju02\\049032710126.csv",
+      "error": "CalledProcessError: Command '['S:\\\\.venv\\\\Scripts\\\\python.exe', 'S:\\\\scripts\\\\libreface_worker.py', '--input-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_5oqnq5le/normalized.mp4', '--output-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_5oqnq5le/output.csv', '--temp', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_5oqnq5le', '--weights-dir', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/weights_libreface', '--device', 'cuda', '--batch-size', '64', '--num-workers', '2']' returned non-zero exit status 1."
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_kongju02\\049090310177.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_kongju02\\049090310177.csv",
+      "error": "CalledProcessError: Command '['S:\\\\.venv\\\\Scripts\\\\python.exe', 'S:\\\\scripts\\\\libreface_worker.py', '--input-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_u4pbe539/normalized.mp4', '--output-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_u4pbe539/output.csv', '--temp', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_u4pbe539', '--weights-dir', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/weights_libreface', '--device', 'cuda', '--batch-size', '64', '--num-workers', '2']' returned non-zero exit status 1."
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_kongju03\\040061620402.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_kongju03\\040061620402.csv",
+      "error": "RuntimeError: AU output quality check failed: only 5 rows; need at least 32"
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_kongju03\\040061620411.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_kongju03\\040061620411.csv",
+      "error": "RuntimeError: AU output quality check failed: only 19 rows; need at least 32"
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_kongju03\\040061620415.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_kongju03\\040061620415.csv",
+      "error": "RuntimeError: AU output quality check failed: only 1 rows; need at least 32"
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_kongju03\\040061620416.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_kongju03\\040061620416.csv",
+      "error": "RuntimeError: AU output quality check failed: only 3 rows; need at least 32"
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_kongju03\\048070810278.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_kongju03\\048070810278.csv",
+      "error": "CalledProcessError: Command '['S:\\\\.venv\\\\Scripts\\\\python.exe', 'S:\\\\scripts\\\\libreface_worker.py', '--input-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_ud5hs7co/normalized.mp4', '--output-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_ud5hs7co/output.csv', '--temp', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_ud5hs7co', '--weights-dir', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/weights_libreface', '--device', 'cuda', '--batch-size', '64', '--num-workers', '2']' returned non-zero exit status 1."
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_kongju03\\049032710126.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_kongju03\\049032710126.csv",
+      "error": "CalledProcessError: Command '['S:\\\\.venv\\\\Scripts\\\\python.exe', 'S:\\\\scripts\\\\libreface_worker.py', '--input-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_er9spnso/normalized.mp4', '--output-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_er9spnso/output.csv', '--temp', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_er9spnso', '--weights-dir', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/weights_libreface', '--device', 'cuda', '--batch-size', '64', '--num-workers', '2']' returned non-zero exit status 1."
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_kongju03\\049090310177.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_kongju03\\049090310177.csv",
+      "error": "CalledProcessError: Command '['S:\\\\.venv\\\\Scripts\\\\python.exe', 'S:\\\\scripts\\\\libreface_worker.py', '--input-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_quchq__x/normalized.mp4', '--output-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_quchq__x/output.csv', '--temp', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_quchq__x', '--weights-dir', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/weights_libreface', '--device', 'cuda', '--batch-size', '64', '--num-workers', '2']' returned non-zero exit status 1."
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_shengqi01\\040061620402.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_shengqi01\\040061620402.csv",
+      "error": "RuntimeError: AU output quality check failed: only 20 rows; need at least 32"
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_shengqi01\\040061620415.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_shengqi01\\040061620415.csv",
+      "error": "CalledProcessError: Command '['S:\\\\.venv\\\\Scripts\\\\python.exe', 'S:\\\\scripts\\\\libreface_worker.py', '--input-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_biroyvyh/normalized.mp4', '--output-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_biroyvyh/output.csv', '--temp', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_biroyvyh', '--weights-dir', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/weights_libreface', '--device', 'cuda', '--batch-size', '64', '--num-workers', '2']' returned non-zero exit status 1."
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_shengqi01\\040061620416.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_shengqi01\\040061620416.csv",
+      "error": "RuntimeError: AU output quality check failed: only 6 rows; need at least 32"
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_shengqi01\\048070810278.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_shengqi01\\048070810278.csv",
+      "error": "CalledProcessError: Command '['S:\\\\.venv\\\\Scripts\\\\python.exe', 'S:\\\\scripts\\\\libreface_worker.py', '--input-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_kjhmebdo/normalized.mp4', '--output-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_kjhmebdo/output.csv', '--temp', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_kjhmebdo', '--weights-dir', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/weights_libreface', '--device', 'cuda', '--batch-size', '64', '--num-workers', '2']' returned non-zero exit status 1."
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_shengqi01\\049032710126.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_shengqi01\\049032710126.csv",
+      "error": "CalledProcessError: Command '['S:\\\\.venv\\\\Scripts\\\\python.exe', 'S:\\\\scripts\\\\libreface_worker.py', '--input-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_zegqwu_t/normalized.mp4', '--output-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_zegqwu_t/output.csv', '--temp', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_zegqwu_t', '--weights-dir', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/weights_libreface', '--device', 'cuda', '--batch-size', '64', '--num-workers', '2']' returned non-zero exit status 1."
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_shengqi01\\049090310174.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_shengqi01\\049090310174.csv",
+      "error": "RuntimeError: AU output quality check failed: only 15 rows; need at least 32"
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_shengqi01\\049090310177.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_shengqi01\\049090310177.csv",
+      "error": "CalledProcessError: Command '['S:\\\\.venv\\\\Scripts\\\\python.exe', 'S:\\\\scripts\\\\libreface_worker.py', '--input-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_k05brf7c/normalized.mp4', '--output-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_k05brf7c/output.csv', '--temp', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_k05brf7c', '--weights-dir', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/weights_libreface', '--device', 'cuda', '--batch-size', '64', '--num-workers', '2']' returned non-zero exit status 1."
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_shengqi02\\040061620402.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_shengqi02\\040061620402.csv",
+      "error": "RuntimeError: AU output quality check failed: only 3 rows; need at least 32"
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_shengqi02\\040061620411.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_shengqi02\\040061620411.csv",
+      "error": "RuntimeError: AU output quality check failed: only 12 rows; need at least 32"
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_shengqi02\\040061620415.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_shengqi02\\040061620415.csv",
+      "error": "CalledProcessError: Command '['S:\\\\.venv\\\\Scripts\\\\python.exe', 'S:\\\\scripts\\\\libreface_worker.py', '--input-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_cnvckpcg/normalized.mp4', '--output-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_cnvckpcg/output.csv', '--temp', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_cnvckpcg', '--weights-dir', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/weights_libreface', '--device', 'cuda', '--batch-size', '64', '--num-workers', '2']' returned non-zero exit status 1."
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_shengqi02\\040061620416.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_shengqi02\\040061620416.csv",
+      "error": "RuntimeError: AU output quality check failed: only 8 rows; need at least 32"
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_shengqi02\\048070810278.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_shengqi02\\048070810278.csv",
+      "error": "CalledProcessError: Command '['S:\\\\.venv\\\\Scripts\\\\python.exe', 'S:\\\\scripts\\\\libreface_worker.py', '--input-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_6038usaf/normalized.mp4', '--output-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_6038usaf/output.csv', '--temp', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_6038usaf', '--weights-dir', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/weights_libreface', '--device', 'cuda', '--batch-size', '64', '--num-workers', '2']' returned non-zero exit status 1."
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_shengqi02\\049032710126.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_shengqi02\\049032710126.csv",
+      "error": "CalledProcessError: Command '['S:\\\\.venv\\\\Scripts\\\\python.exe', 'S:\\\\scripts\\\\libreface_worker.py', '--input-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_4df1ek49/normalized.mp4', '--output-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_4df1ek49/output.csv', '--temp', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_4df1ek49', '--weights-dir', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/weights_libreface', '--device', 'cuda', '--batch-size', '64', '--num-workers', '2']' returned non-zero exit status 1."
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_shengqi02\\049032710127.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_shengqi02\\049032710127.csv",
+      "error": "RuntimeError: AU output quality check failed: only 14 rows; need at least 32"
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_shengqi02\\049090310174.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_shengqi02\\049090310174.csv",
+      "error": "RuntimeError: AU output quality check failed: only 7 rows; need at least 32"
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_shengqi02\\049090310177.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_shengqi02\\049090310177.csv",
+      "error": "CalledProcessError: Command '['S:\\\\.venv\\\\Scripts\\\\python.exe', 'S:\\\\scripts\\\\libreface_worker.py', '--input-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_ggm3bz6_/normalized.mp4', '--output-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_ggm3bz6_/output.csv', '--temp', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_ggm3bz6_', '--weights-dir', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/weights_libreface', '--device', 'cuda', '--batch-size', '64', '--num-workers', '2']' returned non-zero exit status 1."
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_shengqi03\\040061620402.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_shengqi03\\040061620402.csv",
+      "error": "RuntimeError: AU output quality check failed: only 2 rows; need at least 32"
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_shengqi03\\040061620415.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_shengqi03\\040061620415.csv",
+      "error": "CalledProcessError: Command '['S:\\\\.venv\\\\Scripts\\\\python.exe', 'S:\\\\scripts\\\\libreface_worker.py', '--input-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_1spyq8yu/normalized.mp4', '--output-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_1spyq8yu/output.csv', '--temp', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_1spyq8yu', '--weights-dir', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/weights_libreface', '--device', 'cuda', '--batch-size', '64', '--num-workers', '2']' returned non-zero exit status 1."
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_shengqi03\\040061620416.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_shengqi03\\040061620416.csv",
+      "error": "RuntimeError: AU output quality check failed: only 5 rows; need at least 32"
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_shengqi03\\048070810278.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_shengqi03\\048070810278.csv",
+      "error": "CalledProcessError: Command '['S:\\\\.venv\\\\Scripts\\\\python.exe', 'S:\\\\scripts\\\\libreface_worker.py', '--input-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_8egmfqh7/normalized.mp4', '--output-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_8egmfqh7/output.csv', '--temp', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_8egmfqh7', '--weights-dir', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/weights_libreface', '--device', 'cuda', '--batch-size', '64', '--num-workers', '2']' returned non-zero exit status 1."
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_shengqi03\\049032710126.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_shengqi03\\049032710126.csv",
+      "error": "CalledProcessError: Command '['S:\\\\.venv\\\\Scripts\\\\python.exe', 'S:\\\\scripts\\\\libreface_worker.py', '--input-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_my70wx22/normalized.mp4', '--output-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_my70wx22/output.csv', '--temp', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_my70wx22', '--weights-dir', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/weights_libreface', '--device', 'cuda', '--batch-size', '64', '--num-workers', '2']' returned non-zero exit status 1."
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_shengqi03\\049090310177.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_shengqi03\\049090310177.csv",
+      "error": "CalledProcessError: Command '['S:\\\\.venv\\\\Scripts\\\\python.exe', 'S:\\\\scripts\\\\libreface_worker.py', '--input-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_emkzfewa/normalized.mp4', '--output-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_emkzfewa/output.csv', '--temp', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_emkzfewa', '--weights-dir', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/weights_libreface', '--device', 'cuda', '--batch-size', '64', '--num-workers', '2']' returned non-zero exit status 1."
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_yanwu01\\040061620402.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_yanwu01\\040061620402.csv",
+      "error": "RuntimeError: AU output quality check failed: only 3 rows; need at least 32"
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_yanwu01\\040061620415.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_yanwu01\\040061620415.csv",
+      "error": "CalledProcessError: Command '['S:\\\\.venv\\\\Scripts\\\\python.exe', 'S:\\\\scripts\\\\libreface_worker.py', '--input-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_tbv5zj3_/normalized.mp4', '--output-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_tbv5zj3_/output.csv', '--temp', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_tbv5zj3_', '--weights-dir', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/weights_libreface', '--device', 'cuda', '--batch-size', '64', '--num-workers', '2']' returned non-zero exit status 1."
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_yanwu01\\040061620416.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_yanwu01\\040061620416.csv",
+      "error": "RuntimeError: AU output quality check failed: only 6 rows; need at least 32"
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_yanwu01\\048070810278.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_yanwu01\\048070810278.csv",
+      "error": "CalledProcessError: Command '['S:\\\\.venv\\\\Scripts\\\\python.exe', 'S:\\\\scripts\\\\libreface_worker.py', '--input-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_y7xpa8_7/normalized.mp4', '--output-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_y7xpa8_7/output.csv', '--temp', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_y7xpa8_7', '--weights-dir', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/weights_libreface', '--device', 'cuda', '--batch-size', '64', '--num-workers', '2']' returned non-zero exit status 1."
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_yanwu01\\049032710126.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_yanwu01\\049032710126.csv",
+      "error": "CalledProcessError: Command '['S:\\\\.venv\\\\Scripts\\\\python.exe', 'S:\\\\scripts\\\\libreface_worker.py', '--input-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_ljhv255u/normalized.mp4', '--output-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_ljhv255u/output.csv', '--temp', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_ljhv255u', '--weights-dir', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/weights_libreface', '--device', 'cuda', '--batch-size', '64', '--num-workers', '2']' returned non-zero exit status 1."
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_yanwu01\\049090310177.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_yanwu01\\049090310177.csv",
+      "error": "CalledProcessError: Command '['S:\\\\.venv\\\\Scripts\\\\python.exe', 'S:\\\\scripts\\\\libreface_worker.py', '--input-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_r_ydmjcc/normalized.mp4', '--output-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_r_ydmjcc/output.csv', '--temp', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_r_ydmjcc', '--weights-dir', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/weights_libreface', '--device', 'cuda', '--batch-size', '64', '--num-workers', '2']' returned non-zero exit status 1."
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_yanwu02\\040061620402.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_yanwu02\\040061620402.csv",
+      "error": "RuntimeError: AU output quality check failed: only 10 rows; need at least 32"
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_yanwu02\\040061620411.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_yanwu02\\040061620411.csv",
+      "error": "RuntimeError: AU output quality check failed: only 29 rows; need at least 32"
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_yanwu02\\040061620415.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_yanwu02\\040061620415.csv",
+      "error": "CalledProcessError: Command '['S:\\\\.venv\\\\Scripts\\\\python.exe', 'S:\\\\scripts\\\\libreface_worker.py', '--input-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_yo8sz5pe/normalized.mp4', '--output-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_yo8sz5pe/output.csv', '--temp', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_yo8sz5pe', '--weights-dir', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/weights_libreface', '--device', 'cuda', '--batch-size', '64', '--num-workers', '2']' returned non-zero exit status 1."
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_yanwu02\\040061620416.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_yanwu02\\040061620416.csv",
+      "error": "RuntimeError: AU output quality check failed: only 4 rows; need at least 32"
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_yanwu02\\048070810278.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_yanwu02\\048070810278.csv",
+      "error": "RuntimeError: AU output quality check failed: only 1 rows; need at least 32"
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_yanwu02\\049032710126.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_yanwu02\\049032710126.csv",
+      "error": "CalledProcessError: Command '['S:\\\\.venv\\\\Scripts\\\\python.exe', 'S:\\\\scripts\\\\libreface_worker.py', '--input-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_l2dbh76r/normalized.mp4', '--output-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_l2dbh76r/output.csv', '--temp', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_l2dbh76r', '--weights-dir', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/weights_libreface', '--device', 'cuda', '--batch-size', '64', '--num-workers', '2']' returned non-zero exit status 1."
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_yanwu02\\049090310177.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_yanwu02\\049090310177.csv",
+      "error": "CalledProcessError: Command '['S:\\\\.venv\\\\Scripts\\\\python.exe', 'S:\\\\scripts\\\\libreface_worker.py', '--input-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_t0c2jbjy/normalized.mp4', '--output-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_t0c2jbjy/output.csv', '--temp', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_t0c2jbjy', '--weights-dir', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/weights_libreface', '--device', 'cuda', '--batch-size', '64', '--num-workers', '2']' returned non-zero exit status 1."
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_yanwu03\\040061620402.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_yanwu03\\040061620402.csv",
+      "error": "RuntimeError: AU output quality check failed: only 6 rows; need at least 32"
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_yanwu03\\040061620411.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_yanwu03\\040061620411.csv",
+      "error": "RuntimeError: AU output quality check failed: only 6 rows; need at least 32"
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_yanwu03\\040061620415.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_yanwu03\\040061620415.csv",
+      "error": "CalledProcessError: Command '['S:\\\\.venv\\\\Scripts\\\\python.exe', 'S:\\\\scripts\\\\libreface_worker.py', '--input-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_rtpoqz2s/normalized.mp4', '--output-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_rtpoqz2s/output.csv', '--temp', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_rtpoqz2s', '--weights-dir', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/weights_libreface', '--device', 'cuda', '--batch-size', '64', '--num-workers', '2']' returned non-zero exit status 1."
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_yanwu03\\040061620416.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_yanwu03\\040061620416.csv",
+      "error": "RuntimeError: AU output quality check failed: only 18 rows; need at least 32"
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_yanwu03\\048070810278.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_yanwu03\\048070810278.csv",
+      "error": "CalledProcessError: Command '['S:\\\\.venv\\\\Scripts\\\\python.exe', 'S:\\\\scripts\\\\libreface_worker.py', '--input-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_jkyw0nvv/normalized.mp4', '--output-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_jkyw0nvv/output.csv', '--temp', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_jkyw0nvv', '--weights-dir', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/weights_libreface', '--device', 'cuda', '--batch-size', '64', '--num-workers', '2']' returned non-zero exit status 1."
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_yanwu03\\049032710126.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_yanwu03\\049032710126.csv",
+      "error": "CalledProcessError: Command '['S:\\\\.venv\\\\Scripts\\\\python.exe', 'S:\\\\scripts\\\\libreface_worker.py', '--input-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_647mnsuh/normalized.mp4', '--output-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_647mnsuh/output.csv', '--temp', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_647mnsuh', '--weights-dir', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/weights_libreface', '--device', 'cuda', '--batch-size', '64', '--num-workers', '2']' returned non-zero exit status 1."
+    },
+    {
+      "input": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\MD_CL\\CL_yanwu03\\049090310177.mp4",
+      "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_yanwu03\\049090310177.csv",
+      "error": "CalledProcessError: Command '['S:\\\\.venv\\\\Scripts\\\\python.exe', 'S:\\\\scripts\\\\libreface_worker.py', '--input-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_m6crmnm5/normalized.mp4', '--output-path', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_m6crmnm5/output.csv', '--temp', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/run_m6crmnm5', '--weights-dir', 'C:/Users/ZHANGH~1/AppData/Local/Temp/frame_audit_libreface/weights_libreface', '--device', 'cuda', '--batch-size', '64', '--num-workers', '2']' returned non-zero exit status 1."
+    }
+  ]
+}
