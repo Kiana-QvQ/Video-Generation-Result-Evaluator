@@ -21,6 +21,7 @@ from evaluator.au_compliance import (  # noqa: E402
     fit_au_profile,
     load_au_table,
     load_au_profile_tables,
+    sha256_file,
 )
 from evaluator.au_dataset import (  # noqa: E402
     DEFAULT_MIN_AU_ROWS,
@@ -87,6 +88,7 @@ def main(argv: list[str] | None = None) -> int:
     video_root = project_path(args.video_root)
     labeled_sequences: list[tuple[str, object]] = []
     presence_sequences: list[tuple[str, object]] = []
+    sample_metadata: list[dict[str, object]] = []
     skipped: list[str] = []
     expected_outputs: list[Path] = []
     incomplete_outputs: list[str] = []
@@ -172,6 +174,16 @@ def main(argv: list[str] | None = None) -> int:
                 quality_filtered_file_count += 1
                 quality_dropped_frame_count += dropped
             labeled_sequences.append((expression_class, sequence))
+            metadata: dict[str, object] = {
+                "source_id": relative.as_posix(),
+                "source_path": str(video_path),
+                "au_path": str(au_path),
+                "au_sha256": sha256_file(au_path),
+            }
+            if video_path.is_file():
+                metadata["video_path"] = str(video_path)
+                metadata["video_sha256"] = sha256_file(video_path)
+            sample_metadata.append(metadata)
             if presence is not None and presence_supported:
                 presence_sequences.append((expression_class, presence))
         except (OSError, ValueError) as exc:
@@ -189,6 +201,7 @@ def main(argv: list[str] | None = None) -> int:
         au_ids=DEFAULT_AU_IDS,
         presence_labeled_sequences=presence_sequences,
         presence_au_ids=DEFAULT_PRESENCE_AU_IDS,
+        sample_metadata=sample_metadata,
     )
     counts = Counter(class_name for class_name, _ in labeled_sequences)
     ready = (

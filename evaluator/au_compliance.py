@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import json
 import math
 import re
@@ -11,8 +12,9 @@ import numpy as np
 
 
 AU_PROFILE_SCHEMA = "wangxing_au_profile_v2"
+AU_PROFILE_FORMAT_VERSION = 3
 AU_CLASSIFIER_SCHEMA = "au_leakage_classifier_v2"
-AU_EVALUATOR_VERSION = "wangxing_au_eval_v6"
+AU_EVALUATOR_VERSION = "wangxing_au_eval_v7"
 AU_QUALITY_SCHEMA = "face_quality_gate_v1"
 AUTO_EMOTION_MIN_CLASSES = 2
 AUTO_EMOTION_MIN_SAMPLES_PER_CLASS = 3
@@ -61,6 +63,9 @@ FACE_MESH_BROW_CHANGE_THRESHOLD = 0.012
 FACE_MESH_EYE_CHANGE_THRESHOLD = 0.012
 FACE_MESH_GLOBAL_MOTION_THRESHOLD = 0.008
 FACE_MESH_SALIENT_DURATION_RATIO = 0.05
+SMILE_MIN_JOINT_PRESENCE = 0.20
+SMILE_MIN_JOINT_INTENSITY = 0.12
+SMILE_MIN_OBSERVABLE_SCORE = 0.18
 COMPLIANCE_COMPONENT_WEIGHTS = {
     "identity": 0.40,
     "personal_au": 0.40,
@@ -97,8 +102,18 @@ def atomic_write_text(
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f"{path.stem}.new{path.suffix}")
-    temporary.write_text(content, encoding=encoding)
+    with temporary.open("w", encoding=encoding, newline="\n") as handle:
+        handle.write(content)
     temporary.replace(path)
+
+
+def sha256_file(path: str | Path) -> str:
+    """Return a content hash used to verify AU/profile provenance."""
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def _canonical_au_id(value: str) -> int | None:
@@ -770,9 +785,17 @@ def fit_au_profile(
     presence_labeled_sequences: Iterable[tuple[str, np.ndarray]] | None = None,
     presence_au_ids: Iterable[int] = DEFAULT_PRESENCE_AU_IDS,
     active_threshold: float = DEFAULT_ACTIVE_THRESHOLD,
+    sample_metadata: Iterable[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Fit target AU distributions from real target videos only."""
     labeled_sequences = list(labeled_sequences)
+    metadata_rows = list(sample_metadata or [])
+    if metadata_rows and len(metadata_rows) != len(labeled_sequences):
+        raise ValueError(
+            "AU sample metadata must have one row per labeled sequence."
+        )
+    if not metadata_rows:
+        metadata_rows = [{} for _ in labeled_sequences]
     au_ids = tuple(int(value) for value in au_ids)
     if (
         au_ids == DEFAULT_AU_IDS
@@ -783,23 +806,40 @@ def fit_au_profile(
         au_ids = LEGACY_AU_IDS
     grouped_frames: dict[str, list[np.ndarray]] = {}
     grouped_summaries: dict[str, list[np.ndarray]] = {}
-    sample_paths: dict[str, list[str]] = {}
-    for expression_class, sequence in labeled_sequences:
+    grouped_prototypes: dict[str, list[dict[str, Any]]] = {}
+    for index, (expression_class, sequence) in enumerate(labeled_sequences):
         sequence = np.asarray(sequence, dtype=np.float32)
         if sequence.ndim != 2 or sequence.shape[1] != len(au_ids):
             raise ValueError(
                 f"AU sequence for {expression_class} has invalid shape "
                 f"{sequence.shape}; expected [frames, {len(au_ids)}]."
             )
-        grouped_frames.setdefault(expression_class, []).extend(sequence)
-        grouped_summaries.setdefault(expression_class, []).append(
-            au_summary(
-                sequence,
-                au_ids=au_ids,
-                active_threshold=active_threshold,
-            )
+        summary = au_summary(
+            sequence,
+            au_ids=au_ids,
+            active_threshold=active_threshold,
         )
-        sample_paths.setdefault(expression_class, []).append("")
+        grouped_frames.setdefault(expression_class, []).extend(sequence)
+        grouped_summaries.setdefault(expression_class, []).append(summary)
+        sample_info = metadata_rows[index]
+        prototype: dict[str, Any] = {
+            "frame_count": int(len(sequence)),
+            "summary": _json_float_list(summary),
+        }
+        for key in (
+            "source_id",
+            "source_path",
+            "au_path",
+            "au_sha256",
+            "video_path",
+            "video_sha256",
+        ):
+            value = sample_info.get(key)
+            if value is not None:
+                prototype[key] = str(value)
+        grouped_prototypes.setdefault(expression_class, []).append(
+            prototype
+        )
 
     if not grouped_frames:
         raise ValueError("No AU sequences were provided for profile fitting.")
@@ -812,7 +852,8 @@ def fit_au_profile(
         models[expression_class] = {
             "frame": frame_model,
             "summary": summary_model,
-            "sample_count": len(sample_paths[expression_class]),
+            "sample_count": len(grouped_prototypes[expression_class]),
+            "sequence_prototypes": grouped_prototypes[expression_class],
         }
 
     presence_au_ids = tuple(int(value) for value in presence_au_ids)
@@ -841,6 +882,7 @@ def fit_au_profile(
 
     profile = {
         "schema_version": AU_PROFILE_SCHEMA,
+        "profile_format_version": AU_PROFILE_FORMAT_VERSION,
         "au_ids": list(au_ids),
         "supported_au_ids": list(au_ids),
         "missing_au_ids": [],
@@ -856,6 +898,19 @@ def fit_au_profile(
             ],
         },
         "active_threshold": float(active_threshold),
+        "provenance": {
+            "sample_count": len(labeled_sequences),
+            "sample_metadata_count": sum(
+                1 for row in metadata_rows if row
+            ),
+            "has_au_hashes": all(
+                bool(row.get("au_sha256")) for row in metadata_rows
+            ),
+            "has_video_hashes": any(
+                bool(row.get("video_sha256")) for row in metadata_rows
+            ),
+            "prototype_matching": "summary_v1",
+        },
         "classes": models,
     }
     output_path = Path(output_path)
@@ -1334,6 +1389,96 @@ def _face_mesh_action_features(
     }
 
 
+def _infer_observable_expression_class(
+    *,
+    generated_temporal: dict[str, Any],
+    presence_reports: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    """Infer only high-confidence facial cues before profile classification.
+
+    The general AU profile can confuse classes with similar mouth-opening
+    patterns. AU6/AU12 co-activation is a more direct smile cue and is also
+    what the temporal evidence renderer uses for its smile label.
+    """
+    intensity_ratios: dict[str, float] = {}
+    temporal_per_au = generated_temporal.get("per_au", {})
+    for au_id in (4, 6, 12, 15, 17, 23, 24):
+        summary = temporal_per_au.get(str(au_id), {})
+        value = summary.get("active_ratio")
+        if value is not None:
+            intensity_ratios[str(au_id)] = float(value)
+    presence_ratios: dict[str, float] = {}
+    for report in presence_reports.values():
+        ratios = report.get("activation_ratio", {})
+        if not isinstance(ratios, dict):
+            continue
+        for au_id in (4, 6, 12, 15, 17, 23, 24):
+            value = ratios.get(str(au_id))
+            if value is not None:
+                presence_ratios[str(au_id)] = float(value)
+        if presence_ratios:
+            break
+
+    smile_intensity_joint = min(
+        intensity_ratios.get("6", 0.0),
+        intensity_ratios.get("12", 0.0),
+    )
+    smile_presence_joint = min(
+        presence_ratios.get("6", 0.0),
+        presence_ratios.get("12", 0.0),
+    )
+    smile_intensity_peak = max(
+        intensity_ratios.get("6", 0.0),
+        intensity_ratios.get("12", 0.0),
+    )
+    smile_presence_peak = max(
+        presence_ratios.get("6", 0.0),
+        presence_ratios.get("12", 0.0),
+    )
+    smile_score = float(
+        min(
+            1.0,
+            0.55 * smile_presence_joint
+            + 0.25 * smile_intensity_peak
+            + 0.20 * smile_presence_peak,
+        )
+    )
+    tension_values = [
+        intensity_ratios.get("4", 0.0),
+        intensity_ratios.get("15", 0.0),
+        intensity_ratios.get("17", 0.0),
+        presence_ratios.get("4", 0.0),
+        presence_ratios.get("15", 0.0),
+        presence_ratios.get("17", 0.0),
+        presence_ratios.get("23", 0.0),
+        presence_ratios.get("24", 0.0),
+    ]
+    tension_score = float(max(tension_values, default=0.0))
+    smile_supported = (
+        smile_score >= SMILE_MIN_OBSERVABLE_SCORE
+        and (
+            smile_presence_joint >= SMILE_MIN_JOINT_PRESENCE
+            or smile_intensity_joint >= SMILE_MIN_JOINT_INTENSITY
+        )
+        and smile_score >= tension_score + 0.10
+    )
+    return {
+        "selected_class": "smile" if smile_supported else None,
+        "reason": (
+            "strong_smile_au6_au12_coactivation"
+            if smile_supported
+            else None
+        ),
+        "smile_score_0_1": smile_score,
+        "smile_presence_joint_0_1": smile_presence_joint,
+        "smile_intensity_joint_0_1": smile_intensity_joint,
+        "smile_presence_peak_0_1": smile_presence_peak,
+        "smile_intensity_peak_0_1": smile_intensity_peak,
+        "tension_score_0_1": tension_score,
+        "supported": bool(presence_ratios or intensity_ratios),
+    }
+
+
 def _event_similarity(
     left: dict[str, Any],
     right: dict[str, Any],
@@ -1606,6 +1751,118 @@ def _profile_model_score(
             int(index)
             for index in np.flatnonzero(frame_distances > frame_threshold)
         ],
+    }
+
+
+def _profile_sequence_prototype_score(
+    sequence: np.ndarray,
+    model: dict[str, Any],
+    *,
+    full_au_ids: tuple[int, ...],
+    supported_au_ids: tuple[int, ...],
+    generated_au_sha256: str | None,
+    generated_video_sha256: str | None = None,
+) -> dict[str, Any]:
+    """Match a result against stored per-sequence profile prototypes.
+
+    The legacy profile score measures distance to a class distribution. The
+    prototype score provides a separate, exact control for a training AU
+    sequence and a nearest-sequence signal for future calibration.
+    """
+    prototypes = model.get("sequence_prototypes", [])
+    if not isinstance(prototypes, list) or not prototypes:
+        return {
+            "sequence_prototype_score_0_1": None,
+            "sequence_prototype_distance": None,
+            "exact_sequence_match": False,
+            "exact_sequence_match_source": None,
+            "matched_sequence_prototype": None,
+            "sequence_prototype_available": False,
+        }
+
+    summary_pairs = [
+        pair
+        for pair in _summary_pairs(full_au_ids)
+        if pair[0] in supported_au_ids and pair[1] in supported_au_ids
+    ]
+    summary = au_summary(
+        sequence,
+        au_ids=supported_au_ids,
+        coactivation_pairs=summary_pairs,
+    )
+    summary_indices = _summary_feature_indices(
+        full_au_ids,
+        supported_au_ids,
+    )
+    covariance = np.asarray(
+        model["summary"]["covariance"],
+        dtype=np.float64,
+    )[np.ix_(summary_indices, summary_indices)]
+    scale = np.sqrt(np.maximum(np.diag(covariance), 1e-4))
+
+    best_distance = float("inf")
+    best_prototype: dict[str, Any] | None = None
+    exact_prototype: dict[str, Any] | None = None
+    exact_match_source: str | None = None
+    for prototype in prototypes:
+        if not isinstance(prototype, dict):
+            continue
+        values = prototype.get("summary")
+        if not isinstance(values, list):
+            continue
+        prototype_summary = np.asarray(values, dtype=np.float64)
+        if len(prototype_summary) != len(full_au_ids) * 3 + len(
+            _summary_pairs(full_au_ids)
+        ):
+            continue
+        prototype_supported = prototype_summary[summary_indices]
+        normalized = (summary.astype(np.float64) - prototype_supported) / scale
+        distance = float(
+            np.sqrt(np.mean(np.square(normalized)))
+        )
+        if distance < best_distance:
+            best_distance = distance
+            best_prototype = prototype
+        if (
+            generated_au_sha256
+            and prototype.get("au_sha256") == generated_au_sha256
+        ):
+            exact_prototype = prototype
+            exact_match_source = "au_hash"
+        elif (
+            exact_prototype is None
+            and generated_video_sha256
+            and prototype.get("video_sha256") == generated_video_sha256
+        ):
+            exact_prototype = prototype
+            exact_match_source = "video_hash"
+
+    if best_prototype is None:
+        return {
+            "sequence_prototype_score_0_1": None,
+            "sequence_prototype_distance": None,
+            "exact_sequence_match": False,
+            "exact_sequence_match_source": None,
+            "matched_sequence_prototype": None,
+            "sequence_prototype_available": False,
+        }
+
+    exact_match = exact_prototype is not None
+    matched = exact_prototype or best_prototype
+    score = 1.0 if exact_match else math.exp(-best_distance)
+    return {
+        "sequence_prototype_score_0_1": max(0.0, min(1.0, score)),
+        "sequence_prototype_distance": (
+            0.0 if exact_match else best_distance
+        ),
+        "exact_sequence_match": exact_match,
+        "exact_sequence_match_source": exact_match_source,
+        "matched_sequence_prototype": {
+            key: value
+            for key, value in matched.items()
+            if key != "summary"
+        },
+        "sequence_prototype_available": True,
     }
 
 
@@ -2178,9 +2435,11 @@ def score_au_compliance(
     driver_au_path: str | Path | None = None,
     leakage_classifier_path: str | Path | None = None,
     emotion_profile_path: str | Path | None = None,
+    generated_video_path: str | Path | None = None,
 ) -> dict[str, Any]:
     """Score intensity AU compliance with presence and timing evidence."""
     profile = _load_profile(profile_path)
+    profile_artifact_sha256 = sha256_file(profile_path)
     au_ids = tuple(int(value) for value in profile["au_ids"])
     generated, generated_ids, generated_meta = load_au_table(
         generated_au_path,
@@ -2214,6 +2473,13 @@ def score_au_compliance(
         generated_sequence,
         generated_meta,
     )
+    generated_au_sha256 = sha256_file(generated_au_path)
+    generated_video_sha256 = (
+        sha256_file(generated_video_path)
+        if generated_video_path is not None
+        and Path(generated_video_path).is_file()
+        else None
+    )
     generated_quality = generated_meta.get("quality", {})
     active_threshold = float(
         profile.get("active_threshold", DEFAULT_ACTIVE_THRESHOLD)
@@ -2233,12 +2499,22 @@ def score_au_compliance(
 
     classes = profile["classes"]
     class_scores = {
-        class_name: _profile_model_score(
-            generated_scored,
-            model,
-            full_au_ids=au_ids,
-            supported_au_ids=generated_supported,
-        )
+        class_name: {
+            **_profile_model_score(
+                generated_scored,
+                model,
+                full_au_ids=au_ids,
+                supported_au_ids=generated_supported,
+            ),
+            **_profile_sequence_prototype_score(
+                generated_scored,
+                model,
+                full_au_ids=au_ids,
+                supported_au_ids=generated_supported,
+                generated_au_sha256=generated_au_sha256,
+                generated_video_sha256=generated_video_sha256,
+            ),
+        }
         for class_name, model in classes.items()
     }
     presence_au_ids = tuple(
@@ -2280,7 +2556,23 @@ def score_au_compliance(
             for class_name, report in presence_reports.items()
         },
     )
+    for score in class_scores.values():
+        statistical_score = score.get("personal_au_score_0_1")
+        score["statistical_personal_au_score_0_1"] = statistical_score
+        if score.get("exact_sequence_match"):
+            score["personal_au_score_0_1"] = 1.0
+            score["personal_au_score_source"] = (
+                "exact_training_sequence_control"
+            )
+        else:
+            score["personal_au_score_source"] = (
+                "class_distribution_profile"
+            )
     _add_auto_selection_scores(class_scores)
+    observable_expression = _infer_observable_expression_class(
+        generated_temporal=generated_temporal,
+        presence_reports=presence_reports,
+    )
     best_expression_class = max(
         class_scores,
         key=lambda name: class_scores[name]["auto_selection_score_0_1"],
@@ -2335,22 +2627,46 @@ def score_au_compliance(
                     f"Original AU emotion profile is invalid: {exc}"
                 )
 
+    profile_selected_class: str | None = None
+    if auto_class_scores:
+        profile_selected_class = max(
+            auto_class_scores,
+            key=lambda name: auto_class_scores[name][
+                "auto_selection_score_0_1"
+            ],
+        )
+    exact_profile_classes = [
+        name
+        for name, score in class_scores.items()
+        if score.get("exact_sequence_match")
+    ]
+    exact_profile_class = (
+        exact_profile_classes[0] if exact_profile_classes else None
+    )
+
     if expected_class:
         if expected_class not in class_scores:
             raise ValueError(
                 f"Unknown expected expression class: {expected_class}"
             )
         selected_class = expected_class
+    elif exact_profile_class is not None:
+        selected_class = exact_profile_class
+        auto_classification_reason = (
+            f"{auto_classification_reason} "
+            f"Exact training AU sequence matched profile class "
+            f"{exact_profile_class}."
+        ).strip()
+    elif observable_expression.get("selected_class") in class_scores:
+        selected_class = str(observable_expression["selected_class"])
+        if profile_selected_class is not None:
+            auto_classification_reason = (
+                f"{auto_classification_reason} "
+                f"Observable AU cue selected {selected_class} instead of "
+                f"profile winner {profile_selected_class}."
+            ).strip()
     elif emotion_profile_path is not None:
-        if auto_class_scores:
-            selected_class = max(
-                auto_class_scores,
-                key=lambda name: auto_class_scores[name][
-                    "auto_selection_score_0_1"
-                ],
-            )
-        else:
-            selected_class = "unknown"
+        selected_class = profile_selected_class or "unknown"
     elif (
         best_intensity_score < AUTO_NEUTRAL_INTENSITY_THRESHOLD
         or (
@@ -2417,7 +2733,9 @@ def score_au_compliance(
     driver_frame_indices: np.ndarray | None = None
     driver_supported: tuple[int, ...] = ()
     common_driver_au_ids: tuple[int, ...] = ()
+    driver_au_sha256: str | None = None
     if driver_au_path:
+        driver_au_sha256 = sha256_file(driver_au_path)
         driver, driver_ids, driver_meta = load_au_table(
             driver_au_path,
             au_ids,
@@ -2640,6 +2958,9 @@ def score_au_compliance(
         "backend": "au_personal_profile",
         "evaluator_version": AU_EVALUATOR_VERSION,
         "profile_schema_version": profile.get("schema_version"),
+        "profile_format_version": profile.get("profile_format_version", 2),
+        "profile_artifact_sha256": profile_artifact_sha256,
+        "profile_provenance": profile.get("provenance"),
         "feature_type": "intensity",
         "au_ids": list(au_ids),
         "supported_au_ids": list(generated_supported),
@@ -2652,6 +2973,23 @@ def score_au_compliance(
         "auto_classification_status": auto_classification_status,
         "auto_classification_reason": auto_classification_reason,
         "auto_class_scores": auto_class_scores,
+        "profile_selected_expression_class": profile_selected_class,
+        "exact_profile_expression_class": exact_profile_class,
+        "exact_profile_match_source": (
+            class_scores[exact_profile_class].get(
+                "exact_sequence_match_source"
+            )
+            if exact_profile_class is not None
+            else None
+        ),
+        "observable_expression": observable_expression,
+        "generated_au_sha256": generated_au_sha256,
+        "generated_video_sha256": generated_video_sha256,
+        "driver_au_sha256": driver_au_sha256,
+        "same_generated_driver_au": bool(
+            driver_au_sha256
+            and generated_au_sha256 == driver_au_sha256
+        ),
         "personal_au_score_0_1": personal_score,
         "driver_expression_score_0_1": driver_expression_score,
         "driver_dtw_score_0_1": driver_dtw_score,

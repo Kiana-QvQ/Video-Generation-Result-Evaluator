@@ -99,6 +99,7 @@ def main() -> int:
         driver_au_path=driver_au,
         leakage_classifier_path=leakage_classifier,
         emotion_profile_path=emotion_profile,
+        generated_video_path=generated_video,
     )
     fused = fuse_compliance_scores(
         identity_score_0_1=identity_score,
@@ -152,9 +153,25 @@ def main() -> int:
             "profile_schema_version": au_result.get(
                 "profile_schema_version"
             ),
+            "profile_format_version": au_result.get(
+                "profile_format_version"
+            ),
+            "profile_artifact_sha256": au_result.get(
+                "profile_artifact_sha256"
+            ),
             "generated_au_path": str(generated_au),
+            "generated_au_sha256": au_result.get(
+                "generated_au_sha256"
+            ),
+            "generated_video_sha256": au_result.get(
+                "generated_video_sha256"
+            ),
             "driver_au_path": (
                 str(driver_au) if driver_au is not None else None
+            ),
+            "driver_au_sha256": au_result.get("driver_au_sha256"),
+            "same_generated_driver_au": au_result.get(
+                "same_generated_driver_au"
             ),
         },
         "identity_preservation": identity_result,

@@ -554,6 +554,8 @@ const expressionLabels = {
   sadness: "悲伤",
 };
 
+expressionLabels.disgust = "厌恶";
+
 function expressionLabel(value) {
   const key = String(value ?? "").toLowerCase();
   return expressionLabels[key] ?? (key || "未指定");
@@ -823,6 +825,13 @@ function renderWangxingResult(result) {
   const expectedClass =
     au.expected_expression_class ??
     targeted.expected_expression_class;
+  const selectedClassScore = au.class_scores?.[selectedClass] ?? {};
+  const sameAuSequence = au.same_generated_driver_au === true;
+  const exactProfileMatch =
+    selectedClassScore.exact_sequence_match === true;
+  const exactProfileMatchSource =
+    selectedClassScore.exact_sequence_match_source ??
+    au.exact_profile_match_source;
   const classContext = expectedClass
     ? `目标：${expressionLabel(expectedClass)}`
     : `自动归类：${expressionLabel(selectedClass)}`;
@@ -914,6 +923,13 @@ function renderWangxingResult(result) {
   const decisionNote = [
     selectedClass === "unknown"
       ? autoClassificationNote
+      : "",
+    sameAuSequence
+      ? exactProfileMatch
+        ? exactProfileMatchSource === "video_hash"
+          ? "Generated and driver AU inputs are identical and match a stored profile training video."
+          : "Generated and driver AU inputs are identical and match a stored profile AU sequence."
+        : "Generated and driver AU inputs are identical; this proves reference self-consistency, not personal-profile similarity."
       : "",
     reasons,
     missingEvidence ? `缂哄皯璇佹嵁：${missingEvidence}` : "",

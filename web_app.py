@@ -60,6 +60,7 @@ WANGXING_AU_CLASSES = {
     "fear",
     "annoyance",
     "sadness",
+    "disgust",
 }
 WANGXING_AU_PROFILE_PATH = PROJECT_ROOT / "data/au/wangxing_au_profile.json"
 WANGXING_AU_CLASSIFIER_PATH = PROJECT_ROOT / "data/au/au_leakage_classifier.json"
@@ -370,7 +371,7 @@ def _normalize_wangxing_class(value: str | None) -> str | None:
             status_code=422,
             detail=(
                 "wangxing_expected_class must be auto, smile, anger, "
-                "surprise, fear, annoyance, or sadness."
+                "surprise, fear, annoyance, sadness, or disgust."
             ),
         )
     return normalized

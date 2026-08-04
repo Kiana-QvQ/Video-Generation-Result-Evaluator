@@ -10,10 +10,14 @@ CLI writes one row per video frame.
 
 ```powershell
 .\.venv\Scripts\python.exe scripts\extract_libreface_au.py `
-    --manifest data\video\expression_reference_manifest.json `
-    --output-root data\au\libreface `
-    --only-emotions `
-    --device cpu
+    --input-root data\MD_CL `
+    --output-root data\au\MD_CL `
+    --exclude-dir "CL_FACS*" `
+    --exclude-dir "CL_HeadMove" `
+    --device cuda `
+    --batch-size 64 `
+    --num-workers 2 `
+    --continue-on-error
 ```
 
 For a generated video or a driver video outside the dataset:
@@ -124,10 +128,17 @@ are never silently interpreted as zero activation.
 
 ```powershell
 .\.venv\Scripts\python.exe scripts\build_au_profile.py `
-    --manifest data\video\expression_reference_manifest.json `
-    --au-root data\au\libreface `
+    --au-root data\au\MD_CL `
+    --input-root data\au\MD_CL `
+    --video-root data\MD_CL `
     --output data\au\wangxing_au_profile.json
 ```
+
+The Wang Xing personal profile uses the complete Wang Xing emotion AU set,
+not the smaller 85-record expression-reference manifest. The current full
+profile contains 645 samples across seven supported Wang Xing classes:
+anger, annoyance, disgust, fear, sadness, smile, and surprise.
+`CL_yanwu*` maps to `disgust` (厌恶).
 
 ## 3. Optional leakage classifier
 
@@ -136,7 +147,7 @@ directory must contain other-person or known-bad AI AU CSV files.
 
 ```powershell
 .\.venv\Scripts\python.exe scripts\fit_au_leakage_classifier.py `
-    --positive-root data\au\libreface `
+    --positive-root data\au\MD_CL `
     --negative-root data\au\negative `
     --output data\au\au_leakage_classifier.json
 ```
@@ -286,6 +297,47 @@ The output contains:
 - driver identity leakage risk;
 - combined person-likeness score;
 - anomalous AU frame indices.
+
+## 4.2 Profile provenance and self-pair controls
+
+The profile builder stores one compact summary prototype per training AU
+sequence, together with the AU file hash, training video hash, and source
+identifier. New profiles also include a provenance block with the manifest
+hash and profile format version.
+
+The evaluator reports these controls separately:
+
+- `same_generated_driver_au` means the generated and driver AU files are
+  byte-identical. This validates reference self-consistency only.
+- `exact_sequence_match` means either the generated AU hash or the generated
+  video hash matches a stored training prototype for the selected class. The
+  report exposes `exact_sequence_match_source` as `au_hash` or `video_hash`.
+  This is the only case that activates the exact training-sequence control and
+  can produce a near-100 personal AU score.
+- `sequence_prototype_score_0_1` is an auxiliary nearest-training-sequence
+  score. It does not silently replace the statistical class score for
+  non-exact samples.
+
+Rebuild the Wang Xing profile after changing the training dataset:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\build_au_profile.py `
+    --au-root data\au\MD_CL `
+    --input-root data\au\MD_CL `
+    --video-root data\MD_CL `
+    --output data\au\wangxing_au_profile.json
+```
+
+An identical reference video and generated video can therefore have driver
+and temporal scores of `1.0` while still receiving a lower personal AU score
+when that AU sequence is not present in the Wang Xing training profile. This
+is intentional and prevents reference self-pairing from being mistaken for
+personal-pattern evidence.
+
+The extraction wrapper uses one shared content-addressed cache for generated
+and driver videos. If both inputs are byte-identical, the driver reuses the
+generated AU CSV instead of running a second extraction with a different
+face-detection path.
 
 For the Wang Xing-specific objective, use the `wangxing_targeted` section in
 the report as the primary decision. It uses the Wang Xing AU profile as the

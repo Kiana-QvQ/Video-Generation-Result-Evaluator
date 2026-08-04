@@ -13,6 +13,7 @@ from evaluator.au_compliance import (
     _add_auto_selection_scores,
     _combine_personal_au_scores,
     _face_mesh_action_features,
+    _infer_observable_expression_class,
     compare_temporal_events,
     dtw_similarity,
     fit_au_profile,
@@ -20,6 +21,7 @@ from evaluator.au_compliance import (
     fuse_wangxing_targeted_scores,
     load_au_table,
     load_au_profile_tables,
+    sha256_file,
     score_au_compliance,
     temporal_event_features,
 )
@@ -404,6 +406,81 @@ class AUComplianceTests(unittest.TestCase):
         self.assertGreater(result["personal_au_score_0_1"], 0.5)
         self.assertEqual(payload["schema_version"], AU_PROFILE_SCHEMA)
 
+    def test_exact_training_sequence_uses_profile_control(self) -> None:
+        base = np.asarray(
+            [[0, 0, 1, 1, 0, 0], [0.1, 0, 0.9, 0.8, 0, 0.2]],
+            dtype=np.float32,
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            profile_path = root / "profile.json"
+            generated_path = root / "generated.csv"
+            _write_au_csv(generated_path, base)
+            fit_au_profile(
+                [("smile", base)],
+                profile_path,
+                sample_metadata=[
+                    {
+                        "source_id": "self-control",
+                        "au_sha256": sha256_file(generated_path),
+                    }
+                ],
+            )
+
+            result = score_au_compliance(
+                profile_path,
+                generated_path,
+                expected_class="smile",
+                driver_au_path=generated_path,
+            )
+
+        self.assertTrue(result["same_generated_driver_au"])
+        self.assertTrue(
+            result["class_scores"]["smile"]["exact_sequence_match"]
+        )
+        self.assertAlmostEqual(result["personal_au_score_0_1"], 1.0)
+        self.assertEqual(
+            result["class_scores"]["smile"]["personal_au_score_source"],
+            "exact_training_sequence_control",
+        )
+
+    def test_exact_training_video_uses_profile_control_after_au_reextraction(
+        self,
+    ) -> None:
+        base = np.asarray(
+            [[0, 0, 1, 1, 0, 0], [0.1, 0, 0.9, 0.8, 0, 0.2]],
+            dtype=np.float32,
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            profile_path = root / "profile.json"
+            generated_path = root / "generated.csv"
+            video_path = root / "training-video.mp4"
+            video_path.write_bytes(b"same training video")
+            _write_au_csv(generated_path, base * 0.9)
+            fit_au_profile(
+                [("smile", base)],
+                profile_path,
+                sample_metadata=[
+                    {
+                        "source_id": "same-video",
+                        "video_sha256": sha256_file(video_path),
+                    }
+                ],
+            )
+
+            result = score_au_compliance(
+                profile_path,
+                generated_path,
+                expected_class="smile",
+                generated_video_path=video_path,
+            )
+
+        score = result["class_scores"]["smile"]
+        self.assertTrue(score["exact_sequence_match"])
+        self.assertEqual(score["exact_sequence_match_source"], "video_hash")
+        self.assertAlmostEqual(result["personal_au_score_0_1"], 1.0)
+
     def test_auto_selection_returns_neutral_for_weak_expression_signal(self) -> None:
         expression = np.asarray(
             [[0, 0, 1, 1, 0, 0], [0.1, 0, 0.9, 0.8, 0, 0.2]],
@@ -474,6 +551,77 @@ class AUComplianceTests(unittest.TestCase):
             class_scores["smile"]["auto_selection_score_0_1"],
             class_scores["annoyance"]["auto_selection_score_0_1"],
         )
+
+    def test_observable_smile_cue_overrides_profile_classification(self) -> None:
+        temporal = {
+            "per_au": {
+                "4": {"active_ratio": 0.05},
+                "6": {"active_ratio": 0.55},
+                "12": {"active_ratio": 0.68},
+                "15": {"active_ratio": 0.0},
+                "17": {"active_ratio": 0.02},
+                "23": {"active_ratio": 0.0},
+                "24": {"active_ratio": 0.0},
+            }
+        }
+        presence = {
+            "anger": {
+                "activation_ratio": {
+                    "4": 0.05,
+                    "6": 0.74,
+                    "12": 0.84,
+                    "15": 0.0,
+                    "17": 0.10,
+                    "23": 0.0,
+                    "24": 0.01,
+                }
+            }
+        }
+
+        result = _infer_observable_expression_class(
+            generated_temporal=temporal,
+            presence_reports=presence,
+        )
+
+        self.assertEqual(result["selected_class"], "smile")
+        self.assertEqual(
+            result["reason"],
+            "strong_smile_au6_au12_coactivation",
+        )
+        self.assertGreater(result["smile_score_0_1"], 0.6)
+
+    def test_observable_smile_requires_joint_au_evidence(self) -> None:
+        temporal = {
+            "per_au": {
+                "4": {"active_ratio": 0.20},
+                "6": {"active_ratio": 0.0},
+                "12": {"active_ratio": 0.05},
+                "15": {"active_ratio": 0.0},
+                "17": {"active_ratio": 0.0},
+                "23": {"active_ratio": 0.0},
+                "24": {"active_ratio": 0.0},
+            }
+        }
+        presence = {
+            "anger": {
+                "activation_ratio": {
+                    "4": 0.60,
+                    "6": 0.15,
+                    "12": 0.84,
+                    "15": 0.0,
+                    "17": 0.0,
+                    "23": 0.0,
+                    "24": 0.0,
+                }
+            }
+        }
+
+        result = _infer_observable_expression_class(
+            generated_temporal=temporal,
+            presence_reports=presence,
+        )
+
+        self.assertIsNone(result["selected_class"])
 
     def test_partial_intensity_support_is_scored_without_zero_filling(self) -> None:
         base = np.asarray(
