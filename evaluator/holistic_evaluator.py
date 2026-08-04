@@ -1227,10 +1227,13 @@ def evaluate_text_alignment(
             jit=False,
         )
         model.eval()
+        prompt_was_truncated = False
         with torch.no_grad():
-            text_features = model.encode_text(
-                clip.tokenize([prompt]).to(resolved_device)
+            text_tokens, prompt_was_truncated = _tokenize_clip_prompt(
+                clip,
+                prompt,
             )
+            text_features = model.encode_text(text_tokens.to(resolved_device))
             text_features = text_features / (
                 text_features.norm(dim=-1, keepdim=True) + 1e-6
             )
@@ -1269,6 +1272,7 @@ def evaluate_text_alignment(
                 "raw_cosine_mean": _safe_mean(similarities),
                 "valid_frame_ratio": 1.0,
                 "device": resolved_device,
+                "prompt_truncated": prompt_was_truncated,
             },
             "frame_records": [
                 {
@@ -1283,7 +1287,14 @@ def evaluate_text_alignment(
                 }
                 for i, index in enumerate(indices)
             ],
-            "warnings": [],
+            "warnings": (
+                [
+                    "Prompt exceeded the CLIP context length and was truncated "
+                    "before text alignment."
+                ]
+                if prompt_was_truncated
+                else []
+            ),
         }
     except Exception as exc:
         return {
@@ -1295,6 +1306,20 @@ def evaluate_text_alignment(
             "frame_records": [],
             "warnings": [str(exc)],
         }
+
+
+def _tokenize_clip_prompt(
+    clip_module: Any,
+    prompt: str,
+) -> tuple[Any, bool]:
+    """Tokenize long prompts without turning a valid evaluation into a failure."""
+    try:
+        return clip_module.tokenize([prompt]), False
+    except RuntimeError as exc:
+        message = str(exc).lower()
+        if "context length" not in message and "too long" not in message:
+            raise
+        return clip_module.tokenize([prompt], truncate=True), True
 
 
 EXPRESSION_LANDMARK_INDICES = np.array(
@@ -1578,7 +1603,7 @@ def evaluate_expression(
     note = (
         "ViCLIP video similarity and face/画面运动轨迹 proxy are active."
         if viclip_result is not None
-        else "VideoCLIP/ViCLIP 未安装，当前使用人脸/画面运动轨迹代理。"
+        else "ViCLIP 不可用或未启用，当前使用人脸/画面运动轨迹代理。"
     )
     return {
         "status": "available" if viclip_result is not None else "partial",
@@ -2266,6 +2291,26 @@ def evaluate_all(
         policy.viclip_enabled_by_default
         and not qwen_service_active
     ) or allow_copresent
+    viclip_gate_enabled = viclip_enabled(effective_device)
+    if use_viclip and viclip_gate_enabled:
+        viclip_skip_reason = None
+    elif qwen_service_active and not allow_copresent:
+        viclip_skip_reason = (
+            "ViCLIP 被跳过：ETVA Judge 服务在线，项目按显存策略避免 "
+            "ViCLIP 与 Qwen 同时驻留。"
+        )
+    elif not policy.viclip_enabled_by_default:
+        viclip_skip_reason = (
+            "ViCLIP 被跳过：当前硬件档位或显存压力未启用 ViCLIP。"
+        )
+    elif not VICLIP_CHECKPOINT.exists():
+        viclip_skip_reason = "ViCLIP 被跳过：未找到 ViCLIP 权重。"
+    elif not viclip_gate_enabled:
+        viclip_skip_reason = (
+            "ViCLIP 被跳过：ViCLIP 开关、CUDA 或运行依赖不可用。"
+        )
+    else:
+        viclip_skip_reason = "ViCLIP 被跳过：当前评估策略未启用该后端。"
     identity = evaluate_identity(
         result_path,
         reference_image,
@@ -2300,6 +2345,17 @@ def evaluate_all(
         use_viclip=use_viclip,
         need_viclip_text=bool(prompt_text and prompt_text.strip()),
     )
+    expression.setdefault("metrics", {}).update(
+        {
+            "viclip_requested": bool(use_viclip),
+            "viclip_gate_enabled": bool(viclip_gate_enabled),
+        }
+    )
+    if viclip_skip_reason and expression.get("mode") == "reference_video_proxy":
+        expression["note"] = (
+            f'{expression.get("note", "")} {viclip_skip_reason}'
+        ).strip()
+        expression.setdefault("warnings", []).append(viclip_skip_reason)
     text_alignment = evaluate_text_alignment(
         result_path,
         prompt_text,
@@ -2638,6 +2694,18 @@ def evaluate_all(
         "summary": summary,
         "categories": categories,
         "hardware_policy": policy.to_dict(),
+        "model_selection": {
+            "viclip": {
+                "requested": bool(use_viclip),
+                "gate_enabled": bool(viclip_gate_enabled),
+                "checkpoint_present": VICLIP_CHECKPOINT.exists(),
+                "skip_reason": viclip_skip_reason,
+            },
+            "etva": {
+                "service_active": bool(qwen_service_active),
+                "status": etva_judge.get("status"),
+            },
+        },
         "qwen_service_active": qwen_service_active,
         "condition_alignment": text_alignment,
         "etva_judge": etva_judge,

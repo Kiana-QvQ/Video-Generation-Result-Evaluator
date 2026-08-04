@@ -26,6 +26,7 @@ from evaluator.holistic_evaluator import (
     _lower_tail,
     _motion_direction_similarity,
     _read_reference_image,
+    _tokenize_clip_prompt,
     evaluate_aesthetics,
     evaluate_all,
     evaluate_full_reference,
@@ -129,6 +130,23 @@ class HolisticEvaluatorTests(unittest.TestCase):
         self.assertEqual(len(frames), 1)
         self.assertEqual(frames[0].shape, (12, 16, 3))
         self.assertEqual(int(frames[0][0, 0, 1]), 180)
+
+    def test_long_clip_prompt_uses_truncated_tokens(self) -> None:
+        class FakeClip:
+            def tokenize(self, _prompts, *, truncate=False):
+                if not truncate:
+                    raise RuntimeError(
+                        "Input is too long for context length 77"
+                    )
+                return "truncated tokens"
+
+        tokens, truncated = _tokenize_clip_prompt(
+            FakeClip(),
+            "a deliberately long prompt",
+        )
+
+        self.assertEqual(tokens, "truncated tokens")
+        self.assertTrue(truncated)
 
     def test_high_resolution_frames_are_bounded_for_evaluation(self) -> None:
         frame = np.zeros((3840, 2160, 3), dtype=np.uint8)
