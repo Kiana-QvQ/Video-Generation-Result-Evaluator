@@ -68,10 +68,10 @@ options
 result_video: first chunk ... last chunk
 gt_video: first chunk ... last chunk          optional
 reference_images: first chunk ... last chunk  optional, can repeat
-reference_video: first chunk ... last chunk   optional
+reference_video: first chunk ... last chunk   optional, can repeat
 ```
 
-每个文件使用唯一的 `file_id`。第一个分块设置 `first=true`，最后一个分块设置 `last=true`，中间分块两个标志都为 `false`。单个文件仍限制为 1.5 GB，扩展名校验与 HTTP 接口一致。
+每个文件使用唯一的 `file_id`。第一个分块设置 `first=true`，最后一个分块设置 `last=true`，中间分块两个标志都为 `false`。单个文件仍限制为 1.5 GB，扩展名校验与 HTTP 接口一致。重复的 `reference_video` 会按上传顺序拼接；`gt_video` 最多只能上传一个。
 
 `JobOptions` 对应 HTTP 表单字段：
 

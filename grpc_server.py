@@ -225,7 +225,12 @@ def _collect_uploads(
 
 def _upload_objects(
     uploads: list[_StagedUpload],
-) -> tuple[UploadFile, UploadFile | None, list[UploadFile], UploadFile | None]:
+) -> tuple[
+    UploadFile,
+    UploadFile | None,
+    list[UploadFile],
+    list[UploadFile],
+]:
     def open_upload(upload: _StagedUpload) -> UploadFile:
         return UploadFile(
             file=upload.path.open("rb"),
@@ -244,12 +249,17 @@ def _upload_objects(
             detail="Exactly one result_video upload is required.",
         )
     gt = by_field["gt_video"]
+    if len(gt) > 1:
+        raise HTTPException(
+            status_code=422,
+            detail="At most one gt_video upload is allowed.",
+        )
     motion = by_field["reference_video"]
     return (
         open_upload(result[0]),
         open_upload(gt[0]) if gt else None,
         [open_upload(upload) for upload in by_field["reference_images"]],
-        open_upload(motion[0]) if motion else None,
+        [open_upload(upload) for upload in motion],
     )
 
 
@@ -257,9 +267,9 @@ def _close_uploads(
     result_video: UploadFile,
     gt_video: UploadFile | None,
     reference_images: list[UploadFile],
-    reference_video: UploadFile | None,
+    reference_videos: list[UploadFile],
 ) -> None:
-    uploads = [result_video, gt_video, reference_video, *reference_images]
+    uploads = [result_video, gt_video, *reference_videos, *reference_images]
     for upload in uploads:
         if upload is not None:
             upload.file.close()
