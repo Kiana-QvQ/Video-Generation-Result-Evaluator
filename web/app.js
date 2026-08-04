@@ -475,15 +475,17 @@ function renderEvidence(result) {
     (Array.isArray(textureCategory.warnings) ? textureCategory.warnings[0] : "");
   const manualAesthetic = aesthetics.manual_score_0_to_1;
   const vbenchAesthetic = aesthetics.vbench_aesthetic_quality_0_to_1;
-  const aestheticValue = manualAesthetic ?? vbenchAesthetic;
+  const aestheticValue = manualAesthetic;
   const aestheticLabel = manualAesthetic === null || manualAesthetic === undefined
-    ? "AESTHETIC / VBench"
+    ? "AESTHETIC / MANUAL REQUIRED"
     : "AESTHETIC / MANUAL";
   const aestheticChineseLabel = manualAesthetic === null || manualAesthetic === undefined
-    ? "自动审美质量"
+    ? "美学评分 / 需人工"
     : "人工审美评分";
   const aestheticDetail = manualAesthetic === null || manualAesthetic === undefined
-    ? "VBench aesthetic_quality"
+    ? vbenchAesthetic === null || vbenchAesthetic === undefined
+      ? "暂无正式分数"
+      : `VBench 辅助 ${formatNumber(vbenchAesthetic)}`
     : "人工优先";
   const evidence = [
     ["IDENTITY / MEAN", "身份一致性 / 均值", formatNumber(identity.mean_similarity), identityReferenceLabel, "higher"],

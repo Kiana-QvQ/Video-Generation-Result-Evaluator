@@ -29,6 +29,7 @@ from evaluator.holistic_evaluator import (
     evaluate_aesthetics,
     evaluate_all,
     evaluate_full_reference,
+    evaluate_texture,
 )
 from evaluator.video_metrics import (
     VideoInfo,
@@ -507,7 +508,7 @@ class HolisticEvaluatorTests(unittest.TestCase):
         self.assertTrue(math.isinf(result["metrics"]["psnr_db"]))
         self.assertGreater(result["metrics"]["psnr_db"], 0)
 
-    def test_empty_manual_aesthetic_score_uses_vbench(self) -> None:
+    def test_empty_manual_aesthetic_score_keeps_vbench_auxiliary(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             result_path = Path(directory) / "result.mp4"
             _write_video(result_path)
@@ -533,13 +534,83 @@ class HolisticEvaluatorTests(unittest.TestCase):
                 )
 
         run_vbench.assert_called_once()
-        self.assertEqual(result["status"], "available")
-        self.assertEqual(result["mode"], "vbench")
-        self.assertEqual(result["backend"], "vbench_aesthetic_quality")
-        self.assertAlmostEqual(result["score_0_1"], 0.72)
+        self.assertEqual(result["status"], "unavailable")
+        self.assertEqual(result["mode"], "vbench_auxiliary")
+        self.assertEqual(
+            result["backend"],
+            "vbench_aesthetic_quality_auxiliary",
+        )
+        self.assertIsNone(result["score_0_1"])
         self.assertAlmostEqual(
             result["metrics"]["vbench_aesthetic_quality_0_to_1"],
             0.72,
+        )
+        self.assertIn("需要人工", " ".join(result["warnings"]))
+
+    def test_no_gt_texture_keeps_high_frequency_as_low_weight_auxiliary(
+        self,
+    ) -> None:
+        frames = [np.zeros((4, 4, 3), dtype=np.uint8) for _ in range(2)]
+
+        class Detector:
+            def detect(self, _frame):
+                return None
+
+        with ExitStack() as stack:
+            stack.enter_context(
+                patch(
+                    "evaluator.holistic_evaluator._sample_video",
+                    return_value=(
+                        {"fps": 24.0},
+                        np.asarray([0, 1]),
+                        frames,
+                    ),
+                )
+            )
+            stack.enter_context(
+                patch(
+                    "evaluator.holistic_evaluator._reference_frames",
+                    return_value=(frames[:1], "reference_image"),
+                )
+            )
+            stack.enter_context(
+                patch(
+                    "evaluator.holistic_evaluator._FaceDetector",
+                    return_value=Detector(),
+                )
+            )
+            stack.enter_context(
+                patch(
+                    "evaluator.holistic_evaluator._high_frequency_energy",
+                    side_effect=[1.0, 1.0, 2.0],
+                )
+            )
+            stack.enter_context(
+                patch(
+                    "evaluator.holistic_evaluator._optional_iqa",
+                    side_effect=[
+                        (0.8, "maniqa"),
+                        (0.4, "musiq"),
+                    ],
+                )
+            )
+            result = evaluate_texture(
+                "result.mp4",
+                None,
+                "reference.png",
+                None,
+                max_frames=2,
+                calculate_lpips=False,
+                device="cpu",
+            )
+
+        self.assertAlmostEqual(
+            result["metrics"]["score_0_1"],
+            0.8 * 0.45 + 0.4 * 0.45 + 0.5 * 0.10,
+        )
+        self.assertEqual(
+            result["metrics"]["score_weights"],
+            {"maniqa": 0.45, "musiq": 0.45, "high_frequency": 0.10},
         )
 
     def test_cpu_without_manual_aesthetic_score_does_not_start_vbench(self) -> None:

@@ -128,7 +128,7 @@ class WebAppTests(unittest.TestCase):
             self.assertEqual(run.call_args.kwargs["env"]["PYTHONIOENCODING"], "utf-8")
             self.assertEqual(run.call_args.kwargs["env"]["PYTHONUTF8"], "1")
 
-    def test_expression_fusion_keeps_missing_reference_evidence_partial(self) -> None:
+    def test_wangxing_evidence_does_not_change_normal_expression_score(self) -> None:
         result = {
             "status": "partial",
             "categories": {
@@ -190,8 +190,15 @@ class WebAppTests(unittest.TestCase):
                 },
             },
         }
+        result["category_scores"] = {"expression": 0.7}
+        result["weighted_score_0_1"] = 0.82
+        result["weighted_score_0_100"] = 82.0
 
-        web_app._fuse_expression_evidence(
+        normal_score = result["categories"]["expression"]["score_0_1"]
+        normal_status = result["categories"]["expression"]["status"]
+        normal_weighted_score = result["weighted_score_0_1"]
+
+        web_app._attach_wangxing_evidence(
             result,
             wangxing_au=au,
             prompt_text="人物微笑",
@@ -199,14 +206,25 @@ class WebAppTests(unittest.TestCase):
         )
 
         expression = result["categories"]["expression"]
-        self.assertEqual(expression["status"], "partial")
-        self.assertIn("expression_reference_style", expression["missing_evidence"])
-        self.assertIn("au_driver_expression", expression["missing_evidence"])
-        self.assertAlmostEqual(
-            expression["metrics"]["wangxing_au_score_0_1"],
+        self.assertEqual(expression["status"], normal_status)
+        self.assertEqual(expression["score_0_1"], normal_score)
+        self.assertNotIn("wangxing_au_score_0_1", expression["metrics"])
+        self.assertEqual(
+            result["weighted_score_0_1"],
+            normal_weighted_score,
+        )
+        self.assertEqual(result["weighted_score_0_100"], 82.0)
+        self.assertEqual(
+            result["expression_evidence"]["wangxing_au"]["score_0_1"],
             0.55,
         )
-        self.assertLess(expression["evidence_coverage_0_1"], 1.0)
+        self.assertEqual(
+            result["expression_evidence"]["scope"],
+            "separate_targeted_specialization",
+        )
+        self.assertTrue(
+            result["expression_evidence"]["normal_expression_unchanged"]
+        )
 
     def test_multiple_reference_videos_are_joined_for_evaluation(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

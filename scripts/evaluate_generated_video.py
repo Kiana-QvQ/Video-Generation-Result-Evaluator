@@ -293,7 +293,6 @@ def main(argv: Sequence[str] | None = None) -> int:
             num_workers=args.num_workers,
             force=args.force,
             cache_root=cache_root,
-            cache_namespace="driver",
         )
 
     if output is not None:

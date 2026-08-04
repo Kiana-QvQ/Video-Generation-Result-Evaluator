@@ -333,15 +333,8 @@ def load_au_table(
         fallback_quality_available = bool(
             alignment_method_field and detection_score_field
         )
-        quality_available = mesh_quality_available or fallback_quality_available
-        if mesh_quality_available and fallback_quality_available:
-            quality_source = "mixed"
-        elif mesh_quality_available:
-            quality_source = "face_mesh"
-        elif fallback_quality_available:
-            quality_source = "insightface_detection"
-        else:
-            quality_source = "not_available"
+        used_mesh_quality = False
+        used_detection_quality = False
         candidates: dict[str, dict[int, list[tuple[int, str]]]] = {
             "intensity": {},
             "presence": {},
@@ -433,6 +426,7 @@ def load_au_table(
                 frame_quality.append(
                     max(0.0, min(1.0, score)) if score is not None else 0.0
                 )
+                used_detection_quality = True
             elif mesh_quality_available:
                 frame_quality.append(
                     _frame_quality(
@@ -441,8 +435,19 @@ def load_au_table(
                         landmark_y_columns,
                     )
                 )
+                used_mesh_quality = True
             else:
                 frame_quality.append(1.0)
+
+    quality_available = used_mesh_quality or used_detection_quality
+    if used_mesh_quality and used_detection_quality:
+        quality_source = "mixed"
+    elif used_mesh_quality:
+        quality_source = "face_mesh"
+    elif used_detection_quality:
+        quality_source = "insightface_detection"
+    else:
+        quality_source = "not_available"
 
     finite_times = [
         value for value in raw_frame_times if value is not None
