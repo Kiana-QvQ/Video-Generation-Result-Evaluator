@@ -230,6 +230,58 @@ class AUComplianceTests(unittest.TestCase):
             places=4,
         )
 
+    def test_mesh_quality_is_not_marked_mixed_when_fallback_is_unused(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "mesh_with_fallback_fields.csv"
+            fieldnames = [
+                "frame_idx",
+                "pitch",
+                "yaw",
+                "face_alignment_method",
+                "face_detection_score",
+                *[
+                    coordinate
+                    for index in range(20)
+                    for coordinate in (
+                        f"lm_mp_{index}_x",
+                        f"lm_mp_{index}_y",
+                    )
+                ],
+                "au_1_intensity",
+            ]
+            with path.open("w", encoding="utf-8", newline="") as handle:
+                writer = csv.DictWriter(handle, fieldnames=fieldnames)
+                writer.writeheader()
+                for frame_index in range(2):
+                    payload = {
+                        "frame_idx": frame_index,
+                        "pitch": 0.0,
+                        "yaw": 0.0,
+                        "face_alignment_method": "mediapipe",
+                        "face_detection_score": "",
+                        "au_1_intensity": 0.5,
+                    }
+                    for landmark_index in range(20):
+                        payload[f"lm_mp_{landmark_index}_x"] = (
+                            0.2 + 0.08 * (landmark_index % 10)
+                        )
+                        payload[f"lm_mp_{landmark_index}_y"] = (
+                            0.2 + 0.07 * (landmark_index // 10)
+                        )
+                    writer.writerow(payload)
+            _, _, metadata = load_au_table(
+                path,
+                (1,),
+                feature_type="intensity",
+            )
+
+        quality = metadata["quality"]
+        self.assertEqual(quality["source"], "face_mesh")
+        self.assertEqual(quality["status"], "pass")
+        self.assertEqual(quality["valid_frame_ratio"], 1.0)
+
     def test_profile_loader_reads_intensity_and_presence_in_one_pass(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "profile.csv"

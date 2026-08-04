@@ -53,6 +53,11 @@ WEIGHTS = {
     "temporal": 25,
     "aesthetics": 10,
 }
+NO_GT_TEXTURE_WEIGHTS = {
+    "maniqa": 0.45,
+    "musiq": 0.45,
+    "high_frequency": 0.10,
+}
 
 
 def _model_status(
@@ -1024,11 +1029,27 @@ def evaluate_texture(
         if retention is not None
         else None
     )
-    texture_scores = [
-        _clamp(float(value))
-        for value in (maniqa, musiq, high_frequency_score)
+    texture_candidates = (
+        ("maniqa", NO_GT_TEXTURE_WEIGHTS["maniqa"], maniqa),
+        ("musiq", NO_GT_TEXTURE_WEIGHTS["musiq"], musiq),
+        (
+            "high_frequency",
+            NO_GT_TEXTURE_WEIGHTS["high_frequency"],
+            high_frequency_score,
+        ),
+    )
+    valid_texture_candidates = [
+        (name, weight, _clamp(float(value)))
+        for name, weight, value in texture_candidates
         if value is not None and math.isfinite(float(value))
     ]
+    texture_weight = sum(weight for _, weight, _ in valid_texture_candidates)
+    texture_score = (
+        sum(weight * value for _, weight, value in valid_texture_candidates)
+        / texture_weight
+        if texture_weight
+        else None
+    )
     records = [
         {
             "sample_index": i,
@@ -1060,12 +1081,16 @@ def evaluate_texture(
             "musiq": musiq,
             "high_frequency_ratio": _safe_mean(result_hf),
             "high_frequency_retention_ratio": retention,
-            "score_0_1": _safe_mean(texture_scores),
+            "score_0_1": texture_score,
+            "score_weights": {
+                name: weight
+                for name, weight, _ in valid_texture_candidates
+            },
         },
         "reference_source": reference_source,
         "note": (
             "无 GT 时第 2 类不计算 PSNR、SSIM、LPIPS，"
-            "改用 MANIQA/MUSIQ（可选）和自定义高频能比。"
+            "改用 MANIQA/MUSIQ（各 45%）和低权重自定义高频能比（10%）。"
         ),
         "warnings": warnings,
         "frame_records": records,
@@ -2157,10 +2182,10 @@ def evaluate_aesthetics(
 
     if normalized_score is not None:
         return {
-            "status": "available",
-            "mode": "vbench",
-            "backend": "vbench_aesthetic_quality",
-            "score_0_1": normalized_score,
+            "status": "unavailable",
+            "mode": "vbench_auxiliary",
+            "backend": "vbench_aesthetic_quality_auxiliary",
+            "score_0_1": None,
             "metrics": metrics,
             "vbench": {
                 "status": vbench_result.get("status"),
@@ -2169,10 +2194,12 @@ def evaluate_aesthetics(
                 "record": record,
             },
             "note": (
-                "No manual aesthetic score was provided; "
-                "VBench aesthetic_quality is the primary score."
+                "未提供人工美学评分；VBench 结果仅作辅助证据，"
+                "不计入正式美学分和普通总分。"
             ),
-            "warnings": warnings,
+            "warnings": warnings + [
+                "需要人工 1~5 分才能生成正式美学评分。"
+            ],
             "frame_records": [],
         }
 

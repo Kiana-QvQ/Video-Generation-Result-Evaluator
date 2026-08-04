@@ -133,8 +133,8 @@ def main() -> int:
     )
     parser.add_argument(
         "--manifest",
-        default="data/video/expression_reference_manifest.json",
-        help="Legacy expression manifest. Ignored when --input-root is used.",
+        default=None,
+        help="Deprecated legacy expression manifest.",
     )
     parser.add_argument("--au-root", required=True)
     parser.add_argument(
@@ -169,6 +169,11 @@ def main() -> int:
                 "No recognized full-dataset AU CSV files were found."
             )
     else:
+        if not args.manifest:
+            raise SystemExit(
+                "Specify --input-root for the full AU dataset. "
+                "The old 85-record manifest is no longer used by default."
+            )
         manifest = json.loads(
             project_path(args.manifest).read_text(encoding="utf-8-sig")
         )

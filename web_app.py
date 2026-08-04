@@ -543,7 +543,102 @@ def _finite_score(value: Any) -> float | None:
     return score if math.isfinite(score) else None
 
 
-def _fuse_expression_evidence(
+def _attach_wangxing_evidence(
+    result: dict[str, Any],
+    *,
+    wangxing_au: dict[str, Any],
+    prompt_text: str | None,
+    driver_source: str | None,
+) -> None:
+    """Expose Wang Xing evidence without changing normal evaluation scores."""
+    categories = result.get("categories")
+    if not isinstance(categories, dict):
+        return
+    expression = categories.get("expression")
+    if not isinstance(expression, dict):
+        return
+    metrics = expression.get("metrics", {})
+    if not isinstance(metrics, dict):
+        metrics = {}
+
+    targeted = wangxing_au.get("wangxing_targeted", {})
+    if not isinstance(targeted, dict):
+        targeted = {}
+    au_score = _finite_score(
+        targeted.get("wangxing_expression_fit_score_0_1")
+    )
+    au_coverage = _finite_score(
+        targeted.get(
+            "score_weight_coverage",
+            targeted.get("evidence_coverage_0_1"),
+        )
+    )
+    if au_coverage is None:
+        evidence = targeted.get("evidence", {})
+        if not isinstance(evidence, dict):
+            evidence = {}
+        au_coverage = sum(
+            weight
+            for name, weight in (
+                ("personal_au", 0.40),
+                ("driver_expression", 0.35),
+                ("temporal_alignment", 0.25),
+            )
+            if _finite_score(evidence.get(name)) is not None
+        )
+    au_missing = list(targeted.get("missing_evidence", []))
+    if not au_missing and wangxing_au.get("status") != "available":
+        au_missing = ["wangxing_au"]
+
+    reference_source = str(expression.get("reference_source") or "")
+    generic_style = _finite_score(
+        metrics.get("generic_style_score_0_1")
+    )
+    prompt_score = _finite_score(
+        metrics.get("prompt_semantic_score_0_1")
+    )
+    generic_coverage = (
+        0.60 * (1.0 if generic_style is not None else 0.0)
+        if reference_source not in {"", "none"}
+        else 0.0
+    ) + 0.40 * (1.0 if prompt_score is not None else 0.0)
+
+    result["expression_evidence"] = {
+        "generic": {
+            "score_0_1": _finite_score(expression.get("score_0_1")),
+            "coverage_0_1": generic_coverage,
+            "missing_evidence": [
+                name
+                for name, present in (
+                    (
+                        "reference_style",
+                        reference_source not in {"", "none"}
+                        and generic_style is not None,
+                    ),
+                    ("prompt_semantic", prompt_score is not None),
+                )
+                if not present
+            ],
+        },
+        "wangxing_au": {
+            "score_0_1": au_score,
+            "coverage_0_1": max(0.0, min(1.0, au_coverage or 0.0)),
+            "missing_evidence": au_missing,
+            "status": targeted.get("status"),
+            "decision": targeted.get("decision"),
+        },
+        "scope": "separate_targeted_specialization",
+        "normal_expression_unchanged": True,
+        "driver_source": driver_source,
+        "prompt_semantic_backend": (
+            metrics.get("prompt_semantic_backend")
+            if prompt_text and prompt_text.strip()
+            else None
+        ),
+    }
+
+
+def _legacy_fuse_expression_evidence(
     result: dict[str, Any],
     *,
     wangxing_au: dict[str, Any],
@@ -1659,7 +1754,7 @@ def _execute_job(job_id: str) -> None:
                 driver_source=driver_source,
             )
             result["wangxing_au"] = wangxing_au
-            _fuse_expression_evidence(
+            _attach_wangxing_evidence(
                 result,
                 wangxing_au=wangxing_au,
                 prompt_text=parameters.get("prompt_text"),
@@ -2506,7 +2601,7 @@ def evaluate(
                 driver_source=driver_source,
             )
             result["wangxing_au"] = wangxing_au
-            _fuse_expression_evidence(
+            _attach_wangxing_evidence(
                 result,
                 wangxing_au=wangxing_au,
                 prompt_text=prompt or None,

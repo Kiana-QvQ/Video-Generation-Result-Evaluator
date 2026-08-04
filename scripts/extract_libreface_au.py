@@ -318,7 +318,8 @@ def main() -> int:
     )
     parser.add_argument(
         "--manifest",
-        default="data/video/expression_reference_manifest.json",
+        default=None,
+        help="Deprecated legacy input list; prefer --input or --input-root.",
     )
     parser.add_argument("--input", action="append")
     parser.add_argument(
@@ -393,6 +394,11 @@ def main() -> int:
             for value in args.input
         ]
     else:
+        if not args.manifest:
+            raise SystemExit(
+                "Specify --input or --input-root. "
+                "The old 85-record manifest is no longer used by default."
+            )
         inputs = _manifest_inputs(
             _project_path(args.manifest),
             only_emotions=args.only_emotions,
