@@ -14,6 +14,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 PYTHON = Path(sys.executable)
 EXTRACTOR = PROJECT_ROOT / "scripts" / "extract_libreface_au.py"
 EVALUATOR = PROJECT_ROOT / "scripts" / "evaluate_au_compliance.py"
+SHARED_AU_CACHE_NAMESPACE = "libreface_shared_v1"
 
 
 def _configure_utf8_streams() -> None:
@@ -128,6 +129,33 @@ def _run_extraction(
         shutil.copy2(extracted_path, output_path)
         shutil.rmtree(extraction_root, ignore_errors=True)
     return output_path
+
+
+def _driver_au_for_video(
+    generated_video: Path,
+    generated_au: Path,
+    driver_video: Path,
+    driver_au_root: Path,
+    *,
+    device: str,
+    batch_size: int,
+    num_workers: int,
+    force: bool,
+    cache_root: Path | None,
+) -> Path:
+    """Reuse generated features when both roles point to the same video."""
+    if _video_sha256(generated_video) == _video_sha256(driver_video):
+        return generated_au
+    return _run_extraction(
+        driver_video,
+        driver_au_root,
+        device=device,
+        batch_size=batch_size,
+        num_workers=num_workers,
+        force=force,
+        cache_root=cache_root,
+        cache_namespace=SHARED_AU_CACHE_NAMESPACE,
+    )
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -247,7 +275,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         num_workers=args.num_workers,
         force=args.force,
         cache_root=cache_root,
-        cache_namespace="generated",
+        cache_namespace=SHARED_AU_CACHE_NAMESPACE,
     )
     if args.driver_video:
         driver_video = _existing_file(
@@ -255,7 +283,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             label="Driver video",
         )
         assert driver_video is not None
-        driver_au = _run_extraction(
+        driver_au = _driver_au_for_video(
+            generated_video,
+            generated_au,
             driver_video,
             driver_au_root,
             device=args.device,

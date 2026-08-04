@@ -411,7 +411,7 @@ class WebAppTests(unittest.TestCase):
                         "calculate_lpips": "false",
                         "max_frames": "2",
                         "device": "cpu",
-                        "wangxing_expected_class": "disgust",
+                        "wangxing_expected_class": "not_an_expression",
                     },
                 )
 
