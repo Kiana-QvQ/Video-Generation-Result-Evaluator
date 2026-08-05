@@ -15,28 +15,44 @@ $dinoCompat = Join-Path $root "tools\dino_compat"
 $env:DOCKER_CONFIG = Join-Path $root ".docker"
 New-Item -ItemType Directory -Force -Path $env:DOCKER_CONFIG | Out-Null
 
-function Download-File([string]$Url, [string]$Destination) {
-    if ((Test-Path $Destination) -and ((Get-Item $Destination).Length -gt 0)) {
-        Write-Host "Already present: $Destination"
-        return
+function Download-File {
+    param(
+        [string]$Url,
+        [string]$Destination,
+        [string]$ExpectedSha256 = ""
+    )
+    if (Test-Path $Destination) {
+        $valid = (Get-Item $Destination).Length -gt 0
+        if ($ExpectedSha256) {
+            $valid = $valid -and ((Get-FileHash $Destination -Algorithm SHA256).Hash -eq $ExpectedSha256)
+        } else {
+            $valid = $false
+        }
+        if ($valid) { Write-Host "Verified existing asset: $Destination"; return }
+        Remove-Item -LiteralPath $Destination -Force
     }
     New-Item -ItemType Directory -Force -Path (Split-Path -Parent $Destination) | Out-Null
     Write-Host "Downloading: $Url"
     & curl.exe -L --fail --retry 6 --retry-delay 5 --retry-all-errors --http1.1 `
-        --output $Destination $Url
+        --output "$Destination.part" $Url
     if ($LASTEXITCODE -ne 0) {
         if (-not (Test-Path $python)) {
             throw "Download failed with exit code ${LASTEXITCODE}: $Url"
         }
         Write-Host "curl failed; retrying with project Python requests..."
-        & $python $downloadHelper $Url $Destination
+        & $python $downloadHelper $Url "$Destination.part" $ExpectedSha256
         if ($LASTEXITCODE -ne 0) {
             throw "Download failed with both curl and Python requests: $Url"
         }
     }
-    if ((Get-Item $Destination).Length -le 0) {
+    if (-not (Test-Path "$Destination.part") -or (Get-Item "$Destination.part").Length -le 0) {
         throw "Downloaded file is empty: $Destination"
     }
+    if ($ExpectedSha256 -and ((Get-FileHash "$Destination.part" -Algorithm SHA256).Hash -ne $ExpectedSha256)) {
+        Remove-Item -LiteralPath "$Destination.part" -Force
+        throw "Downloaded file has an unexpected SHA256: $Url"
+    }
+    Move-Item -LiteralPath "$Destination.part" -Destination $Destination -Force
 }
 
 function Install-DinoCompatibility {
@@ -99,7 +115,8 @@ Download-File `
 
 Download-File `
     "https://openaipublic.azureedge.net/clip/models/b8cca3fd41ae0c99ba7e8951adf17d267cdb84cd88be6f7c2e0eca1737a03836/ViT-L-14.pt" `
-    (Join-Path $vbench "clip_model\ViT-L-14.pt")
+    (Join-Path $vbench "clip_model\ViT-L-14.pt") `
+    "B8CCA3FD41AE0C99BA7E8951ADF17D267CDB84CD88BE6F7C2E0ECA1737A03836"
 
 Download-File `
     "https://github.com/chaofengc/IQA-PyTorch/releases/download/v0.1-weights/musiq_spaq_ckpt-358bb6af.pth" `

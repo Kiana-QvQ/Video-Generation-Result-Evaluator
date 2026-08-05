@@ -82,7 +82,7 @@ $env:FRAME_AUDIT_TRUST_PROXY_HEADERS = "true"
 
 ```powershell
 # VBench
-.\setup.ps1 -VBench
+# VBench uses an isolated Docker environment; do not install it into .venv.
 .\scripts\download-vbench-models.ps1 -SkipDinoRepository
 .\docker\build-vbench.ps1
 
@@ -92,10 +92,12 @@ $env:FRAME_AUDIT_TRUST_PROXY_HEADERS = "true"
 .\run.ps1
 ```
 
-VBench 是可选能力；Qwen VLM Judge 默认随 `run.ps1` 和 `run-grpc.ps1`
-自动以本地 Transformers 后端启动。使用 `--without-vlm` 可关闭。
+VBench 是可选能力；Qwen VLM Judge 默认不会随基础启动自动加载。
+安装并下载权重后，使用 `.\run.ps1 -WithVlm` 或
+`.\run-grpc.ps1 -WithVlm` 显式启动；使用 `--without-vlm` 可保持关闭。
 本地 Qwen Judge 读取 `model_cache/vlm_judge/` 中的权重；如果需要 Docker，
 必须显式使用 `.\run.ps1 -WithVlm -VlmBackend docker`。
+LibreFace 请使用 `.\setup-libreface.ps1` 创建独立的 Torch 2.0 环境。
 
 ## 输出与测试
 
@@ -110,3 +112,7 @@ CSV；所有本地缓存和生成结果都已加入 `.gitignore`。
 
 原始评估准则截图整理在
 [`docs/evaluation-criteria.png`](docs/evaluation-criteria.png)。
+
+公网或非回环地址部署前请阅读 [`docs/SECURITY.md`](docs/SECURITY.md)；
+必须配置 API key、TLS、资源限制和任务保留策略。VBench、Local VLM 与
+LibreFace 使用隔离依赖环境，不要把它们安装到同一个 `.venv`。

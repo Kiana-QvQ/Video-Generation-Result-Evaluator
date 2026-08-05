@@ -34,6 +34,13 @@ LIBREFACE_STAGE_ROOT.mkdir(parents=True, exist_ok=True)
 LIBREFACE_WEIGHTS_ROOT = LIBREFACE_STAGE_ROOT / "weights_libreface"
 LIBREFACE_WEIGHTS_ROOT.mkdir(parents=True, exist_ok=True)
 LIBREFACE_MAX_LONG_SIDE = 960
+try:
+    LIBREFACE_FFMPEG_TIMEOUT_SECONDS = max(
+        1.0,
+        float(os.environ.get("FRAME_AUDIT_FFMPEG_TIMEOUT_SECONDS", "900")),
+    )
+except ValueError:
+    LIBREFACE_FFMPEG_TIMEOUT_SECONDS = 900.0
 
 
 def _configure_utf8_streams() -> None:
@@ -112,10 +119,11 @@ def _input_root_inputs(
     return inputs
 
 
-def _find_executable() -> str:
+def _find_executable(runtime_python: Path | None = None) -> str:
+    python_path = runtime_python or Path(sys.executable)
     executable_candidates = [
-        Path(sys.executable).with_name("libreface.exe"),
-        Path(sys.executable).with_name("libreface"),
+        python_path.with_name("libreface.exe"),
+        python_path.with_name("libreface"),
     ]
     executable = next(
         (
@@ -162,6 +170,7 @@ def _run_libreface(
     num_workers: int,
     face_fallback: str,
     face_fallback_first: bool,
+    runtime_python: Path | None = None,
 ) -> None:
     # LibreFace's temporary frame handling is unreliable under non-ASCII
     # Windows paths, so stage both input and output in an ASCII directory.
@@ -187,17 +196,20 @@ def _run_libreface(
             mapped = mount.returncode == 0
         if mapped:
             mapped_root = Path(f"{drive}\\")
-            runtime_python = mapped_root / ".venv/Scripts/python.exe"
+            worker_python = (
+                runtime_python
+                or mapped_root / ".venv/Scripts/python.exe"
+            )
             worker = mapped_root / "scripts/libreface_worker.py"
         else:
-            runtime_python = Path(sys.executable)
+            worker_python = runtime_python or Path(sys.executable)
             worker = PROJECT_ROOT / "scripts/libreface_worker.py"
         environment = _utf8_environment()
 
         def run_worker(input_path: Path) -> None:
             staged_output.unlink(missing_ok=True)
             command = [
-                str(runtime_python),
+                str(worker_python),
                 str(worker),
                 "--input-path",
                 input_path.as_posix(),
@@ -228,6 +240,7 @@ def _run_libreface(
                     text=True,
                     encoding="utf-8",
                     errors="replace",
+                    timeout=LIBREFACE_FFMPEG_TIMEOUT_SECONDS,
                 )
             except subprocess.CalledProcessError as exc:
                 if exc.stdout:
@@ -338,6 +351,11 @@ def main() -> int:
     parser.add_argument("--output-root", default="data/au/libreface")
     parser.add_argument("--only-emotions", action="store_true")
     parser.add_argument("--device", default="cpu")
+    parser.add_argument(
+        "--libreface-python",
+        default=os.environ.get("LIBREFACE_PYTHON", ""),
+        help="Python executable from the isolated LibreFace environment.",
+    )
     parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument("--num-workers", type=int, default=2)
     parser.add_argument(
@@ -378,7 +396,14 @@ def main() -> int:
     if not 0.0 <= args.min_frame_coverage <= 1.0:
         raise SystemExit("--min-frame-coverage must be between 0 and 1.")
 
-    _find_executable()
+    runtime_python = (
+        Path(args.libreface_python).expanduser().resolve()
+        if args.libreface_python
+        else None
+    )
+    if runtime_python is not None and not runtime_python.is_file():
+        raise SystemExit(f"LibreFace Python executable not found: {runtime_python}")
+    _find_executable(runtime_python)
     if args.input_root:
         if args.input:
             raise SystemExit("--input-root cannot be combined with --input.")
@@ -439,6 +464,7 @@ def main() -> int:
                 num_workers=args.num_workers,
                 face_fallback=args.face_fallback,
                 face_fallback_first=args.face_fallback_first,
+                runtime_python=runtime_python,
             )
             valid, reason = validate_au_csv(
                 output_path,

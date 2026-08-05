@@ -2,10 +2,14 @@ from __future__ import annotations
 
 import shutil
 import tempfile
+import logging
 from pathlib import Path
 
 import cv2
 import numpy as np
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 class FaceDetector:
@@ -32,8 +36,11 @@ class FaceDetector:
                 ):
                     shutil.copyfile(cascade_path, temp_path)
                 classifier_path = temp_path
-            except OSError:
-                pass
+            except OSError as exc:
+                LOGGER.warning(
+                    "Unable to stage OpenCV face cascade at an ASCII path: %s",
+                    exc,
+                )
         self.classifier = cv2.CascadeClassifier(str(classifier_path))
         self.available = not self.classifier.empty()
 

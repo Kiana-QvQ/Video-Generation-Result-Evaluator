@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "video-generation-evaluator"
+version = "0.1.0"
+requires-python = ">=3.11,<3.12"
+description = "Local evaluator for generated human videos"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-ra"
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+exclude = ["grpc_api/*"]

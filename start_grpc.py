@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import ipaddress
 import os
 from pathlib import Path
 import subprocess
@@ -55,6 +56,8 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Bind to 0.0.0.0 so other machines can connect.",
     )
+    parser.add_argument("--tls-certfile", default=None)
+    parser.add_argument("--tls-keyfile", default=None)
     parser.add_argument(
         "--check",
         action="store_true",
@@ -74,7 +77,7 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         action="store_false",
         help="Do not start the Qwen VLM Judge.",
     )
-    parser.set_defaults(with_vlm=True)
+    parser.set_defaults(with_vlm=False)
     parser.add_argument(
         "--vlm-backend",
         choices=("local", "docker"),
@@ -99,6 +102,14 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     args.port = args.port or int(
         os.environ.get("EVALUATOR_GRPC_PORT", "50051")
     )
+    args.tls_certfile = args.tls_certfile or os.environ.get(
+        "EVALUATOR_GRPC_TLS_CERT",
+        "",
+    )
+    args.tls_keyfile = args.tls_keyfile or os.environ.get(
+        "EVALUATOR_GRPC_TLS_KEY",
+        "",
+    )
     if not 1 <= args.port <= 65535:
         parser.error("--port must be between 1 and 65535")
     return args
@@ -119,9 +130,30 @@ def main(argv: Sequence[str] | None = None) -> None:
         print(f"grpc_host={args.host}")
         print(f"grpc_port={args.port}")
         return
+    try:
+        is_public = not ipaddress.ip_address(args.host).is_loopback
+    except ValueError:
+        is_public = args.host != "localhost"
+    if is_public:
+        if not os.environ.get("FRAME_AUDIT_API_KEY", "").strip():
+            raise SystemExit("Public binding requires FRAME_AUDIT_API_KEY.")
+        if (
+            (not args.tls_certfile or not args.tls_keyfile)
+            and os.environ.get("EVALUATOR_ALLOW_INSECURE_PUBLIC", "").lower()
+            not in {"1", "true", "yes", "on"}
+        ):
+            raise SystemExit(
+                "Public gRPC binding requires --tls-certfile/--tls-keyfile "
+                "or an explicit insecure override."
+            )
+        os.environ["FRAME_AUDIT_REQUIRE_AUTH"] = "1"
 
     os.environ["EVALUATOR_GRPC_HOST"] = args.host
     os.environ["EVALUATOR_GRPC_PORT"] = str(args.port)
+    if args.tls_certfile:
+        os.environ["EVALUATOR_GRPC_TLS_CERT"] = args.tls_certfile
+    if args.tls_keyfile:
+        os.environ["EVALUATOR_GRPC_TLS_KEY"] = args.tls_keyfile
     vlm_handle = None
     try:
         if args.with_vlm:

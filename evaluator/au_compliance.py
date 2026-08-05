@@ -7,6 +7,7 @@ import math
 import re
 from pathlib import Path
 from typing import Any, Iterable, Literal
+from uuid import uuid4
 
 import numpy as np
 
@@ -101,10 +102,15 @@ def atomic_write_text(
     """Write a file beside the target, then replace the target atomically."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(f"{path.stem}.new{path.suffix}")
+    temporary = path.with_name(
+        f".{path.name}.{uuid4().hex}.new",
+    )
     with temporary.open("w", encoding=encoding, newline="\n") as handle:
         handle.write(content)
-    temporary.replace(path)
+    try:
+        temporary.replace(path)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def sha256_file(path: str | Path) -> str:
@@ -329,9 +335,6 @@ def load_au_table(
         detection_score_field = _field_name(
             fieldnames,
             "face_detection_score",
-        )
-        fallback_quality_available = bool(
-            alignment_method_field and detection_score_field
         )
         used_mesh_quality = False
         used_detection_quality = False
@@ -641,27 +644,52 @@ def _summary_feature_indices(
     full_au_ids: Iterable[int],
     supported_au_ids: Iterable[int],
 ) -> list[int]:
+    """Map a filtered summary back to the stored full-AU summary layout.
+
+    ``au_summary`` computes the feature vector using only supported columns,
+    while profiles and classifiers are trained with the complete AU layout.
+    The block stride must therefore remain the full width; only the selected
+    positions are copied into the filtered vector.
+    """
     full_au_ids = tuple(int(value) for value in full_au_ids)
-    supported = set(int(value) for value in supported_au_ids)
-    positions = {
-        au_id: index
-        for index, au_id in enumerate(full_au_ids)
-        if au_id in supported
-    }
+    supported = tuple(int(value) for value in supported_au_ids)
+    if len(set(full_au_ids)) != len(full_au_ids):
+        raise ValueError("Full AU ids must be unique.")
+    if len(set(supported)) != len(supported):
+        raise ValueError("Supported AU ids must be unique.")
+    missing_from_full = [
+        au_id for au_id in supported if au_id not in full_au_ids
+    ]
+    if missing_from_full:
+        raise ValueError(
+            "Supported AU ids are not present in the full layout: "
+            + ", ".join(map(str, missing_from_full))
+        )
+    supported_set = set(supported)
+    positions = {au_id: full_au_ids.index(au_id) for au_id in supported}
     indices: list[int] = []
-    block_size = len(full_au_ids)
+    full_width = len(full_au_ids)
     for block in range(3):
-        indices.extend(block * block_size + positions[au_id] for au_id in full_au_ids if au_id in positions)
+        indices.extend(
+            block * full_width + positions[au_id]
+            for au_id in supported
+        )
     full_pairs = _summary_pairs(full_au_ids)
     supported_pairs = [
         pair
         for pair in full_pairs
-        if pair[0] in supported and pair[1] in supported
+        if pair[0] in supported_set and pair[1] in supported_set
     ]
     indices.extend(
-        block_size * 3 + full_pairs.index(pair)
+        full_width * 3 + full_pairs.index(pair)
         for pair in supported_pairs
     )
+    expected_width = len(supported) * 3 + len(supported_pairs)
+    if len(indices) != expected_width:
+        raise RuntimeError(
+            "AU summary layout mapping produced an inconsistent feature count: "
+            f"{len(indices)} != {expected_width}."
+        )
     return indices
 
 

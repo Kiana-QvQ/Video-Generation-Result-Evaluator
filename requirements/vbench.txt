@@ -1,4 +1,4 @@
-# Optional official VBench backend.
-# Some dimensions may additionally require CUDA-specific packages such as
-# Detectron2 and extra model weights.
-vbench>=0.1.5,<0.2
+# VBench is isolated from the local VLM environment.
+# The official package contract currently requires this Transformers version.
+vbench==0.1.5
+transformers==4.33.2

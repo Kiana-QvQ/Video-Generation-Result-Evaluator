@@ -8,6 +8,13 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+if ($VBench -and $VLM) {
+    throw "VBench and the local VLM require incompatible Transformers versions. Install them in separate environments."
+}
+if ($VBench) {
+    throw "VBench is isolated by design. Use Docker with .\docker\build-vbench.ps1 instead of installing it into the main environment."
+}
+
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $python = Join-Path $root ".venv\Scripts\python.exe"
 $cache = Join-Path $root "model_cache"
@@ -23,6 +30,26 @@ $env:TORCH_EXTENSIONS_DIR = Join-Path $cache "torch_extensions"
 $env:MPLCONFIGDIR = Join-Path $cache "matplotlib"
 $env:PIP_CACHE_DIR = Join-Path $cache "pip"
 
+function Assert-DependencyConsistency {
+    $checkOutput = @(& $python -m pip check 2>&1)
+    $checkExitCode = $LASTEXITCODE
+    if ($checkExitCode -eq 0) {
+        return
+    }
+    $allowed = $checkOutput | Where-Object {
+        $_ -match "^autoawq .*requires triton"
+    }
+    $unexpected = $checkOutput | Where-Object {
+        $_ -notmatch "^autoawq .*requires triton"
+    }
+    if ($unexpected) {
+        $unexpected | ForEach-Object { Write-Error $_ }
+        throw "Dependency consistency check failed."
+    }
+    $warning = "pip check reports the expected Windows AutoAWQ Triton limitation: " + ($allowed -join "; ")
+    Write-Warning $warning
+}
+
 if (-not (Test-Path $python)) {
     Write-Host "Creating project-local Python environment..."
     python -m venv (Join-Path $root ".venv")
@@ -32,6 +59,9 @@ Write-Host "Installing base dependencies into .venv..."
 New-Item -ItemType Directory -Force -Path $cache | Out-Null
 New-Item -ItemType Directory -Force -Path $env:PIP_CACHE_DIR | Out-Null
 & $python -m pip install --upgrade pip
+if ($LASTEXITCODE -ne 0) {
+    throw "pip upgrade failed."
+}
 if ($Cuda) {
     Write-Host "Installing the CUDA-enabled PyTorch build..."
     & $python -m pip install `
@@ -42,9 +72,15 @@ if ($Cuda) {
     }
 }
 & $python -m pip install -r (Join-Path $root "requirements.txt")
+if ($LASTEXITCODE -ne 0) {
+    throw "Base dependency installation failed."
+}
 if ($Optional) {
     Write-Host "Installing optional exact evaluator backends..."
     & $python -m pip install -r (Join-Path $root "requirements\optional.txt")
+    if ($LASTEXITCODE -ne 0) {
+        throw "Optional evaluator dependency installation failed."
+    }
     $torchCuda = (& $python -c "import torch; print(torch.version.cuda or '')").Trim()
     if ($torchCuda -like "11.*") {
         Write-Host "Installing ONNX Runtime GPU for CUDA 11.x..."
@@ -72,6 +108,9 @@ if ($Grpc) {
 if ($VBench) {
     Write-Host "Installing the optional VBench backend..."
     & $python -m pip install -r (Join-Path $root "requirements\vbench.txt")
+    if ($LASTEXITCODE -ne 0) {
+        throw "VBench installation failed."
+    }
 }
 if ($VLM) {
     Write-Host "Installing the local Qwen VLM backend..."
@@ -86,15 +125,15 @@ if ($VLM) {
     }
 }
 
+Write-Host "Checking installed dependency consistency..."
+Assert-DependencyConsistency
+
 Write-Host ""
 Write-Host "Project environment is ready."
 Write-Host "Start with: .\run.ps1"
 if ($Optional) {
     Write-Host "Optional evaluator packages are ready."
     Write-Host "Download weights with: .\scripts\download-optional-assets.ps1 -SkipPythonPackages"
-}
-if ($VBench) {
-    Write-Host "VBench package is ready. Download its assets with: .\scripts\download-vbench-models.ps1"
 }
 if ($VLM) {
     Write-Host "Local Qwen VLM backend is ready. Start with: .\run.ps1"

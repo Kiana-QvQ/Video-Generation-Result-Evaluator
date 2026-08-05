@@ -58,6 +58,7 @@ def _peer_ip(context: grpc.ServicerContext) -> str:
 
 
 def _request_for(context: grpc.ServicerContext) -> SimpleNamespace:
+    web_app.authenticate_grpc(context)
     return SimpleNamespace(
         client=SimpleNamespace(host=_peer_ip(context)),
         headers={},
@@ -81,6 +82,7 @@ def _status_code(status_code: int) -> grpc.StatusCode:
         400: grpc.StatusCode.INVALID_ARGUMENT,
         404: grpc.StatusCode.NOT_FOUND,
         409: grpc.StatusCode.ABORTED,
+        401: grpc.StatusCode.UNAUTHENTICATED,
         413: grpc.StatusCode.RESOURCE_EXHAUSTED,
         415: grpc.StatusCode.INVALID_ARGUMENT,
         422: grpc.StatusCode.INVALID_ARGUMENT,
@@ -103,7 +105,7 @@ def _options(request: pb2.JobOptions | None) -> dict[str, object]:
     if request is None:
         return {
             "prompt_text": "",
-            "max_frames": 64,
+            "max_frames": 8,
             "calculate_lpips": True,
             "device": "auto",
             "manual_expression_score": "",
@@ -113,7 +115,7 @@ def _options(request: pb2.JobOptions | None) -> dict[str, object]:
         }
     return {
         "prompt_text": request.prompt_text,
-        "max_frames": request.max_frames if request.HasField("max_frames") else 64,
+        "max_frames": request.max_frames if request.HasField("max_frames") else 8,
         "calculate_lpips": (
             request.calculate_lpips
             if request.HasField("calculate_lpips")
@@ -122,8 +124,16 @@ def _options(request: pb2.JobOptions | None) -> dict[str, object]:
         "device": request.device or "auto",
         "manual_expression_score": request.manual_expression_score,
         "manual_aesthetic_score": request.manual_aesthetic_score,
-        "wangxing_au_enabled": False,
-        "wangxing_expected_class": "auto",
+        "wangxing_au_enabled": (
+            request.wangxing_au_enabled
+            if request.HasField("wangxing_au_enabled")
+            else False
+        ),
+        "wangxing_expected_class": (
+            request.wangxing_expected_class
+            if request.HasField("wangxing_expected_class")
+            else "auto"
+        ),
     }
 
 
@@ -132,9 +142,19 @@ def _collect_uploads(
     temp_root: Path,
     context: grpc.ServicerContext,
 ) -> tuple[pb2.JobOptions | None, list[_StagedUpload]]:
+    web_app.authenticate_grpc(context)
+    if not web_app._allow_upload_request(_peer_ip(context)):
+        raise _GrpcRequestError(
+            grpc.StatusCode.RESOURCE_EXHAUSTED,
+            (
+                "Upload rate limit exceeded. "
+                f"Limit: {web_app.UPLOADS_PER_MINUTE} requests per minute."
+            ),
+        )
     options: pb2.JobOptions | None = None
     uploads: list[_StagedUpload] = []
     active: dict[str, _StagedUpload] = {}
+    total_size = 0
 
     for request in requests:
         if request.HasField("options"):
@@ -170,6 +190,14 @@ def _collect_uploads(
                     grpc.StatusCode.INVALID_ARGUMENT,
                     f"Duplicate file_id: {chunk.file_id}",
                 )
+            if len(uploads) >= web_app.MAX_UPLOAD_FILES:
+                raise _GrpcRequestError(
+                    grpc.StatusCode.RESOURCE_EXHAUSTED,
+                    (
+                        "A request cannot contain more than "
+                        f"{web_app.MAX_UPLOAD_FILES} files."
+                    ),
+                )
             filename = Path(chunk.filename or "").name
             suffix = Path(filename).suffix.lower()
             if not filename or suffix not in _ALLOWED_FIELDS[chunk.field_name]:
@@ -199,10 +227,19 @@ def _collect_uploads(
         staged = active[chunk.file_id]
         staged.handle.write(chunk.data)
         staged.size += len(chunk.data)
+        total_size += len(chunk.data)
         if staged.size > web_app.MAX_UPLOAD_BYTES:
             raise _GrpcRequestError(
                 grpc.StatusCode.RESOURCE_EXHAUSTED,
                 "A single upload cannot exceed 1.5 GB.",
+            )
+        if total_size > web_app.MAX_TOTAL_UPLOAD_BYTES:
+            raise _GrpcRequestError(
+                grpc.StatusCode.RESOURCE_EXHAUSTED,
+                (
+                    "The total upload size for one request cannot exceed "
+                    f"{web_app.MAX_TOTAL_UPLOAD_BYTES / (1024**3):.1f} GB."
+                ),
             )
         if chunk.last:
             staged.handle.close()
@@ -278,6 +315,7 @@ def _close_uploads(
 class FrameAuditService(pb2_grpc.FrameAuditServicer):
     def Health(self, request: pb2.Empty, context: grpc.ServicerContext) -> pb2.JsonResponse:
         try:
+            web_app.authenticate_grpc(context)
             return _json_response(web_app.health())
         except Exception as exc:
             _abort(context, exc)
@@ -285,6 +323,7 @@ class FrameAuditService(pb2_grpc.FrameAuditServicer):
 
     def Models(self, request: pb2.Empty, context: grpc.ServicerContext) -> pb2.JsonResponse:
         try:
+            web_app.authenticate_grpc(context)
             return _json_response(web_app.models())
         except Exception as exc:
             _abort(context, exc)
@@ -439,9 +478,24 @@ class FrameAuditService(pb2_grpc.FrameAuditServicer):
     ) -> pb2.JsonResponse:
         try:
             name = request.name if request.HasField("name") else None
+            update_kwargs: dict[str, object] = {
+                "name": name,
+                "action": request.action or None,
+            }
+            for field_name in (
+                "prompt_text",
+                "max_frames",
+                "calculate_lpips",
+                "device",
+                "manual_expression_score",
+                "manual_aesthetic_score",
+                "wangxing_au_enabled",
+                "wangxing_expected_class",
+            ):
+                if request.HasField(field_name):
+                    update_kwargs[field_name] = getattr(request, field_name)
             update = web_app.JobUpdate(
-                name=name,
-                action=request.action or None,
+                **update_kwargs,
             )
             return _json_response(
                 web_app.update_job(
@@ -512,7 +566,37 @@ def serve() -> None:
     port = int(os.environ.get("EVALUATOR_GRPC_PORT", "50051"))
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=8))
     pb2_grpc.add_FrameAuditServicer_to_server(FrameAuditService(), server)
-    bound_port = server.add_insecure_port(f"{host}:{port}")
+    cert_path = os.environ.get("EVALUATOR_GRPC_TLS_CERT", "").strip()
+    key_path = os.environ.get("EVALUATOR_GRPC_TLS_KEY", "").strip()
+    credentials = None
+    if cert_path or key_path:
+        if not cert_path or not key_path:
+            raise RuntimeError(
+                "Both EVALUATOR_GRPC_TLS_CERT and EVALUATOR_GRPC_TLS_KEY "
+                "must be configured together."
+            )
+        credentials = grpc.ssl_server_credentials(
+            [
+                (
+                    Path(key_path).read_bytes(),
+                    Path(cert_path).read_bytes(),
+                )
+            ]
+        )
+    is_public = host not in {"127.0.0.1", "::1", "localhost"}
+    if is_public and credentials is None and os.environ.get(
+        "EVALUATOR_ALLOW_INSECURE_PUBLIC",
+        "",
+    ).lower() not in {"1", "true", "yes", "on"}:
+        raise RuntimeError(
+            "Refusing public gRPC without TLS. Configure "
+            "EVALUATOR_GRPC_TLS_CERT/KEY or explicitly opt into insecure mode."
+        )
+    bound_port = (
+        server.add_secure_port(f"{host}:{port}", credentials)
+        if credentials is not None
+        else server.add_insecure_port(f"{host}:{port}")
+    )
     if bound_port == 0:
         raise RuntimeError(f"Unable to bind gRPC endpoint {host}:{port}")
     server.start()

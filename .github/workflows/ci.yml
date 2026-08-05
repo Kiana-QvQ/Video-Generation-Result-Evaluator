@@ -1,0 +1,27 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install -r requirements.txt -r requirements/dev.txt
+      - run: >-
+          python -m ruff check --select E4,E7,E9,F
+          evaluator/au_compliance.py evaluator/etva_judge.py
+          evaluator/model_profile.py evaluator/vbench_runner.py
+          evaluator/video_metrics.py evaluator/holistic_evaluator.py
+          web_app.py grpc_server.py start.py start_grpc.py
+          scripts/audit_dataset.py scripts/download_ravdess_negative.py
+          scripts/extract_libreface_au.py tools/download_url.py
+          tests/test_safety_guards.py
+      - run: python -m pytest -q

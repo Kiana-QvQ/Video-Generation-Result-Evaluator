@@ -14,7 +14,7 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x11\x66rame_audit.proto\x12\x0b\x66rame_audit\"\x07\n\x05\x45mpty\"1\n\x0cJsonResponse\x12\x0c\n\x04json\x18\x01 \x01(\t\x12\x13\n\x0bhttp_status\x18\x02 \x01(\x05\"!\n\x0fHardwareRequest\x12\x0e\n\x06\x64\x65vice\x18\x01 \x01(\t\" \n\x0fListJobsRequest\x12\r\n\x05limit\x18\x01 \x01(\x05\"\x1c\n\nJobRequest\x12\x0e\n\x06job_id\x18\x01 \x01(\t\"N\n\x10UpdateJobRequest\x12\x0e\n\x06job_id\x18\x01 \x01(\t\x12\x11\n\x04name\x18\x02 \x01(\tH\x00\x88\x01\x01\x12\x0e\n\x06\x61\x63tion\x18\x03 \x01(\tB\x07\n\x05_name\"3\n\x0f\x44ownloadRequest\x12\x0e\n\x06run_id\x18\x01 \x01(\t\x12\x10\n\x08\x66ilename\x18\x02 \x01(\t\"\xcc\x01\n\nJobOptions\x12\x13\n\x0bprompt_text\x18\x01 \x01(\t\x12\x17\n\nmax_frames\x18\x02 \x01(\x05H\x00\x88\x01\x01\x12\x1c\n\x0f\x63\x61lculate_lpips\x18\x03 \x01(\x08H\x01\x88\x01\x01\x12\x0e\n\x06\x64\x65vice\x18\x04 \x01(\t\x12\x1f\n\x17manual_expression_score\x18\x05 \x01(\t\x12\x1e\n\x16manual_aesthetic_score\x18\x06 \x01(\tB\r\n\x0b_max_framesB\x12\n\x10_calculate_lpips\"\x85\x01\n\x0bUploadChunk\x12\x0f\n\x07\x66ile_id\x18\x01 \x01(\t\x12\x12\n\nfield_name\x18\x02 \x01(\t\x12\x10\n\x08\x66ilename\x18\x03 \x01(\t\x12\x14\n\x0c\x63ontent_type\x18\x04 \x01(\t\x12\x0c\n\x04\x64\x61ta\x18\x05 \x01(\x0c\x12\r\n\x05\x66irst\x18\x06 \x01(\x08\x12\x0c\n\x04last\x18\x07 \x01(\x08\"q\n\rUploadRequest\x12*\n\x07options\x18\x01 \x01(\x0b\x32\x17.frame_audit.JobOptionsH\x00\x12)\n\x05\x63hunk\x18\x02 \x01(\x0b\x32\x18.frame_audit.UploadChunkH\x00\x42\t\n\x07payload\"R\n\rDownloadChunk\x12\x10\n\x08\x66ilename\x18\x01 \x01(\t\x12\x14\n\x0c\x63ontent_type\x18\x02 \x01(\t\x12\x0c\n\x04\x64\x61ta\x18\x03 \x01(\x0c\x12\x0b\n\x03\x65of\x18\x04 \x01(\x08\x32\xa8\x05\n\nFrameAudit\x12\x37\n\x06Health\x12\x12.frame_audit.Empty\x1a\x19.frame_audit.JsonResponse\x12\x37\n\x06Models\x12\x12.frame_audit.Empty\x1a\x19.frame_audit.JsonResponse\x12\x43\n\x08Hardware\x12\x1c.frame_audit.HardwareRequest\x1a\x19.frame_audit.JsonResponse\x12\x44\n\tCreateJob\x12\x1a.frame_audit.UploadRequest\x1a\x19.frame_audit.JsonResponse(\x01\x12\x43\n\x08\x45valuate\x12\x1a.frame_audit.UploadRequest\x1a\x19.frame_audit.JsonResponse(\x01\x12\x43\n\x08ListJobs\x12\x1c.frame_audit.ListJobsRequest\x1a\x19.frame_audit.JsonResponse\x12<\n\x06GetJob\x12\x17.frame_audit.JobRequest\x1a\x19.frame_audit.JsonResponse\x12\x45\n\tUpdateJob\x12\x1d.frame_audit.UpdateJobRequest\x1a\x19.frame_audit.JsonResponse\x12?\n\tDeleteJob\x12\x17.frame_audit.JobRequest\x1a\x19.frame_audit.JsonResponse\x12M\n\x0f\x44ownloadRunFile\x12\x1c.frame_audit.DownloadRequest\x1a\x1a.frame_audit.DownloadChunk0\x01\x62\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x11\x66rame_audit.proto\x12\x0b\x66rame_audit\"\x07\n\x05\x45mpty\"1\n\x0cJsonResponse\x12\x0c\n\x04json\x18\x01 \x01(\t\x12\x13\n\x0bhttp_status\x18\x02 \x01(\x05\"!\n\x0fHardwareRequest\x12\x0e\n\x06\x64\x65vice\x18\x01 \x01(\t\" \n\x0fListJobsRequest\x12\r\n\x05limit\x18\x01 \x01(\x05\"\x1c\n\nJobRequest\x12\x0e\n\x06job_id\x18\x01 \x01(\t\"\xf0\x03\n\x10UpdateJobRequest\x12\x0e\n\x06job_id\x18\x01 \x01(\t\x12\x11\n\x04name\x18\x02 \x01(\tH\x00\x88\x01\x01\x12\x0e\n\x06\x61\x63tion\x18\x03 \x01(\t\x12\x18\n\x0bprompt_text\x18\x04 \x01(\tH\x01\x88\x01\x01\x12\x17\n\nmax_frames\x18\x05 \x01(\x05H\x02\x88\x01\x01\x12\x1c\n\x0f\x63\x61lculate_lpips\x18\x06 \x01(\x08H\x03\x88\x01\x01\x12\x13\n\x06\x64\x65vice\x18\x07 \x01(\tH\x04\x88\x01\x01\x12$\n\x17manual_expression_score\x18\x08 \x01(\tH\x05\x88\x01\x01\x12#\n\x16manual_aesthetic_score\x18\t \x01(\tH\x06\x88\x01\x01\x12 \n\x13wangxing_au_enabled\x18\n \x01(\x08H\x07\x88\x01\x01\x12$\n\x17wangxing_expected_class\x18\x0b \x01(\tH\x08\x88\x01\x01\x42\x07\n\x05_nameB\x0e\n\x0c_prompt_textB\r\n\x0b_max_framesB\x12\n\x10_calculate_lpipsB\t\n\x07_deviceB\x1a\n\x18_manual_expression_scoreB\x19\n\x17_manual_aesthetic_scoreB\x16\n\x14_wangxing_au_enabledB\x1a\n\x18_wangxing_expected_class\"3\n\x0f\x44ownloadRequest\x12\x0e\n\x06run_id\x18\x01 \x01(\t\x12\x10\n\x08\x66ilename\x18\x02 \x01(\t\"\xc8\x02\n\nJobOptions\x12\x13\n\x0bprompt_text\x18\x01 \x01(\t\x12\x17\n\nmax_frames\x18\x02 \x01(\x05H\x00\x88\x01\x01\x12\x1c\n\x0f\x63\x61lculate_lpips\x18\x03 \x01(\x08H\x01\x88\x01\x01\x12\x0e\n\x06\x64\x65vice\x18\x04 \x01(\t\x12\x1f\n\x17manual_expression_score\x18\x05 \x01(\t\x12\x1e\n\x16manual_aesthetic_score\x18\x06 \x01(\t\x12 \n\x13wangxing_au_enabled\x18\x07 \x01(\x08H\x02\x88\x01\x01\x12$\n\x17wangxing_expected_class\x18\x08 \x01(\tH\x03\x88\x01\x01\x42\r\n\x0b_max_framesB\x12\n\x10_calculate_lpipsB\x16\n\x14_wangxing_au_enabledB\x1a\n\x18_wangxing_expected_class\"\x85\x01\n\x0bUploadChunk\x12\x0f\n\x07\x66ile_id\x18\x01 \x01(\t\x12\x12\n\nfield_name\x18\x02 \x01(\t\x12\x10\n\x08\x66ilename\x18\x03 \x01(\t\x12\x14\n\x0c\x63ontent_type\x18\x04 \x01(\t\x12\x0c\n\x04\x64\x61ta\x18\x05 \x01(\x0c\x12\r\n\x05\x66irst\x18\x06 \x01(\x08\x12\x0c\n\x04last\x18\x07 \x01(\x08\"q\n\rUploadRequest\x12*\n\x07options\x18\x01 \x01(\x0b\x32\x17.frame_audit.JobOptionsH\x00\x12)\n\x05\x63hunk\x18\x02 \x01(\x0b\x32\x18.frame_audit.UploadChunkH\x00\x42\t\n\x07payload\"R\n\rDownloadChunk\x12\x10\n\x08\x66ilename\x18\x01 \x01(\t\x12\x14\n\x0c\x63ontent_type\x18\x02 \x01(\t\x12\x0c\n\x04\x64\x61ta\x18\x03 \x01(\x0c\x12\x0b\n\x03\x65of\x18\x04 \x01(\x08\x32\xa8\x05\n\nFrameAudit\x12\x37\n\x06Health\x12\x12.frame_audit.Empty\x1a\x19.frame_audit.JsonResponse\x12\x37\n\x06Models\x12\x12.frame_audit.Empty\x1a\x19.frame_audit.JsonResponse\x12\x43\n\x08Hardware\x12\x1c.frame_audit.HardwareRequest\x1a\x19.frame_audit.JsonResponse\x12\x44\n\tCreateJob\x12\x1a.frame_audit.UploadRequest\x1a\x19.frame_audit.JsonResponse(\x01\x12\x43\n\x08\x45valuate\x12\x1a.frame_audit.UploadRequest\x1a\x19.frame_audit.JsonResponse(\x01\x12\x43\n\x08ListJobs\x12\x1c.frame_audit.ListJobsRequest\x1a\x19.frame_audit.JsonResponse\x12<\n\x06GetJob\x12\x17.frame_audit.JobRequest\x1a\x19.frame_audit.JsonResponse\x12\x45\n\tUpdateJob\x12\x1d.frame_audit.UpdateJobRequest\x1a\x19.frame_audit.JsonResponse\x12?\n\tDeleteJob\x12\x17.frame_audit.JobRequest\x1a\x19.frame_audit.JsonResponse\x12M\n\x0f\x44ownloadRunFile\x12\x1c.frame_audit.DownloadRequest\x1a\x1a.frame_audit.DownloadChunk0\x01\x62\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -31,18 +31,18 @@ if _descriptor._USE_C_DESCRIPTORS == False:
   _globals['_LISTJOBSREQUEST']._serialized_end=161
   _globals['_JOBREQUEST']._serialized_start=163
   _globals['_JOBREQUEST']._serialized_end=191
-  _globals['_UPDATEJOBREQUEST']._serialized_start=193
-  _globals['_UPDATEJOBREQUEST']._serialized_end=271
-  _globals['_DOWNLOADREQUEST']._serialized_start=273
-  _globals['_DOWNLOADREQUEST']._serialized_end=324
-  _globals['_JOBOPTIONS']._serialized_start=327
-  _globals['_JOBOPTIONS']._serialized_end=531
-  _globals['_UPLOADCHUNK']._serialized_start=534
-  _globals['_UPLOADCHUNK']._serialized_end=667
-  _globals['_UPLOADREQUEST']._serialized_start=669
-  _globals['_UPLOADREQUEST']._serialized_end=782
-  _globals['_DOWNLOADCHUNK']._serialized_start=784
-  _globals['_DOWNLOADCHUNK']._serialized_end=866
-  _globals['_FRAMEAUDIT']._serialized_start=869
-  _globals['_FRAMEAUDIT']._serialized_end=1549
+  _globals['_UPDATEJOBREQUEST']._serialized_start=194
+  _globals['_UPDATEJOBREQUEST']._serialized_end=690
+  _globals['_DOWNLOADREQUEST']._serialized_start=692
+  _globals['_DOWNLOADREQUEST']._serialized_end=743
+  _globals['_JOBOPTIONS']._serialized_start=746
+  _globals['_JOBOPTIONS']._serialized_end=1074
+  _globals['_UPLOADCHUNK']._serialized_start=1077
+  _globals['_UPLOADCHUNK']._serialized_end=1210
+  _globals['_UPLOADREQUEST']._serialized_start=1212
+  _globals['_UPLOADREQUEST']._serialized_end=1325
+  _globals['_DOWNLOADCHUNK']._serialized_start=1327
+  _globals['_DOWNLOADCHUNK']._serialized_end=1409
+  _globals['_FRAMEAUDIT']._serialized_start=1412
+  _globals['_FRAMEAUDIT']._serialized_end=2092
 # @@protoc_insertion_point(module_scope)

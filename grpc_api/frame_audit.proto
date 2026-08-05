@@ -25,6 +25,14 @@ message UpdateJobRequest {
   string job_id = 1;
   optional string name = 2;
   string action = 3;
+  optional string prompt_text = 4;
+  optional int32 max_frames = 5;
+  optional bool calculate_lpips = 6;
+  optional string device = 7;
+  optional string manual_expression_score = 8;
+  optional string manual_aesthetic_score = 9;
+  optional bool wangxing_au_enabled = 10;
+  optional string wangxing_expected_class = 11;
 }
 
 message DownloadRequest {
@@ -39,6 +47,8 @@ message JobOptions {
   string device = 4;
   string manual_expression_score = 5;
   string manual_aesthetic_score = 6;
+  optional bool wangxing_au_enabled = 7;
+  optional string wangxing_expected_class = 8;
 }
 
 message UploadChunk {

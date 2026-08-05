@@ -411,18 +411,35 @@ def _read_frames(path: str, indices: Iterable[int]) -> list[np.ndarray]:
     if not capture.isOpened():
         raise ValueError(f"Unable to open video: {path}")
 
-    frames: list[np.ndarray] = []
+    requested = [max(0, int(index)) for index in indices]
+    if not requested:
+        capture.release()
+        return []
+    unique_indices = sorted(set(requested))
+    decoded: dict[int, np.ndarray] = {}
     try:
-        for index in indices:
-            capture.set(cv2.CAP_PROP_POS_FRAMES, int(index))
-            ok, frame = capture.read()
-            if not ok or frame is None:
-                raise ValueError(f"Unable to read frame {index} from {path}")
+        current_index = -1
+        for target_index in unique_indices:
+            # Sequential decoding is much cheaper for nearby samples. For a
+            # large gap, seek once and continue sequentially from there.
+            if current_index < 0 or target_index - current_index > 48:
+                if not capture.set(cv2.CAP_PROP_POS_FRAMES, target_index):
+                    raise ValueError(
+                        f"Unable to seek frame {target_index} from {path}"
+                    )
+                current_index = target_index - 1
+            while current_index < target_index:
+                ok, frame = capture.read()
+                current_index += 1
+                if not ok or frame is None:
+                    raise ValueError(
+                        f"Unable to read frame {target_index} from {path}"
+                    )
             frame = _resize_frame_for_evaluation(frame)
-            frames.append(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+            decoded[target_index] = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
     finally:
         capture.release()
-    return frames
+    return [decoded[index] for index in requested]
 
 
 NormalizedFaceBox = tuple[float, float, float, float]

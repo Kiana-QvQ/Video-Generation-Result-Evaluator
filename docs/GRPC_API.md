@@ -73,16 +73,22 @@ reference_video: first chunk ... last chunk   optional, can repeat
 
 每个文件使用唯一的 `file_id`。第一个分块设置 `first=true`，最后一个分块设置 `last=true`，中间分块两个标志都为 `false`。单个文件仍限制为 1.5 GB，扩展名校验与 HTTP 接口一致。重复的 `reference_video` 会按上传顺序拼接；`gt_video` 最多只能上传一个。
 
+gRPC 与 HTTP 共用认证、文件数量、总请求大小、视频时长、分辨率、帧数和
+FFmpeg 超时限制。公网监听时必须配置 TLS 和 `FRAME_AUDIT_API_KEY`；客户端
+通过 `authorization: Bearer <key>` 或 `x-api-key: <key>` metadata 发送密钥。
+
 `JobOptions` 对应 HTTP 表单字段：
 
 | JobOptions | HTTP 表单字段 | 默认值 |
 | --- | --- | --- |
 | `prompt_text` | `prompt_text` | 空字符串 |
-| `max_frames` | `max_frames` | `64` |
+| `max_frames` | `max_frames` | `8` |
 | `calculate_lpips` | `calculate_lpips` | `true` |
 | `device` | `device` | `auto` |
 | `manual_expression_score` | `manual_expression_score` | 空字符串 |
 | `manual_aesthetic_score` | `manual_aesthetic_score` | 空字符串 |
+| `wangxing_au_enabled` | `wangxing_au_enabled` | `false` |
+| `wangxing_expected_class` | `wangxing_expected_class` | `auto` |
 
 ## Python 客户端最小示例
 

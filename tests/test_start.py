@@ -26,7 +26,7 @@ class StartArgumentTests(unittest.TestCase):
         self.assertEqual(args.transport, "http")
         self.assertEqual(args.http_host, "127.0.0.1")
         self.assertEqual(args.http_port, 7860)
-        self.assertTrue(args.with_vlm)
+        self.assertFalse(args.with_vlm)
 
     def test_vlm_can_be_disabled_explicitly(self) -> None:
         self.assertFalse(_parse_args(["--without-vlm"]).with_vlm)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import random
 import re
@@ -34,6 +35,14 @@ VIDEO_SUFFIXES = {".mp4", ".mov", ".avi", ".mkv", ".webm", ".m4v"}
 def _project_path(value: str | Path) -> Path:
     path = Path(value).expanduser()
     return path if path.is_absolute() else PROJECT_ROOT / path
+
+
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 RAVDESS_EMOTIONS = {
     "01": "neutral",
     "02": "calm",
@@ -174,6 +183,7 @@ def ensure_archive(
     record_id: str,
     source: str,
     force: bool,
+    expected_sha256: str | None = None,
 ) -> Path:
     archive = cache_root / f"Video_Speech_Actor_{actor:02d}.zip"
     partial = cache_root / f"Video_Speech_Actor_{actor:02d}.zip.part"
@@ -184,7 +194,11 @@ def ensure_archive(
     if archive.exists():
         try:
             with zipfile.ZipFile(archive) as handle:
-                handle.infolist()
+                members = handle.infolist()
+            if not any(parse_ravdess_member(item.filename) for item in members):
+                raise zipfile.BadZipFile("archive contains no RAVDESS videos")
+            if expected_sha256 and sha256_file(archive) != expected_sha256.lower():
+                raise zipfile.BadZipFile("archive SHA256 does not match")
             return archive
         except zipfile.BadZipFile:
             archive.unlink()
@@ -197,12 +211,19 @@ def ensure_archive(
     _download_with_resume(url, partial)
     try:
         with zipfile.ZipFile(partial) as handle:
-            handle.infolist()
+            members = handle.infolist()
+        if not any(parse_ravdess_member(item.filename) for item in members):
+            raise zipfile.BadZipFile("archive contains no RAVDESS videos")
     except zipfile.BadZipFile as exc:
         raise RuntimeError(
             f"Downloaded file is not a valid ZIP: {partial}. "
             "The official Zenodo URL may have returned an error page."
         ) from exc
+    if expected_sha256 and sha256_file(partial) != expected_sha256.lower():
+        partial.unlink(missing_ok=True)
+        raise RuntimeError(
+            f"Downloaded archive SHA256 does not match expected value: {partial}"
+        )
     partial.replace(archive)
     return archive
 
@@ -317,15 +338,22 @@ def write_manifest(
     actors: list[int],
     emotions: list[int],
     record_id: str,
+    source: str,
     seed: int,
 ) -> Path:
+    source_url = (
+        RAVDESS_SOURCE_URLS[source]
+        .replace("{record_id}", record_id)
+        .replace("{actor:02d}", "{actor}")
+    )
     payload = {
         "schema_version": "negative_video_manifest_v1",
         "source": "RAVDESS",
-        "source_record": f"https://zenodo.org/records/{record_id}",
+        "source_record": source_url,
         "selection": {
             "actors": actors,
             "emotions": emotions,
+            "source": source,
             "seed": seed,
             "download_policy": (
                 "Only the selected actor ZIP archives are downloaded; "
@@ -371,6 +399,11 @@ def main() -> int:
     )
     parser.add_argument("--record-id", default=RAVDESS_RECORD_ID)
     parser.add_argument(
+        "--expected-sha256-json",
+        default="",
+        help="Optional JSON object mapping actor ids to expected archive SHA256.",
+    )
+    parser.add_argument(
         "--source",
         choices=tuple(sorted(RAVDESS_SOURCE_URLS)),
         default="ZENODO",
@@ -394,6 +427,20 @@ def main() -> int:
 
     output_root = _project_path(args.output_root)
     cache_root = _project_path(args.cache_root)
+    expected_hashes: dict[str, str] = {}
+    if args.expected_sha256_json:
+        try:
+            payload = json.loads(
+                Path(args.expected_sha256_json).read_text(encoding="utf-8")
+            )
+            if not isinstance(payload, dict):
+                raise ValueError("expected hash file must contain a JSON object")
+            expected_hashes = {
+                str(key): str(value).strip().lower()
+                for key, value in payload.items()
+            }
+        except (OSError, json.JSONDecodeError, ValueError) as exc:
+            raise SystemExit(f"Invalid expected hash file: {exc}") from exc
     archives: dict[int, Path] = {}
     all_members: list[dict[str, str]] = []
     for actor in actors:
@@ -404,6 +451,7 @@ def main() -> int:
                 record_id=str(args.record_id),
                 source=str(args.source),
                 force=bool(args.force),
+                expected_sha256=expected_hashes.get(str(actor)),
             )
         except (OSError, urllib.error.URLError, RuntimeError) as exc:
             expected_archive = (
@@ -449,6 +497,7 @@ def main() -> int:
         actors=actors,
         emotions=emotions,
         record_id=str(args.record_id),
+        source=str(args.source),
         seed=int(args.seed),
     )
     print(

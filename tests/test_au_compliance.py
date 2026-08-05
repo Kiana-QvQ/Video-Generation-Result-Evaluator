@@ -24,6 +24,9 @@ from evaluator.au_compliance import (
     sha256_file,
     score_au_compliance,
     temporal_event_features,
+    _summary_feature_indices,
+    _summary_pairs,
+    au_summary,
 )
 
 
@@ -712,6 +715,30 @@ class AUComplianceTests(unittest.TestCase):
         self.assertIsNotNone(result["driver_expression_score_0_1"])
         self.assertIsNotNone(result["driver_temporal_alignment"])
         self.assertIsNone(result["generated_au"]["selected_columns"]["25"])
+
+    def test_partial_summary_indices_keep_middle_au_alignment(self) -> None:
+        full_au_ids = (1, 2, 4, 6, 12)
+        supported_au_ids = (1, 2, 4, 12)
+        pairs = [
+            pair
+            for pair in _summary_pairs(full_au_ids)
+            if pair[0] in supported_au_ids and pair[1] in supported_au_ids
+        ]
+        summary = au_summary(
+            np.ones((4, len(supported_au_ids)), dtype=np.float32),
+            au_ids=supported_au_ids,
+            coactivation_pairs=pairs,
+        )
+        indices = _summary_feature_indices(
+            full_au_ids,
+            supported_au_ids,
+        )
+
+        self.assertEqual(len(summary), len(indices))
+        self.assertEqual(
+            indices,
+            [0, 1, 2, 4, 5, 6, 7, 9, 10, 11, 12, 14, 15, 16, 18],
+        )
 
     def test_fusion_reviews_high_leakage(self) -> None:
         result = fuse_compliance_scores(
