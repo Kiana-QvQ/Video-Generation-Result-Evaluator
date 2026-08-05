@@ -188,3 +188,8 @@ http://这台电脑的局域网IP:7860
 ```
 
 `-Public` 只改变监听地址，不会自动创建公网入口，也不会自动配置防火墙、域名或 HTTPS。
+
+当前服务已拒绝无保护的公网启动：非回环地址需要
+`FRAME_AUDIT_API_KEY`，并默认需要 TLS 证书和私钥。详细的 API key、限流、
+上传限制、任务清理、单 worker 队列和依赖隔离说明见
+[`SECURITY.md`](SECURITY.md)。

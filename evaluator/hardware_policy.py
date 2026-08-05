@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import os
+import logging
 from dataclasses import asdict, dataclass
 from typing import Any
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -54,10 +58,11 @@ def _cuda_info() -> tuple[bool, float | None, float | None]:
         try:
             free_bytes, _ = torch.cuda.mem_get_info(0)
             free_vram = float(free_bytes / (1024**3))
-        except Exception:
-            pass
+        except Exception as exc:
+            LOGGER.debug("Unable to read free CUDA memory: %s", exc)
         return True, forced_vram or actual_vram, free_vram
-    except Exception:
+    except Exception as exc:
+        LOGGER.warning("CUDA hardware inspection failed: %s", exc)
         return False, forced_vram, None
 
 

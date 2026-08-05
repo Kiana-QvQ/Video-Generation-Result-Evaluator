@@ -293,7 +293,7 @@ class WebAppTests(unittest.TestCase):
             "coverage": "0/5",
         }
 
-        def capture_reference_videos(uploads, _run_dir):
+        def capture_reference_videos(uploads, _run_dir, **_kwargs):
             captured["names"] = [upload.filename for upload in uploads]
             return None
 
@@ -717,7 +717,14 @@ class WebAppTests(unittest.TestCase):
                     files=[
                         ("result_video", ("source-result.mp4", result_video, "video/mp4")),
                         ("gt_video", ("source-gt.mp4", gt_video, "video/mp4")),
-                        ("reference_images", ("source-face.png", b"source-image", "image/png")),
+                        (
+                            "reference_images",
+                            (
+                                "source-face.png",
+                                (Path("tests/data/front.png").read_bytes()),
+                                "image/png",
+                            ),
+                        ),
                     ],
                     data={
                         "name": "source-evaluation",
@@ -771,7 +778,7 @@ class WebAppTests(unittest.TestCase):
                 )
                 self.assertEqual(
                     (replacement_dir / "reference_01.png").read_bytes(),
-                    b"source-image",
+                    Path("tests/data/front.png").read_bytes(),
                 )
             finally:
                 shutil.rmtree(source_dir, ignore_errors=True)

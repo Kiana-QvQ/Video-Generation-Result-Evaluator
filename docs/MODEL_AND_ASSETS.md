@@ -87,7 +87,7 @@ $env:ETVA_MAX_FRAME_DIMENSION = "768"
 VBench 是独立的可选后端，建议使用 Docker 运行：
 
 ```powershell
-.\setup.ps1 -VBench
+# VBench is not installed into the main .venv.
 .\scripts\download-vbench-models.ps1 -SkipDinoRepository
 .\docker\build-vbench.ps1
 ```

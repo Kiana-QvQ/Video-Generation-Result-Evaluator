@@ -30,11 +30,22 @@ def main() -> int:
         default="data/video/expression_reference_manifest.json",
         help="Output JSON path.",
     )
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="Fail when any manifest row is missing its local MP4.",
+    )
     args = parser.parse_args()
 
     root = project_path(args.root)
     output = project_path(args.output)
     payload = build_expression_manifest(root)
+    if args.strict and payload["source"]["missing_video_rows"]:
+        print(
+            "ERROR: "
+            f"{payload['source']['missing_video_rows']} manifest rows have no MP4."
+        )
+        return 1
     errors = validate_expression_manifest(payload)
     if errors:
         for error in errors:

@@ -39,14 +39,65 @@ MODEL_PROFILES: dict[str, dict[str, Any]] = {
 
 def get_recommended_model(vram_gb: float | None = None) -> dict[str, Any]:
     """Return the safest useful judge for the requested hardware budget."""
-    if vram_gb is not None and vram_gb >= 24:
-        selected_id = "videoscore2_bf16"
-    elif vram_gb is not None and vram_gb >= 12:
-        selected_id = "qwen2_5_vl_3b_awq"
+    configured = load_profile()
+    configured_modules = {
+        str(item.get("id")): item
+        for item in configured.get("modules", [])
+        if isinstance(item, dict) and item.get("id")
+    }
+    configured_modules.setdefault(
+        "qwen2_vl_2b_awq",
+        configured_modules.get("vlm_judge", {}),
+    )
+    configured_modules.setdefault(
+        "videoscore2_bf16",
+        configured_modules.get("videoscore2", {}),
+    )
+    candidates = [
+        profile_id
+        for profile_id in MODEL_PROFILES
+        if profile_id in configured_modules
+    ]
+    if not candidates:
+        candidates = list(MODEL_PROFILES)
+
+    def minimum_vram(profile_id: str) -> float:
+        configured_value = configured_modules.get(profile_id, {}).get(
+            "minimum_vram_gb"
+        )
+        if configured_value is not None:
+            try:
+                return float(configured_value)
+            except (TypeError, ValueError):
+                pass
+        return float(MODEL_PROFILES[profile_id]["minimum_vram_gb"])
+
+    if vram_gb is None:
+        selected_id = min(candidates, key=minimum_vram)
     else:
-        selected_id = DEFAULT_JUDGE_ID
+        fitting = [
+            profile_id
+            for profile_id in candidates
+            if minimum_vram(profile_id) <= vram_gb
+        ]
+        selected_id = max(
+            fitting or candidates,
+            key=minimum_vram,
+        )
+    if vram_gb is not None and minimum_vram(selected_id) > vram_gb:
+        selected_id = min(candidates, key=minimum_vram)
+
     selected = dict(MODEL_PROFILES[selected_id])
+    selected.update(
+        {
+            key: value
+            for key, value in configured_modules.get(selected_id, {}).items()
+            if key in {"label", "minimum_vram_gb", "disk_budget_gb", "backend"}
+        }
+    )
     selected["id"] = selected_id
+    selected["configured_profile"] = configured.get("name", "fallback")
+    selected["observed_vram_gb"] = vram_gb
     selected["selection_policy"] = (
         "8GB: Qwen2-VL-2B AWQ; 12GB+: Qwen2.5-VL-3B AWQ; "
         "24GB+: VideoScore2 BF16."

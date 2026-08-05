@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 import gc
-from pathlib import Path
+import logging
 from typing import Any
 
 import numpy as np
@@ -14,6 +14,7 @@ VICLIP_CHECKPOINT = MODEL_CACHE_DIR / "viclip" / "ViClip-InternVid-10M-FLT.pth"
 VICLIP_FRAMES = 8
 VICLIP_IMAGE_SIZE = 224
 _MODEL_CACHE: dict[tuple[str, bool], Any] = {}
+LOGGER = logging.getLogger(__name__)
 
 
 def clear_viclip_cache() -> None:
@@ -29,8 +30,8 @@ def clear_viclip_cache() -> None:
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
             torch.cuda.ipc_collect()
-    except Exception:
-        pass
+    except Exception as exc:
+        LOGGER.debug("ViCLIP CUDA cleanup unavailable: %s", exc)
 
 
 def viclip_enabled(device: str) -> bool:
@@ -306,8 +307,6 @@ def _select_frames(frames: list[np.ndarray]) -> list[np.ndarray]:
 
 
 def _normalize(value: Any) -> Any:
-    import torch
-
     return value / (value.norm(dim=-1, keepdim=True) + 1e-6)
 
 

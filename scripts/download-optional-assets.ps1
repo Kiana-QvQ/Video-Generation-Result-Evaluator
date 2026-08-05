@@ -15,18 +15,45 @@ $clipRoot = Join-Path $cache "clip"
 $clipWeight = Join-Path $clipRoot "ViT-B-32.pt"
 $manifestPath = Join-Path $cache "OPTIONAL_ASSETS.json"
 
-function Download-File([string]$Url, [string]$Destination) {
-    if ((Test-Path $Destination) -and ((Get-Item $Destination).Length -gt 0)) {
-        Write-Host "Already present: $Destination"
-        return
+function Download-File {
+    param(
+        [string]$Url,
+        [string]$Destination,
+        [string]$ExpectedSha256 = "",
+        [long]$ExpectedBytes = 0
+    )
+    if (Test-Path $Destination) {
+        $item = Get-Item $Destination
+        $valid = $false
+        if ($ExpectedBytes -gt 0) { $valid = $item.Length -eq $ExpectedBytes }
+        if ($ExpectedSha256) {
+            $actualSha256 = (Get-FileHash $Destination -Algorithm SHA256).Hash
+            $valid = $item.Length -gt 0 -and $actualSha256 -eq $ExpectedSha256
+        }
+        if ($valid) { Write-Host "Verified existing asset: $Destination"; return }
+        Remove-Item -LiteralPath $Destination -Force
     }
     New-Item -ItemType Directory -Force -Path (Split-Path -Parent $Destination) | Out-Null
+    $partial = "$Destination.part"
     Write-Host "Downloading: $Url"
     & curl.exe -L --fail --retry 6 --retry-delay 5 --retry-all-errors --http1.1 `
-        --output $Destination $Url
+        --output $partial $Url
     if ($LASTEXITCODE -ne 0) {
         throw "Download failed with exit code ${LASTEXITCODE}: $Url"
     }
+    if (-not (Test-Path $partial) -or (Get-Item $partial).Length -le 0) {
+        Remove-Item -LiteralPath $partial -Force -ErrorAction SilentlyContinue
+        throw "Downloaded file is empty: $Url"
+    }
+    if ($ExpectedBytes -gt 0 -and (Get-Item $partial).Length -ne $ExpectedBytes) {
+        Remove-Item -LiteralPath $partial -Force
+        throw "Downloaded file has an unexpected size: $Url"
+    }
+    if ($ExpectedSha256 -and ((Get-FileHash $partial -Algorithm SHA256).Hash -ne $ExpectedSha256)) {
+        Remove-Item -LiteralPath $partial -Force
+        throw "Downloaded file has an unexpected SHA256: $Url"
+    }
+    Move-Item -LiteralPath $partial -Destination $Destination -Force
 }
 
 if (-not $SkipPythonPackages) {
@@ -34,6 +61,9 @@ if (-not $SkipPythonPackages) {
         throw "Project Python environment is missing. Run .\setup.ps1 first."
     }
     & $python -m pip install -r (Join-Path $root "requirements\optional.txt")
+    if ($LASTEXITCODE -ne 0) {
+        throw "Optional dependency installation failed."
+    }
 }
 
 New-Item -ItemType Directory -Force -Path $insightfaceModels, $iqaWeights, $clipRoot | Out-Null
@@ -61,13 +91,18 @@ if (-not (Test-Path (Join-Path $insightfaceModels "buffalo_l"))) {
 
 Download-File `
     "https://huggingface.co/chaofengc/IQA-PyTorch-Weights/resolve/main/MANIQA_PIPAL-ae6d356b.pth?download=true" `
-    (Join-Path $iqaWeights "MANIQA_PIPAL-ae6d356b.pth")
+    (Join-Path $iqaWeights "MANIQA_PIPAL-ae6d356b.pth") `
+    "" `
+    543335435
 Download-File `
     "https://huggingface.co/chaofengc/IQA-PyTorch-Weights/resolve/main/musiq_koniq_ckpt-e95806b9.pth?download=true" `
-    (Join-Path $iqaWeights "musiq_koniq_ckpt-e95806b9.pth")
+    (Join-Path $iqaWeights "musiq_koniq_ckpt-e95806b9.pth") `
+    "" `
+    108610983
 Download-File `
     "https://openaipublic.azureedge.net/clip/models/40d365715913c9da98579312b702a82c18be219cc2a73407c4526f58eba950af/ViT-B-32.pt" `
-    $clipWeight
+    $clipWeight `
+    "40D365715913C9DA98579312B702A82C18BE219CC2A73407C4526F58EBA950AF"
 
 $manifest = [ordered]@{
     generated_at = (Get-Date).ToString("o")

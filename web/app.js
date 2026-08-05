@@ -872,10 +872,10 @@ function renderWangxingResult(result) {
     available: "FACE QUALITY / AVAILABLE",
   }[qualityStatus] ?? "FACE QUALITY / CHECK";
   const reasonLabels = {
-    missing_personal_au: "缂哄皯涓汉 AU",
-    missing_driver_expression: "缂哄皯鍙傝€冩�夊姩杞ㄨ抗",
-    missing_temporal_alignment: "缂哄皯鍔ㄤ綔鏃堕棿瀵归綈",
-    automatic_expression_class_unavailable: "鑷姩琛ㄦ儏褰掔被涓嶅彲鐢",
+    missing_personal_au: "缺少个人 AU",
+    missing_driver_expression: "缺少参考动作轨迹",
+    missing_temporal_alignment: "缺少动作时间对齐",
+    automatic_expression_class_unavailable: "自动表情分类不可用",
     face_quality_low: "人脸质量不足",
     evidence_quality_low: "证据质量不足",
     wangxing_au_below_threshold: "AU 画像偏离",
@@ -1158,44 +1158,6 @@ function stopProgress(completed = false) {
     processProgress.classList.add("is-hidden");
   }
 }
-
-form.addEventListener("submit", async (event) => {
-  event.preventDefault();
-  if (window.queueMode) return;
-  setBusy(true);
-  startProgress();
-  setFormNote("正在读取视频、抽帧并运行本地模型，请稍候...");
-  try {
-    const formData = new FormData(form);
-    formData.set(
-      "calculate_lpips",
-      form.querySelector('[name="calculate_lpips"]').checked ? "true" : "false",
-    );
-    formData.set(
-      "wangxing_au_enabled",
-      form.querySelector('[name="wangxing_au_enabled"]').checked ? "true" : "false",
-    );
-    const response = await fetch("/api/evaluate", {
-      method: "POST",
-      body: formData,
-    });
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      throw new Error(describeApiError(payload.detail, response.status));
-    }
-    if (!payload.result) {
-      throw new Error("服务返回了不完整的评估结果。");
-    }
-    renderResult(payload);
-    stopProgress(true);
-    setFormNote(`评估完成：${payload.run_id}`, "success");
-  } catch (error) {
-    stopProgress(false);
-    setFormNote(error.message || "评估失败，请检查输入文件。", "error");
-  } finally {
-    setBusy(false);
-  }
-});
 
 loadModels();
 window.setInterval(loadModels, 15_000);

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import argparse
+import ipaddress
 import importlib
 import importlib.util
 import json
@@ -358,7 +359,7 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         action="store_false",
         help="Do not start the Qwen VLM Judge.",
     )
-    parser.set_defaults(with_vlm=True)
+    parser.set_defaults(with_vlm=False)
     parser.add_argument(
         "--vlm-backend",
         choices=("local", "docker"),
@@ -393,6 +394,8 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         default=None,
         help="gRPC port; defaults to EVALUATOR_GRPC_PORT or 50051.",
     )
+    parser.add_argument("--tls-certfile", default=None)
+    parser.add_argument("--tls-keyfile", default=None)
     parser.add_argument(
         "--check",
         action="store_true",
@@ -460,6 +463,14 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     args.grpc_port = args.grpc_port or int(
         os.environ.get("EVALUATOR_GRPC_PORT", "50051")
     )
+    args.tls_certfile = args.tls_certfile or os.environ.get(
+        "EVALUATOR_TLS_CERTFILE",
+        "",
+    )
+    args.tls_keyfile = args.tls_keyfile or os.environ.get(
+        "EVALUATOR_TLS_KEYFILE",
+        "",
+    )
     return args
 
 
@@ -467,6 +478,10 @@ def _start_grpc_process(args: argparse.Namespace) -> subprocess.Popen[bytes]:
     environment = os.environ.copy()
     environment["EVALUATOR_GRPC_HOST"] = args.grpc_host
     environment["EVALUATOR_GRPC_PORT"] = str(args.grpc_port)
+    if args.tls_certfile:
+        environment["EVALUATOR_GRPC_TLS_CERT"] = args.tls_certfile
+    if args.tls_keyfile:
+        environment["EVALUATOR_GRPC_TLS_KEY"] = args.tls_keyfile
     process = subprocess.Popen(
         [sys.executable, str(ROOT / "grpc_server.py")],
         cwd=ROOT,
@@ -546,6 +561,29 @@ def main(argv: Sequence[str] | None = None) -> None:
     if args.train_au:
         raise SystemExit(_run_au_training(args))
 
+    public_hosts: list[str] = []
+    for host in (args.http_host, args.grpc_host):
+        try:
+            if not ipaddress.ip_address(host).is_loopback:
+                public_hosts.append(host)
+        except ValueError:
+            if host != "localhost":
+                public_hosts.append(host)
+    if public_hosts:
+        if not os.environ.get("FRAME_AUDIT_API_KEY", "").strip():
+            raise SystemExit("Public binding requires FRAME_AUDIT_API_KEY.")
+        if (
+            args.transport in {"http", "both"}
+            and (not args.tls_certfile or not args.tls_keyfile)
+            and os.environ.get("EVALUATOR_ALLOW_INSECURE_PUBLIC", "").lower()
+            not in {"1", "true", "yes", "on"}
+        ):
+            raise SystemExit(
+                "Public HTTP binding requires --tls-certfile/--tls-keyfile "
+                "or an explicit insecure override."
+            )
+        os.environ["FRAME_AUDIT_REQUIRE_AUTH"] = "1"
+
     grpc_process = None
     vlm_handle = None
     if args.transport == "grpc":
@@ -600,6 +638,8 @@ def main(argv: Sequence[str] | None = None) -> None:
             host=args.http_host,
             port=args.http_port,
             reload=False,
+            ssl_certfile=args.tls_certfile or None,
+            ssl_keyfile=args.tls_keyfile or None,
         )
     except VLMStartupError as exc:
         print(f"Qwen Judge failed to start: {exc}", file=sys.stderr, flush=True)

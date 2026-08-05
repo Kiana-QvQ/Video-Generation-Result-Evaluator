@@ -1,16 +1,18 @@
 from __future__ import annotations
 
-import json
 import importlib.util
+import json
+import math
 import os
 import shutil
 import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
+from importlib import metadata
 
-from .runtime import MODEL_CACHE_DIR, OUTPUT_DIR, PROJECT_ROOT
+from .runtime import MODEL_CACHE_DIR, PROJECT_ROOT
 
 
 VBENCH_DIMENSIONS = [
@@ -139,6 +141,7 @@ def discover_vbench() -> dict[str, Any]:
         if launch_script:
             return {
                 "available": True,
+                "ready": _vbench_runtime_compatible(),
                 "backend": "package",
                 "root": str(package_root.parent),
                 "command": _distributed_command(launch_script),
@@ -151,6 +154,7 @@ def discover_vbench() -> dict[str, Any]:
         if launch_script:
             return {
                 "available": True,
+                "ready": _vbench_runtime_compatible(),
                 "backend": "source",
                 "root": str(configured_root),
                 "command": _distributed_command(launch_script),
@@ -161,6 +165,7 @@ def discover_vbench() -> dict[str, Any]:
     if executable:
         return {
             "available": True,
+            "ready": _vbench_runtime_compatible(),
             "backend": "package-cli",
             "root": None,
             "command": [executable, "evaluate"],
@@ -171,6 +176,7 @@ def discover_vbench() -> dict[str, Any]:
     if sibling_executable.exists():
         return {
             "available": True,
+            "ready": _vbench_runtime_compatible(),
             "backend": "package-cli",
             "root": None,
             "command": [str(sibling_executable), "evaluate"],
@@ -181,6 +187,7 @@ def discover_vbench() -> dict[str, Any]:
     if docker and _docker_image_available(VBENCH_DOCKER_IMAGE):
         return {
             "available": True,
+            "ready": True,
             "backend": "docker",
             "root": None,
             "docker": docker,
@@ -191,6 +198,7 @@ def discover_vbench() -> dict[str, Any]:
 
     return {
         "available": False,
+        "ready": False,
         "backend": None,
         "root": None,
         "command": None,
@@ -198,45 +206,82 @@ def discover_vbench() -> dict[str, Any]:
     }
 
 
-def _numeric_values(value: Any) -> Iterable[float]:
+def _vbench_runtime_compatible() -> dict[str, Any]:
+    """Check the package contract instead of treating an entry point as ready."""
+    expected_transformers = "4.33.2"
+    try:
+        transformers_version = metadata.version("transformers")
+    except metadata.PackageNotFoundError:
+        transformers_version = None
+    try:
+        vbench_version = metadata.version("vbench")
+    except metadata.PackageNotFoundError:
+        vbench_version = None
+    compatible = transformers_version == expected_transformers
+    return {
+        "compatible": compatible,
+        "required_transformers": expected_transformers,
+        "transformers_version": transformers_version,
+        "vbench_version": vbench_version,
+        "reason": (
+            None
+            if compatible
+            else (
+                "VBench requires transformers==4.33.2; "
+                f"active environment has {transformers_version or 'missing'}."
+            )
+        ),
+    }
+
+
+def _scalar_score(value: Any) -> float | None:
     if isinstance(value, bool):
-        return
+        return None
     if isinstance(value, (int, float)):
-        yield float(value)
-        return
-    if isinstance(value, dict):
-        for child in value.values():
-            yield from _numeric_values(child)
-        return
-    if isinstance(value, list):
-        for child in value:
-            yield from _numeric_values(child)
+        score = float(value)
+        return score if math.isfinite(score) else None
+    return None
 
 
 def _matching_score(value: Any, dimension: str) -> float | None:
-    if not isinstance(value, dict):
+    """Find the named dimension, never a generic top-level score."""
+    target = dimension.casefold().replace("_", "")
+
+    def visit(node: Any) -> float | None:
+        if isinstance(node, dict):
+            for key, child in node.items():
+                normalized = str(key).casefold().replace("_", "").replace(" ", "")
+                if normalized == target:
+                    direct = _scalar_score(child)
+                    if direct is not None:
+                        return direct
+                    if isinstance(child, dict):
+                        for score_key in ("score", "value", "mean"):
+                            candidate = _scalar_score(child.get(score_key))
+                            if candidate is not None:
+                                return candidate
+                if (
+                    normalized in {"dimension", "name", "metric"}
+                    and str(child).casefold().replace("_", "").replace(" ", "")
+                    == target
+                    and isinstance(node, dict)
+                ):
+                    for score_key in ("score", "value", "mean"):
+                        candidate = _scalar_score(node.get(score_key))
+                        if candidate is not None:
+                            return candidate
+            for child in node.values():
+                found = visit(child)
+                if found is not None:
+                    return found
+        elif isinstance(node, list):
+            for child in node:
+                found = visit(child)
+                if found is not None:
+                    return found
         return None
 
-    aliases = {
-        dimension.lower(),
-        dimension.lower().replace("_", " "),
-        dimension.lower().replace("_", ""),
-    }
-    candidates: list[Any] = []
-    for key, child in value.items():
-        normalized = str(key).lower()
-        if (
-            normalized in aliases
-            or dimension.lower() in normalized
-            or "score" in normalized
-        ):
-            candidates.append(child)
-
-    for candidate in candidates:
-        values = list(_numeric_values(candidate))
-        if values:
-            return float(values[0])
-    return None
+    return visit(value)
 
 
 def _parse_output(output_dir: Path, dimensions: list[str]) -> list[dict[str, Any]]:
@@ -292,6 +337,7 @@ def run_vbench(
     if not installation["available"]:
         return {
             "available": False,
+            "ready": False,
             "status": "not_installed",
             "installation": (
                 "未检测到 VBench。请先安装 requirements/vbench.txt，或设置 "
@@ -301,10 +347,33 @@ def run_vbench(
             "records": [],
             "blocked_dimensions": blocked_dimensions,
         }
+    compatibility = installation.get("ready")
+    if isinstance(compatibility, dict) and not compatibility.get("compatible"):
+        return {
+            "available": True,
+            "ready": False,
+            "status": "incompatible",
+            "backend": installation["backend"],
+            "dimensions": dimensions,
+            "records": [],
+            "blocked_dimensions": blocked_dimensions,
+            "compatibility": compatibility,
+        }
+    if compatibility is False:
+        return {
+            "available": True,
+            "ready": False,
+            "status": "incompatible",
+            "backend": installation["backend"],
+            "dimensions": dimensions,
+            "records": [],
+            "blocked_dimensions": blocked_dimensions,
+        }
     missing_assets = _missing_local_assets(runnable_dimensions)
     if missing_assets:
         return {
             "available": True,
+            "ready": False,
             "status": "not_ready",
             "backend": installation["backend"],
             "dimensions": dimensions,
@@ -328,6 +397,7 @@ def run_vbench(
     if not runnable_dimensions:
         return {
             "available": True,
+            "ready": False,
             "status": "not_ready",
             "backend": installation["backend"],
             "dimensions": dimensions,
@@ -442,6 +512,7 @@ def run_vbench(
     )
     return {
         "available": True,
+        "ready": completed.returncode == 0,
         "status": "completed" if completed.returncode == 0 else "failed",
         "backend": installation["backend"],
         "platform_note": (

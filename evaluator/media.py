@@ -9,6 +9,13 @@ from .video_metrics import probe_video
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+try:
+    FFMPEG_TIMEOUT_SECONDS = max(
+        1.0,
+        float(os.environ.get("FRAME_AUDIT_FFMPEG_TIMEOUT_SECONDS", "900")),
+    )
+except ValueError:
+    FFMPEG_TIMEOUT_SECONDS = 900.0
 
 
 def find_ffmpeg() -> str | None:
@@ -73,14 +80,21 @@ def transcode_video_for_browser(
         "+faststart",
         str(destination),
     ]
-    completed = subprocess.run(
-        command,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        check=False,
-    )
+    try:
+        completed = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+            timeout=FFMPEG_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired as exc:
+        destination.unlink(missing_ok=True)
+        raise TimeoutError(
+            f"Video normalization exceeded {FFMPEG_TIMEOUT_SECONDS:.0f} seconds."
+        ) from exc
     if completed.returncode != 0 or not destination.exists() or destination.stat().st_size == 0:
         destination.unlink(missing_ok=True)
         detail = completed.stderr.strip() or "unknown FFmpeg error"
@@ -157,14 +171,21 @@ def concatenate_videos(
             str(destination),
         ]
     )
-    completed = subprocess.run(
-        command,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        check=False,
-    )
+    try:
+        completed = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+            timeout=FFMPEG_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired as exc:
+        destination.unlink(missing_ok=True)
+        raise TimeoutError(
+            f"Video concatenation exceeded {FFMPEG_TIMEOUT_SECONDS:.0f} seconds."
+        ) from exc
     if (
         completed.returncode != 0
         or not destination.exists()

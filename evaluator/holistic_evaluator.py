@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import logging
 import math
 import os
 import shutil
@@ -18,6 +19,7 @@ from .video_metrics import (
     _default_face_detector,
     _read_frames,
     _resize_frame_for_evaluation,
+    _sample_indices,
     DEFAULT_SAMPLE_FPS,
     SEMANTIC_WINDOW_FRAMES,
     SEMANTIC_WINDOW_OVERLAP,
@@ -58,6 +60,7 @@ NO_GT_TEXTURE_WEIGHTS = {
     "musiq": 0.45,
     "high_frequency": 0.10,
 }
+LOGGER = logging.getLogger(__name__)
 
 
 def _model_status(
@@ -122,8 +125,8 @@ def get_model_inventory() -> list[dict[str, Any]]:
         import onnxruntime as ort
 
         onnx_cuda_ready = "CUDAExecutionProvider" in ort.get_available_providers()
-    except Exception:
-        pass
+    except Exception as exc:
+        LOGGER.warning("ONNX Runtime inspection failed: %s", exc)
     mediapipe_ready = False
     mediapipe_note = "未安装，将回退到人脸框抖动代理。"
     try:
@@ -145,8 +148,16 @@ def get_model_inventory() -> list[dict[str, Any]]:
     try:
         from .vbench_runner import discover_vbench
 
-        vbench_ready = bool(discover_vbench().get("available"))
-    except Exception:
+        discovered_vbench = discover_vbench()
+        vbench_ready = bool(
+            discovered_vbench.get("ready")
+            and (
+                discovered_vbench.get("ready") is True
+                or discovered_vbench.get("ready", {}).get("compatible", False)
+            )
+        )
+    except Exception as exc:
+        LOGGER.warning("VBench discovery failed: %s", exc)
         vbench_ready = False
 
     qwen_service_active = etva_service_available()
@@ -239,9 +250,9 @@ def get_model_inventory() -> list[dict[str, Any]]:
     ]
 
 
-def get_model_recommendation() -> dict[str, Any]:
+def get_model_recommendation(vram_gb: float | None = None) -> dict[str, Any]:
     """Expose the 8GB-first model policy without loading a model."""
-    return get_recommended_model()
+    return get_recommended_model(vram_gb)
 
 
 def _clamp(value: float, lower: float = 0.0, upper: float = 1.0) -> float:
@@ -420,7 +431,11 @@ class _IdentityBackend:
                             "CUDAExecutionProvider"
                             in ort.get_available_providers()
                         )
-                    except Exception:
+                    except Exception as exc:
+                        LOGGER.debug(
+                            "ONNX Runtime provider inspection failed: %s",
+                            exc,
+                        )
                         cuda_provider_available = False
                     if not cuda_provider_available:
                         face_device = "cpu"
@@ -487,8 +502,8 @@ class _IdentityBackend:
                     face = max(faces, key=lambda item: float(item.bbox[2] - item.bbox[0]) * float(item.bbox[3] - item.bbox[1]))
                     bbox = tuple(int(round(value)) for value in face.bbox)
                     return _normalize(np.asarray(face.embedding)), bbox, "arcface"  # type: ignore[arg-type]
-            except Exception:
-                pass
+            except Exception as exc:
+                LOGGER.debug("ArcFace frame inference failed: %s", exc)
             # Keep ArcFace and the pixel proxy separate. Mixing their vector
             # dimensions makes a partial run impossible to compare safely.
             return None, None, "arcface"
@@ -576,14 +591,20 @@ def _reference_frames(
         try:
             _, _, frames = _sample_video(reference_video, max_frames)
             return frames, "reference_video"
-        except Exception:
-            pass
+        except Exception as exc:
+            LOGGER.warning(
+                "Reference video sampling failed; trying the next source: %s",
+                exc,
+            )
     if ground_truth:
         try:
             _, _, frames = _sample_video(ground_truth, max_frames)
             return frames, "gt_video"
-        except Exception:
-            pass
+        except Exception as exc:
+            LOGGER.warning(
+                "Ground-truth sampling failed; no video reference used: %s",
+                exc,
+            )
     return [], "none"
 
 
@@ -610,7 +631,8 @@ def _identity_reference_frames(
             continue
         try:
             _, _, video_frames = _sample_video(path, max_frames)
-        except Exception:
+        except Exception as exc:
+            LOGGER.warning("Identity reference sampling failed: %s", exc)
             continue
         if video_frames:
             frames.extend(video_frames)
@@ -1894,6 +1916,7 @@ def _full_temporal_scan(
     result_path: str | Path,
     detector: _FaceDetector,
     landmark_tracker: _LandmarkTracker,
+    max_frames: int,
 ) -> tuple[
     dict[str, Any],
     np.ndarray,
@@ -1901,16 +1924,21 @@ def _full_temporal_scan(
     float | None,
     str,
 ]:
-    result_info: dict[str, Any] | None = None
+    result_info = probe_video(result_path).to_dict()
+    sample_count = min(max(2, int(max_frames)), int(result_info["frame_count"]))
+    sampled_indices = _sample_indices(
+        int(result_info["frame_count"]),
+        sample_count,
+    )
+    sampled_frames = _read_frames(result_info["path"], sampled_indices)
     result_indices: list[int] = []
     self_errors: list[float] = []
     landmark_sequences: list[np.ndarray | None] = []
     box_sequences: list[np.ndarray | None] = []
     previous_frame: np.ndarray | None = None
 
-    for info, frame_index, frame in _iter_video_frames(result_path):
-        result_info = info
-        result_indices.append(frame_index)
+    for frame_index, frame in zip(sampled_indices, sampled_frames):
+        result_indices.append(int(frame_index))
         if previous_frame is not None:
             self_errors.append(_warp_error(previous_frame, frame))
         previous_frame = frame
@@ -1928,9 +1956,6 @@ def _full_temporal_scan(
                 detector.detect(frame) if normalized_landmarks is None else None,
             )
         )
-
-    if result_info is None:
-        raise ValueError("The video contains no readable frames.")
 
     landmark_jitter = _jitter_from_landmark_sequences(landmark_sequences)
     if landmark_jitter is not None:
@@ -1978,6 +2003,7 @@ def evaluate_temporal(
         result_path,
         detector,
         landmark_tracker,
+        max_frames,
     )
     reference_path = reference_video or ground_truth
     reference_result_frames: list[np.ndarray] = []
@@ -2062,7 +2088,7 @@ def evaluate_temporal(
             "landmark_jitter": jitter,
             "identity_similarity_variance": identity_variance,
             "generated_frame_count": int(len(result_indices)),
-            "temporal_scan": "full_sequential_result_video",
+            "temporal_scan": "bounded_uniform_result_video",
             "stability_score_0_1": float(np.mean(score_parts)),
         },
         "note": (

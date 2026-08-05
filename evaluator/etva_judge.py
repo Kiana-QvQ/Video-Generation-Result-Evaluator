@@ -3,7 +3,6 @@ from __future__ import annotations
 import base64
 import json
 import os
-import re
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -149,26 +148,42 @@ def _request(
 
 def _parse_result(text: str) -> tuple[float | None, list[float]]:
     values: list[float] = []
+    payload: Any = None
     try:
         payload = json.loads(text)
-        candidates = payload.get("scores", []) if isinstance(payload, dict) else []
-        if isinstance(candidates, list):
-            values = [
-                float(value)
-                for value in candidates
-                if float(value) in {0.0, 0.5, 1.0}
-            ]
-        overall = payload.get("overall") if isinstance(payload, dict) else None
-        if overall is not None and float(overall) in {0.0, 0.5, 1.0}:
-            return float(overall), values
-    except (ValueError, TypeError, json.JSONDecodeError):
-        pass
+    except (TypeError, json.JSONDecodeError):
+        stripped = text.strip()
+        if stripped.startswith("```") and stripped.endswith("```"):
+            lines = stripped.splitlines()
+            if len(lines) >= 3:
+                try:
+                    payload = json.loads("\n".join(lines[1:-1]))
+                except json.JSONDecodeError:
+                    payload = None
+    if not isinstance(payload, dict):
+        return None, []
 
-    values = [
-        float(value)
-        for value in re.findall(r"(?<![\d.])(0(?:\.5)?|1(?:\.0)?)(?![\d.])", text)
-    ]
-    values = [value for value in values if value in {0.0, 0.5, 1.0}]
+    candidates = payload.get("scores")
+    if not isinstance(candidates, list):
+        return None, []
+    for value in candidates:
+        try:
+            parsed = float(value)
+        except (TypeError, ValueError):
+            return None, []
+        if parsed not in {0.0, 0.5, 1.0}:
+            return None, []
+        values.append(parsed)
+
+    overall = payload.get("overall")
+    if overall is not None:
+        try:
+            parsed_overall = float(overall)
+        except (TypeError, ValueError):
+            return None, values
+        if parsed_overall in {0.0, 0.5, 1.0}:
+            return parsed_overall, values
+        return None, values
     return (float(np.mean(values)) if values else None), values
 
 

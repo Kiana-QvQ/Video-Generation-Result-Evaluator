@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+import hmac
 import ipaddress
 import math
+import logging
 from multiprocessing import Process
 import os
 import queue
@@ -18,6 +20,7 @@ from pathlib import Path
 from typing import Any, Literal
 from uuid import uuid4
 
+import cv2
 import numpy as np
 import pandas as pd
 from fastapi import File, Form, HTTPException, Request, UploadFile
@@ -51,6 +54,37 @@ TRUST_PROXY_HEADERS = os.getenv("FRAME_AUDIT_TRUST_PROXY_HEADERS", "").lower() i
     "yes",
 }
 MAX_UPLOAD_BYTES = 1_500 * 1024 * 1024
+MAX_TOTAL_UPLOAD_BYTES = int(
+    os.getenv("FRAME_AUDIT_MAX_TOTAL_UPLOAD_BYTES", str(4 * MAX_UPLOAD_BYTES))
+)
+MAX_UPLOAD_FILES = int(
+    os.getenv("FRAME_AUDIT_MAX_UPLOAD_FILES", "16")
+)
+MAX_REFERENCE_IMAGES = int(
+    os.getenv("FRAME_AUDIT_MAX_REFERENCE_IMAGES", "8")
+)
+MAX_VIDEO_DURATION_SECONDS = float(
+    os.getenv("FRAME_AUDIT_MAX_VIDEO_DURATION_SECONDS", "900")
+)
+MAX_VIDEO_FRAME_COUNT = int(
+    os.getenv("FRAME_AUDIT_MAX_VIDEO_FRAME_COUNT", "100000")
+)
+MAX_VIDEO_PIXELS = int(
+    os.getenv("FRAME_AUDIT_MAX_VIDEO_PIXELS", str(3840 * 2160))
+)
+RUN_RETENTION_SECONDS = float(
+    os.getenv("FRAME_AUDIT_RUN_RETENTION_SECONDS", str(7 * 24 * 3600))
+)
+MAX_RUNS_BYTES = int(
+    os.getenv("FRAME_AUDIT_MAX_RUNS_BYTES", str(50 * 1024**3))
+)
+UPLOADS_PER_MINUTE = int(
+    os.getenv("FRAME_AUDIT_UPLOADS_PER_MINUTE", "60")
+)
+RUN_CLEANUP_INTERVAL_SECONDS = float(
+    os.getenv("FRAME_AUDIT_RUN_CLEANUP_INTERVAL_SECONDS", "60")
+)
+QUEUE_LEASE_FILENAME = ".queue_worker.lock"
 VIDEO_SUFFIXES = {".mp4", ".mov", ".avi", ".mkv", ".webm", ".wmv", ".m4v"}
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp"}
 WANGXING_AU_CLASSES = {
@@ -101,6 +135,11 @@ JOB_RECONCILE_INTERVAL_SECONDS = 2.0
 JOB_STALE_RUNNING_SECONDS = 10 * 60
 JOB_PROCESS_JOIN_TIMEOUT_SECONDS = 5
 JOB_SCHEDULER_NAME = "hrrn_per_client_fifo_v1"
+JOB_WORKER_LEASE_HELD = False
+JOB_WORKER_LAST_CLEANUP = 0.0
+LOGGER = logging.getLogger("frame_audit.web")
+RATE_LIMIT_LOCK = threading.Lock()
+RATE_LIMIT_BUCKETS: dict[str, deque[float]] = {}
 
 
 class JobUpdate(BaseModel):
@@ -132,6 +171,7 @@ async def app_lifespan(_: FastAPI):
         with JOB_LOCK:
             JOB_WORKER = None
             JOB_WORKER_STOP.clear()
+        _release_queue_lease()
 
 app = FastAPI(
     title="Frame Audit",
@@ -143,10 +183,85 @@ app.mount("/assets", StaticFiles(directory=str(WEB_DIR)), name="assets")
 
 @app.middleware("http")
 async def disable_asset_cache(request: Any, call_next: Any) -> Any:
+    if request.url.path.startswith("/api/") and _auth_required():
+        if not _valid_api_key(request.headers.get("authorization"), request.headers.get("x-api-key")):
+            return JSONResponse(
+                status_code=401,
+                content={"detail": "API authentication is required."},
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+    if request.url.path in {"/api/jobs", "/api/evaluate"}:
+        if not _allow_upload_request(_client_ip(request)):
+            return JSONResponse(
+                status_code=429,
+                content={
+                    "detail": (
+                        "Upload rate limit exceeded. "
+                        f"Limit: {UPLOADS_PER_MINUTE} requests per minute."
+                    )
+                },
+                headers={"Retry-After": "60"},
+            )
     response = await call_next(request)
     if request.url.path.startswith("/assets/"):
         response.headers["Cache-Control"] = "no-store"
     return response
+
+
+def _auth_required() -> bool:
+    configured_key = os.getenv("FRAME_AUDIT_API_KEY", "").strip()
+    explicit = os.getenv("FRAME_AUDIT_REQUIRE_AUTH", "").strip().lower()
+    return bool(configured_key) or explicit in {"1", "true", "yes", "on"}
+
+
+def _valid_api_key(
+    authorization: str | None,
+    x_api_key: str | None,
+) -> bool:
+    expected = os.getenv("FRAME_AUDIT_API_KEY", "").strip()
+    if not expected:
+        return False
+    supplied = (x_api_key or "").strip()
+    if not supplied and authorization:
+        scheme, _, token = authorization.partition(" ")
+        if scheme.casefold() == "bearer":
+            supplied = token.strip()
+    return bool(supplied) and hmac.compare_digest(supplied, expected)
+
+
+def _allow_upload_request(client_ip: str) -> bool:
+    now = time.monotonic()
+    cutoff = now - 60.0
+    with RATE_LIMIT_LOCK:
+        bucket = RATE_LIMIT_BUCKETS.setdefault(client_ip, deque())
+        while bucket and bucket[0] < cutoff:
+            bucket.popleft()
+        if len(bucket) >= max(1, UPLOADS_PER_MINUTE):
+            return False
+        bucket.append(now)
+        if len(RATE_LIMIT_BUCKETS) > 2048:
+            for key in list(RATE_LIMIT_BUCKETS):
+                if not RATE_LIMIT_BUCKETS[key]:
+                    RATE_LIMIT_BUCKETS.pop(key, None)
+        return True
+
+
+def authenticate_grpc(context: Any) -> None:
+    """Apply the same API-key policy to gRPC metadata."""
+    if not _auth_required():
+        return
+    metadata = {
+        str(key).casefold(): str(value)
+        for key, value in context.invocation_metadata()
+    }
+    if not _valid_api_key(
+        metadata.get("authorization"),
+        metadata.get("x-api-key") or metadata.get("api-key"),
+    ):
+        raise HTTPException(
+            status_code=401,
+            detail="API authentication is required.",
+        )
 
 
 def _json_safe(value: Any) -> Any:
@@ -1135,6 +1250,153 @@ def _clear_dispatch_state() -> None:
         JOB_SCHEDULED_IPS.clear()
 
 
+def _queue_lease_path() -> Path:
+    return WEB_RUNS_DIR / QUEUE_LEASE_FILENAME
+
+
+def _pid_is_alive(pid: int) -> bool:
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except (OSError, ProcessLookupError):
+        return False
+    return True
+
+
+def _acquire_queue_lease() -> bool:
+    """Allow exactly one process to own the in-memory GPU queue."""
+    global JOB_WORKER_LEASE_HELD
+    lease_path = _queue_lease_path()
+    lease_path.parent.mkdir(parents=True, exist_ok=True)
+    for _ in range(2):
+        try:
+            with lease_path.open("x", encoding="ascii") as handle:
+                handle.write(str(os.getpid()))
+            JOB_WORKER_LEASE_HELD = True
+            return True
+        except FileExistsError:
+            try:
+                owner_pid = int(lease_path.read_text(encoding="ascii").strip())
+            except (OSError, ValueError):
+                owner_pid = 0
+            if owner_pid and _pid_is_alive(owner_pid):
+                return False
+            lease_path.unlink(missing_ok=True)
+    return False
+
+
+def _release_queue_lease() -> None:
+    global JOB_WORKER_LEASE_HELD
+    if not JOB_WORKER_LEASE_HELD:
+        return
+    lease_path = _queue_lease_path()
+    try:
+        owner_pid = int(lease_path.read_text(encoding="ascii").strip())
+    except (OSError, ValueError):
+        owner_pid = 0
+    if owner_pid == os.getpid():
+        lease_path.unlink(missing_ok=True)
+    JOB_WORKER_LEASE_HELD = False
+
+
+def _job_claim_path(job_id: str) -> Path:
+    return _job_dir(job_id) / ".worker_claim"
+
+
+def _claim_job(job_id: str) -> bool:
+    claim_path = _job_claim_path(job_id)
+    try:
+        with claim_path.open("x", encoding="ascii") as handle:
+            handle.write(f"{os.getpid()}\n{time.time():.6f}\n")
+        return True
+    except FileExistsError:
+        try:
+            owner_pid = int(
+                claim_path.read_text(encoding="ascii").splitlines()[0]
+            )
+        except (OSError, ValueError, IndexError):
+            owner_pid = 0
+        if owner_pid and _pid_is_alive(owner_pid):
+            return False
+        claim_path.unlink(missing_ok=True)
+        try:
+            with claim_path.open("x", encoding="ascii") as handle:
+                handle.write(f"{os.getpid()}\n{time.time():.6f}\n")
+            return True
+        except FileExistsError:
+            return False
+
+
+def _release_job_claim(job_id: str) -> None:
+    claim_path = _job_claim_path(job_id)
+    try:
+        owner_pid = int(
+            claim_path.read_text(encoding="ascii").splitlines()[0]
+        )
+    except (OSError, ValueError, IndexError):
+        owner_pid = 0
+    if owner_pid == os.getpid():
+        claim_path.unlink(missing_ok=True)
+
+
+def _directory_size(path: Path) -> int:
+    total = 0
+    for child in path.rglob("*"):
+        if child.is_file():
+            try:
+                total += child.stat().st_size
+            except OSError:
+                continue
+    return total
+
+
+def _cleanup_expired_runs(force: bool = False) -> None:
+    global JOB_WORKER_LAST_CLEANUP
+    now = time.monotonic()
+    if (
+        not force
+        and now - JOB_WORKER_LAST_CLEANUP < RUN_CLEANUP_INTERVAL_SECONDS
+    ):
+        return
+    JOB_WORKER_LAST_CLEANUP = now
+    terminal = {"completed", "failed", "canceled"}
+    candidates: list[tuple[float, Path, int]] = []
+    total_size = 0
+    wall_clock = time.time()
+    for run_dir in WEB_RUNS_DIR.iterdir():
+        if not run_dir.is_dir() or run_dir.name.startswith("."):
+            continue
+        job = _read_job(run_dir.name)
+        if not job or job.get("status") not in terminal:
+            continue
+        size = _directory_size(run_dir)
+        total_size += size
+        try:
+            updated = datetime.fromisoformat(
+                str(job.get("updated_at") or job.get("created_at"))
+            ).timestamp()
+        except (TypeError, ValueError, OSError):
+            updated = run_dir.stat().st_mtime
+        candidates.append((updated, run_dir, size))
+
+    candidates.sort(key=lambda item: item[0])
+    for updated, run_dir, size in candidates:
+        expired = (
+            RUN_RETENTION_SECONDS >= 0
+            and wall_clock - updated >= RUN_RETENTION_SECONDS
+        )
+        over_quota = total_size > MAX_RUNS_BYTES
+        if not expired and not over_quota:
+            continue
+        try:
+            _remove_job_directory(run_dir)
+        except OSError as exc:
+            LOGGER.warning("Unable to clean run directory %s: %s", run_dir, exc)
+            continue
+        total_size = max(0, total_size - size)
+
+
 def _record_worker_error(exc: Exception) -> None:
     global JOB_WORKER_LAST_ERROR
     with JOB_LOCK:
@@ -1203,6 +1465,7 @@ def _restore_queued_jobs() -> None:
 
 def _reconcile_queued_jobs() -> None:
     """Recover jobs that were persisted but lost from the in-memory queue."""
+    _cleanup_expired_runs()
     for job in _all_jobs():
         if _is_stale_running_job(job):
             job_id = str(job["job_id"])
@@ -1300,6 +1563,38 @@ def _optional_score(
     return score
 
 
+def _validate_upload_count(
+    *,
+    result_video: UploadFile,
+    gt_video: UploadFile | None,
+    reference_images: list[UploadFile] | None,
+    reference_video: list[UploadFile] | None,
+) -> None:
+    uploads = [
+        upload
+        for upload in (
+            result_video,
+            gt_video,
+            *(reference_images or []),
+            *(reference_video or []),
+        )
+        if upload is not None and upload.filename
+    ]
+    if len(uploads) > MAX_UPLOAD_FILES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"A request cannot contain more than {MAX_UPLOAD_FILES} files.",
+        )
+    if len(reference_images or []) > MAX_REFERENCE_IMAGES:
+        raise HTTPException(
+            status_code=413,
+            detail=(
+                f"A request cannot contain more than "
+                f"{MAX_REFERENCE_IMAGES} reference images."
+            ),
+        )
+
+
 def _upload_suffix(upload: UploadFile, allowed: set[str]) -> str:
     suffix = Path(upload.filename or "").suffix.lower()
     if suffix not in allowed:
@@ -1316,6 +1611,8 @@ def _save_upload(
     run_dir: Path,
     stem: str,
     allowed: set[str],
+    *,
+    total_bytes: list[int] | None = None,
 ) -> Path | None:
     if upload is None or not upload.filename:
         return None
@@ -1334,31 +1631,52 @@ def _save_upload(
                         status_code=413,
                         detail="A single upload cannot exceed 1.5 GB.",
                     )
+                if total_bytes is not None:
+                    next_total = total_bytes[0] + len(chunk)
+                    if next_total > MAX_TOTAL_UPLOAD_BYTES:
+                        raise HTTPException(
+                            status_code=413,
+                            detail=(
+                                "The total upload size for one request cannot "
+                                f"exceed {MAX_TOTAL_UPLOAD_BYTES / (1024**3):.1f} GB."
+                            ),
+                        )
+                    total_bytes[0] = next_total
                 output.write(chunk)
     except Exception:
         target.unlink(missing_ok=True)
         raise
     if allowed == VIDEO_SUFFIXES:
+        _validate_video(target, f"Uploaded file {upload.filename}")
         # Most generated MP4 files are already browser/OpenCV compatible.
         # Avoid blocking job creation with a second full video encode.
         if suffix == ".mp4":
-            try:
-                probe_video(target)
-            except (FileNotFoundError, ValueError):
-                pass
-            else:
-                normalized = run_dir / f"{stem}.mp4"
-                target.replace(normalized)
-                return normalized
+            normalized = run_dir / f"{stem}.mp4"
+            target.replace(normalized)
+            return normalized
         normalized = run_dir / f"{stem}.mp4"
         transcode_video_for_browser(target, normalized)
+        _validate_video(normalized, f"Normalized file {upload.filename}")
         return normalized
+    try:
+        encoded = np.fromfile(str(target), dtype=np.uint8)
+        image = cv2.imdecode(encoded, cv2.IMREAD_UNCHANGED)
+    except (OSError, ValueError):
+        image = None
+    if image is None:
+        target.unlink(missing_ok=True)
+        raise HTTPException(
+            status_code=422,
+            detail=f"Uploaded image is not readable: {upload.filename}",
+        )
     return target
 
 
 def _save_reference_videos(
     uploads: list[UploadFile] | None,
     run_dir: Path,
+    *,
+    total_bytes: list[int] | None = None,
 ) -> Path | None:
     valid_uploads = [
         upload for upload in (uploads or []) if upload is not None and upload.filename
@@ -1371,6 +1689,7 @@ def _save_reference_videos(
             run_dir,
             "reference_motion",
             VIDEO_SUFFIXES,
+            total_bytes=total_bytes,
         )
 
     segment_paths = [
@@ -1382,6 +1701,7 @@ def _save_reference_videos(
                 run_dir,
                 f"reference_motion_{index:02d}",
                 VIDEO_SUFFIXES,
+                total_bytes=total_bytes,
             )
         )
     ]
@@ -1474,12 +1794,41 @@ def _reuse_optional_uploads(
 
 def _validate_video(path: Path, label: str) -> None:
     try:
-        probe_video(path)
+        info = probe_video(path)
     except (FileNotFoundError, ValueError) as exc:
         raise HTTPException(
             status_code=422,
             detail=f"{label} is not a readable video: {exc}",
         ) from exc
+    if info.duration_seconds > MAX_VIDEO_DURATION_SECONDS:
+        raise HTTPException(
+            status_code=413,
+            detail=(
+                f"{label} exceeds the maximum duration of "
+                f"{MAX_VIDEO_DURATION_SECONDS:.0f} seconds."
+            ),
+        )
+    if info.frame_count > MAX_VIDEO_FRAME_COUNT:
+        raise HTTPException(
+            status_code=413,
+            detail=(
+                f"{label} exceeds the maximum of "
+                f"{MAX_VIDEO_FRAME_COUNT} frames."
+            ),
+        )
+    if info.width * info.height > MAX_VIDEO_PIXELS:
+        raise HTTPException(
+            status_code=413,
+            detail=(
+                f"{label} exceeds the maximum resolution of "
+                f"{MAX_VIDEO_PIXELS:,} pixels per frame."
+            ),
+        )
+    if path.stat().st_size > MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"{label} exceeds the maximum upload size.",
+        )
 
 
 def _file_url(run_id: str, path: Path | None) -> str | None:
@@ -1572,6 +1921,12 @@ def _prepare_job(
     wangxing_expected_class: str,
 ) -> dict[str, Any]:
     _validate_evaluation_request(result_video, max_frames, device)
+    _validate_upload_count(
+        result_video=result_video,
+        gt_video=gt_video,
+        reference_images=reference_images,
+        reference_video=reference_video,
+    )
     prompt = prompt_text.strip()
     if len(prompt) > 10_000:
         raise HTTPException(
@@ -1600,14 +1955,22 @@ def _prepare_job(
         "reference_images": [],
         "reference_video": None,
     }
+    upload_budget = [0]
     try:
         uploaded["result_video"] = _save_upload(
             result_video,
             run_dir,
             "result",
             VIDEO_SUFFIXES,
+            total_bytes=upload_budget,
         )
-        uploaded["gt_video"] = _save_upload(gt_video, run_dir, "gt", VIDEO_SUFFIXES)
+        uploaded["gt_video"] = _save_upload(
+            gt_video,
+            run_dir,
+            "gt",
+            VIDEO_SUFFIXES,
+            total_bytes=upload_budget,
+        )
         uploaded["reference_images"] = [
             saved
             for index, reference_image in enumerate(reference_images or [], start=1)
@@ -1617,10 +1980,15 @@ def _prepare_job(
                     run_dir,
                     f"reference_{index:02d}",
                     IMAGE_SUFFIXES,
+                    total_bytes=upload_budget,
                 )
             )
         ]
-        uploaded["reference_video"] = _save_reference_videos(reference_video, run_dir)
+        uploaded["reference_video"] = _save_reference_videos(
+            reference_video,
+            run_dir,
+            total_bytes=upload_budget,
+        )
         reused_original_files: dict[str, Any] = {}
         if reuse_source_job is not None:
             reused_original_files = _reuse_optional_uploads(
@@ -1815,14 +2183,17 @@ def _execute_job(job_id: str) -> None:
                 finished_at=_now_iso(),
                 error=error_message,
             )
-        except Exception:
-            pass
+        except Exception as state_exc:
+            _record_worker_error(state_exc)
 
 
 def _process_job(job_id: str) -> None:
+    if not _claim_job(job_id):
+        return
     with JOB_LOCK:
         job = _read_job(job_id)
         if job is None or job.get("status") != "queued":
+            _release_job_claim(job_id)
             return
         now = _now_iso()
         job.update(
@@ -1837,11 +2208,15 @@ def _process_job(job_id: str) -> None:
             }
         )
         _write_job(job)
-        process = Process(
-            target=_execute_job,
-            args=(job_id,),
-            name=f"frame-audit-job-{job_id}",
-        )
+        try:
+            process = Process(
+                target=_execute_job,
+                args=(job_id,),
+                name=f"frame-audit-job-{job_id}",
+            )
+        except Exception:
+            _release_job_claim(job_id)
+            raise
         process.daemon = True
         JOB_PROCESSES[job_id] = process
         try:
@@ -1849,6 +2224,7 @@ def _process_job(job_id: str) -> None:
         except Exception as exc:
             JOB_PROCESSES.pop(job_id, None)
             process.close()
+            _release_job_claim(job_id)
             try:
                 _update_job_state(
                     job_id,
@@ -1882,6 +2258,7 @@ def _process_job(job_id: str) -> None:
         with JOB_LOCK:
             JOB_PROCESSES.pop(job_id, None)
         process.close()
+        _release_job_claim(job_id)
 
 
 def _terminate_job_process(job_id: str) -> None:
@@ -2016,6 +2393,8 @@ def _recover_persisted_jobs() -> None:
             ),
         )
         for job in persisted_jobs:
+            if job.get("status") != "running":
+                _release_job_claim(str(job["job_id"]))
             if not job.get("client_ip") and job.get("status") in {"queued", "running"}:
                 now = _now_iso()
                 job.update(
@@ -2045,6 +2424,7 @@ def _recover_persisted_jobs() -> None:
                 _safe_recovery_write(job)
                 continue
             if job.get("status") == "running":
+                _release_job_claim(str(job["job_id"]))
                 now = _now_iso()
                 job.update(
                     {
@@ -2066,11 +2446,14 @@ def _recover_persisted_jobs() -> None:
 
 
 def _ensure_queue_worker() -> None:
-    global JOB_WORKER, JOB_WORKER_LAST_ERROR
+    global JOB_WORKER, JOB_WORKER_LAST_ERROR, JOB_WORKER_STATE
     with JOB_LOCK:
         JOB_WORKER_STOP.clear()
-        _recover_persisted_jobs()
         if JOB_WORKER is None or not JOB_WORKER.is_alive():
+            if not _acquire_queue_lease():
+                JOB_WORKER_STATE = "external_worker"
+                return
+            _recover_persisted_jobs()
             _clear_dispatch_state()
             _restore_queued_jobs()
             JOB_WORKER_LAST_ERROR = None
@@ -2102,7 +2485,7 @@ def models() -> dict[str, Any]:
     return {
         "generated_at": datetime.now().isoformat(timespec="seconds"),
         "models": get_model_inventory(),
-        "recommendation": get_model_recommendation(),
+        "recommendation": get_model_recommendation(policy.vram_gb),
         "hardware_policy": policy.to_dict(),
         "wangxing_au": _wangxing_au_status(),
     }
@@ -2493,6 +2876,12 @@ def evaluate(
     wangxing_expected_class: str = Form("auto"),
 ) -> JSONResponse:
     client_ip = _client_ip(request)
+    _validate_upload_count(
+        result_video=result_video,
+        gt_video=gt_video,
+        reference_images=reference_images,
+        reference_video=reference_video,
+    )
     result_suffix = _upload_suffix(result_video, VIDEO_SUFFIXES)
     if not is_video_path(f"result{result_suffix}"):
         raise HTTPException(status_code=415, detail="Result upload must be a video.")
@@ -2514,6 +2903,7 @@ def evaluate(
         "reference_images": [],
         "reference_video": None,
     }
+    upload_budget = [0]
     try:
         _write_job_owner(run_id, client_ip)
         uploaded["result_video"] = _save_upload(
@@ -2521,8 +2911,15 @@ def evaluate(
             run_dir,
             "result",
             VIDEO_SUFFIXES,
+            total_bytes=upload_budget,
         )
-        uploaded["gt_video"] = _save_upload(gt_video, run_dir, "gt", VIDEO_SUFFIXES)
+        uploaded["gt_video"] = _save_upload(
+            gt_video,
+            run_dir,
+            "gt",
+            VIDEO_SUFFIXES,
+            total_bytes=upload_budget,
+        )
         uploaded["reference_images"] = [
             saved
             for index, reference_image in enumerate(reference_images or [], start=1)
@@ -2532,10 +2929,15 @@ def evaluate(
                     run_dir,
                     f"reference_{index:02d}",
                     IMAGE_SUFFIXES,
+                    total_bytes=upload_budget,
                 )
             )
         ]
-        uploaded["reference_video"] = _save_reference_videos(reference_video, run_dir)
+        uploaded["reference_video"] = _save_reference_videos(
+            reference_video,
+            run_dir,
+            total_bytes=upload_budget,
+        )
         result_path = uploaded["result_video"]
         if result_path is None:
             raise HTTPException(status_code=422, detail="Result video is required.")
@@ -2661,9 +3063,27 @@ def evaluate(
 if __name__ == "__main__":
     import uvicorn
 
+    host = os.environ.get("EVALUATOR_HOST", "127.0.0.1")
+    certfile = os.environ.get("EVALUATOR_TLS_CERTFILE", "").strip() or None
+    keyfile = os.environ.get("EVALUATOR_TLS_KEYFILE", "").strip() or None
+    if host not in {"127.0.0.1", "::1", "localhost"}:
+        if not os.environ.get("FRAME_AUDIT_API_KEY", "").strip():
+            raise SystemExit("Public binding requires FRAME_AUDIT_API_KEY.")
+        if (
+            (not certfile or not keyfile)
+            and os.environ.get("EVALUATOR_ALLOW_INSECURE_PUBLIC", "").lower()
+            not in {"1", "true", "yes", "on"}
+        ):
+            raise SystemExit(
+                "Public binding requires EVALUATOR_TLS_CERTFILE/KEYFILE "
+                "or an explicit insecure override."
+            )
+        os.environ["FRAME_AUDIT_REQUIRE_AUTH"] = "1"
     uvicorn.run(
         "web_app:app",
-        host=os.environ.get("EVALUATOR_HOST", "127.0.0.1"),
+        host=host,
         port=int(os.environ.get("EVALUATOR_PORT", "7860")),
         reload=False,
+        ssl_certfile=certfile,
+        ssl_keyfile=keyfile,
     )
