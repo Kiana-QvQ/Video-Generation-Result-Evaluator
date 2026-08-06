@@ -100,8 +100,9 @@ iteration. RAVDESS can be expanded with the existing resumable downloader:
 
 After adding negatives, run the identity training script again. Other-person
 videos are identity negatives only; they are never added to Wang Xing's
-expression support domain. Seedance videos are identity positives and
-generation-domain tests, not automatic expression labels.
+expression support domain. Seedance videos are Wang Xing identity positives,
+generated-domain samples, and automatic expression pseudo-label candidates;
+only high-confidence pseudo-labels enter the expression support domain.
 
 The generated identity profile stores calibration metrics including ROC-AUC,
 PR-AUC, EER, and FPR at 1% and 5% false-positive rates. These are calibration
