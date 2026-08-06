@@ -934,9 +934,9 @@ function renderWangxingResult(result) {
         : "Generated and driver AU inputs are identical; this proves reference self-consistency, not personal-profile similarity."
       : "",
     reasons,
-    missingEvidence ? `缂哄皯璇佹嵁：${missingEvidence}` : "",
+    missingEvidence ? `缺少证据：${missingEvidence}` : "",
     evidenceCoverage !== null
-      ? `璇佹嵁瑕嗙洊 ${formatEvidence(evidenceCoverage)}`
+      ? `证据覆盖 ${formatEvidence(evidenceCoverage)}`
       : "",
     thresholdNotes.join(" / "),
   ]

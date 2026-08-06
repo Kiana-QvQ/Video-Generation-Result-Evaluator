@@ -61,6 +61,14 @@ class WebAppTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.headers.get("cache-control"), "no-store")
 
+    def test_wangxing_result_copy_is_utf8_and_not_mojibake(self) -> None:
+        response = self.client.get("/assets/app.js")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("缺少证据：", response.text)
+        self.assertIn("证据覆盖 ", response.text)
+        self.assertNotIn("缂哄皯璇佹嵁", response.text)
+        self.assertNotIn("璇佹嵁瑕嗙洊", response.text)
+
     def test_model_inventory_exposes_readiness(self) -> None:
         response = self.client.get("/api/models")
         self.assertEqual(response.status_code, 200)

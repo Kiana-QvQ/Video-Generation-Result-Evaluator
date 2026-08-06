@@ -648,6 +648,5 @@ def main(argv: Sequence[str] | None = None) -> None:
         _stop_process(grpc_process)
         _stop_vlm_judge(vlm_handle)
 
-
 if __name__ == "__main__":
     main()
