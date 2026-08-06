@@ -44,7 +44,7 @@ def main() -> int:
         type=float,
         default=0.50,
     )
-    parser.add_argument("--leakage-threshold", type=float, default=0.50)
+    parser.add_argument("--leakage-threshold", type=float, default=None)
     parser.add_argument("--output")
     args = parser.parse_args()
 
@@ -101,19 +101,24 @@ def main() -> int:
         emotion_profile_path=emotion_profile,
         generated_video_path=generated_video,
     )
+    leakage_threshold = (
+        args.leakage_threshold
+        if args.leakage_threshold is not None
+        else float(au_result.get("leakage_threshold_0_1", 0.50))
+    )
     fused = fuse_compliance_scores(
         identity_score_0_1=identity_score,
         personal_au_score_0_1=au_result["personal_au_score_0_1"],
-        driver_expression_score_0_1=au_result[
-            "driver_expression_score_0_1"
+        facial_dynamics_score_0_1=au_result[
+            "facial_expression_dynamics_score_0_1"
         ],
         leakage_risk_0_1=au_result[
             "driver_identity_leakage_risk_0_1"
         ],
         identity_threshold=args.identity_threshold,
         personal_au_threshold=args.personal_au_threshold,
-        driver_expression_threshold=args.driver_expression_threshold,
-        leakage_threshold=args.leakage_threshold,
+        facial_dynamics_threshold=args.driver_expression_threshold,
+        leakage_threshold=leakage_threshold,
     )
     uncertainty_reasons = list(au_result.get("uncertainty_reasons", []))
     if (
@@ -125,11 +130,8 @@ def main() -> int:
         )
     wangxing_targeted = fuse_wangxing_targeted_scores(
         personal_au_score_0_1=au_result["personal_au_score_0_1"],
-        driver_expression_score_0_1=au_result[
-            "driver_expression_score_0_1"
-        ],
-        temporal_alignment_score_0_1=au_result[
-            "driver_temporal_alignment_score_0_1"
+        facial_dynamics_score_0_1=au_result[
+            "facial_expression_dynamics_score_0_1"
         ],
         leakage_risk_0_1=au_result[
             "driver_identity_leakage_risk_0_1"
@@ -143,8 +145,8 @@ def main() -> int:
         ),
         uncertainty_reasons=uncertainty_reasons,
         personal_au_threshold=args.personal_au_threshold,
-        driver_expression_threshold=args.driver_expression_threshold,
-        leakage_threshold=args.leakage_threshold,
+        facial_dynamics_threshold=args.driver_expression_threshold,
+        leakage_threshold=leakage_threshold,
     )
     result = {
         "status": "available",
@@ -172,6 +174,13 @@ def main() -> int:
             "driver_au_sha256": au_result.get("driver_au_sha256"),
             "same_generated_driver_au": au_result.get(
                 "same_generated_driver_au"
+            ),
+            "reference_action_used": False,
+            "facial_dynamics_evidence_source": (
+                "wangxing_training_profile_dynamic_statistics"
+            ),
+            "action_evidence_source": (
+                "wangxing_training_profile_dynamic_statistics"
             ),
         },
         "identity_preservation": identity_result,

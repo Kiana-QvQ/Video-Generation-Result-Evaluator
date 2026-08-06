@@ -14,9 +14,7 @@ import numpy as np
 
 from .video_metrics import (
     _aligned_sample_indices,
-    _aggregate_face_box,
     _align_ground_truth_frame,
-    _default_face_detector,
     _read_frames,
     _resize_frame_for_evaluation,
     _sample_indices,
@@ -334,16 +332,10 @@ def _sample_aligned_videos(
     )
     result_frames = _read_frames(result_info["path"], result_indices)
     reference_frames = _read_frames(reference_info["path"], reference_indices)
-    face_box = _aggregate_face_box(
-        reference_frames,
-        _default_face_detector(),
-    )
     reference_frames = [
         _align_ground_truth_frame(
             reference_frame,
             result_frame,
-            face_box=face_box,
-            detect_face=False,
         )
         for result_frame, reference_frame in zip(result_frames, reference_frames)
     ]
@@ -500,7 +492,10 @@ class _IdentityBackend:
                 faces = self.insight_app.get(cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
                 if faces:
                     face = max(faces, key=lambda item: float(item.bbox[2] - item.bbox[0]) * float(item.bbox[3] - item.bbox[1]))
-                    bbox = tuple(int(round(value)) for value in face.bbox)
+                    x0, y0, x1, y1 = (
+                        int(round(value)) for value in face.bbox
+                    )
+                    bbox = (x0, y0, max(1, x1 - x0), max(1, y1 - y0))
                     return _normalize(np.asarray(face.embedding)), bbox, "arcface"  # type: ignore[arg-type]
             except Exception as exc:
                 LOGGER.debug("ArcFace frame inference failed: %s", exc)

@@ -23,10 +23,10 @@ EXPRESSION_TAXONOMY: dict[str, dict[str, Any]] = {
     },
     "anger": {
         "display_name_zh": "愤怒",
-        "description_zh": "爆发式愤怒",
+        "description_zh": "愤怒与生气反应",
         "valence": "negative",
         "arousal": "high",
-        "source_performances": ["FenNu"],
+        "source_performances": ["FenNu", "ShengQi"],
         "is_emotion": True,
     },
     "surprise": {
@@ -50,7 +50,7 @@ EXPRESSION_TAXONOMY: dict[str, dict[str, Any]] = {
         "description_zh": "闷气、不悦、压抑型生气",
         "valence": "negative",
         "arousal": "medium",
-        "source_performances": ["ShengQi"],
+        "source_performances": [],
         "is_emotion": True,
     },
     "sadness": {

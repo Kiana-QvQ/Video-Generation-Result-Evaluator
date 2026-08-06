@@ -35,7 +35,7 @@ from evaluator.holistic_evaluator import (
 from evaluator.video_metrics import (
     VideoInfo,
     _aligned_sample_indices,
-    _face_protected_crop_to_aspect,
+    _align_ground_truth_frame,
     _mean,
     _resize_frame_for_evaluation,
     _sample_timestamps,
@@ -710,7 +710,7 @@ class HolisticEvaluatorTests(unittest.TestCase):
             self.assertEqual(len(result["summary"]), 5)
             self.assertIn("weighted_score_weight_coverage", result)
 
-    def test_mismatched_gt_uses_center_crop_without_aborting_other_scores(
+    def test_mismatched_gt_uses_resize_without_aborting_other_scores(
         self,
     ) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -746,24 +746,31 @@ class HolisticEvaluatorTests(unittest.TestCase):
             )
             self.assertEqual(
                 result["categories"]["texture"]["ground_truth_alignment"]["mode"],
-                "center_crop_gt_to_result_aspect",
+                "resize_gt_to_result",
             )
             self.assertIn(
-                "宽高比不同",
+                "resize",
                 result["categories"]["texture"]["warnings"][0],
             )
 
-    def test_face_protected_crop_keeps_face_near_top_edge(self) -> None:
-        frame = np.zeros((1024, 576, 3), dtype=np.uint8)
-        cropped, metadata = _face_protected_crop_to_aspect(
+    def test_gt_alignment_resizes_full_frame_without_crop_metadata(self) -> None:
+        frame = np.zeros((2, 4, 3), dtype=np.uint8)
+        frame[:, :, :] = np.array([0, 50, 100, 150], dtype=np.uint8)[
+            None, :, None
+        ]
+        target = np.zeros((2, 2, 3), dtype=np.uint8)
+
+        aligned, metadata = _align_ground_truth_frame(
             frame,
-            target_aspect_ratio=576 / 768,
-            face_box=(0.40, 0.05, 0.60, 0.20),
+            target,
+            return_metadata=True,
         )
 
-        self.assertEqual(cropped.shape[:2], (768, 576))
-        self.assertEqual(metadata["face_protection_status"], "applied")
-        self.assertEqual(metadata["crop"]["top"], 0)
+        self.assertEqual(aligned.shape, target.shape)
+        self.assertEqual(aligned[0, 0, 0], 25)
+        self.assertEqual(aligned[0, 1, 0], 125)
+        self.assertEqual(metadata["mode"], "resize_gt_to_result")
+        self.assertNotIn("crop", metadata)
 
     def test_expression_style_and_semantic_scores_are_combined(self) -> None:
         categories = {

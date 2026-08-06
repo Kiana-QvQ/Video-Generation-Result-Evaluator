@@ -13,10 +13,17 @@ import numpy as np
 
 
 AU_PROFILE_SCHEMA = "wangxing_au_profile_v2"
-AU_PROFILE_FORMAT_VERSION = 3
+AU_PROFILE_FORMAT_VERSION = 4
 AU_CLASSIFIER_SCHEMA = "au_leakage_classifier_v2"
-AU_EVALUATOR_VERSION = "wangxing_au_eval_v7"
+AU_EVALUATOR_VERSION = "wangxing_au_eval_v8"
 AU_QUALITY_SCHEMA = "face_quality_gate_v1"
+FACIAL_DYNAMIC_FEATURE_NAMES = (
+    "active_ratio",
+    "event_rate",
+    "longest_event_ratio",
+    "mean_event_ratio",
+    "peak_intensity",
+)
 AUTO_EMOTION_MIN_CLASSES = 2
 AUTO_EMOTION_MIN_SAMPLES_PER_CLASS = 3
 DEFAULT_INTENSITY_AU_IDS = (
@@ -70,12 +77,11 @@ SMILE_MIN_OBSERVABLE_SCORE = 0.18
 COMPLIANCE_COMPONENT_WEIGHTS = {
     "identity": 0.40,
     "personal_au": 0.40,
-    "driver_expression": 0.20,
+    "facial_dynamics": 0.20,
 }
 WANGXING_TARGETED_COMPONENT_WEIGHTS = {
-    "personal_au": 0.40,
-    "driver_expression": 0.35,
-    "temporal_alignment": 0.25,
+    "personal_au": 0.70,
+    "facial_dynamics": 0.30,
 }
 DEFAULT_COACTIVATION_PAIRS = (
     (1, 2),
@@ -839,6 +845,7 @@ def fit_au_profile(
         au_ids = LEGACY_AU_IDS
     grouped_frames: dict[str, list[np.ndarray]] = {}
     grouped_summaries: dict[str, list[np.ndarray]] = {}
+    grouped_dynamics: dict[str, list[np.ndarray]] = {}
     grouped_prototypes: dict[str, list[dict[str, Any]]] = {}
     for index, (expression_class, sequence) in enumerate(labeled_sequences):
         sequence = np.asarray(sequence, dtype=np.float32)
@@ -852,8 +859,14 @@ def fit_au_profile(
             au_ids=au_ids,
             active_threshold=active_threshold,
         )
+        dynamics = facial_dynamic_feature_vector(
+            sequence,
+            au_ids=au_ids,
+            active_threshold=active_threshold,
+        )
         grouped_frames.setdefault(expression_class, []).extend(sequence)
         grouped_summaries.setdefault(expression_class, []).append(summary)
+        grouped_dynamics.setdefault(expression_class, []).append(dynamics)
         sample_info = metadata_rows[index]
         prototype: dict[str, Any] = {
             "frame_count": int(len(sequence)),
@@ -882,9 +895,11 @@ def fit_au_profile(
     for expression_class in classes:
         frame_model = _fit_distribution(grouped_frames[expression_class])
         summary_model = _fit_distribution(grouped_summaries[expression_class])
+        dynamics_model = _fit_distribution(grouped_dynamics[expression_class])
         models[expression_class] = {
             "frame": frame_model,
             "summary": summary_model,
+            "facial_dynamics": dynamics_model,
             "sample_count": len(grouped_prototypes[expression_class]),
             "sequence_prototypes": grouped_prototypes[expression_class],
         }
@@ -929,6 +944,13 @@ def fit_au_profile(
             "coactivation_pairs": [
                 list(pair) for pair in _summary_pairs(au_ids)
             ],
+        },
+        "facial_dynamics": {
+            "feature_names": list(FACIAL_DYNAMIC_FEATURE_NAMES),
+            "comparison_scope": (
+                "class_distribution_statistics_from_training_au_csv"
+            ),
+            "not_action_or_temporal_alignment": True,
         },
         "active_threshold": float(active_threshold),
         "provenance": {
@@ -1260,6 +1282,57 @@ def temporal_event_features(
         "per_au": per_au,
         "valid_frame_count": int(np.sum(valid_mask)),
         "valid_frame_ratio": float(np.mean(valid_mask)),
+    }
+
+
+def facial_dynamic_feature_vector(
+    sequence: np.ndarray,
+    *,
+    au_ids: Iterable[int] = DEFAULT_AU_IDS,
+    active_threshold: float = DEFAULT_ACTIVE_THRESHOLD,
+    valid_mask: np.ndarray | None = None,
+) -> np.ndarray:
+    """Return timing-independent AU facial dynamics statistics.
+
+    These features describe how much and how often the face changes. They do
+    not compare the onset position or event order with a particular video.
+    """
+    temporal = temporal_event_features(
+        sequence,
+        au_ids=au_ids,
+        active_threshold=active_threshold,
+        valid_mask=valid_mask,
+    )
+    aggregate = temporal["aggregate"]
+    frame_count = max(int(temporal["valid_frame_count"]), 1)
+    return np.asarray(
+        [
+            float(aggregate.get("active_ratio", 0.0)),
+            float(aggregate.get("event_count", 0)) / frame_count,
+            float(aggregate.get("longest_event_ratio", 0.0)),
+            float(aggregate.get("mean_event_ratio", 0.0)),
+            float(aggregate.get("peak_intensity", 0.0)),
+        ],
+        dtype=np.float32,
+    )
+
+
+def _facial_dynamic_feature_payload(
+    sequence: np.ndarray,
+    *,
+    au_ids: Iterable[int],
+    active_threshold: float,
+    valid_mask: np.ndarray | None = None,
+) -> dict[str, float]:
+    values = facial_dynamic_feature_vector(
+        sequence,
+        au_ids=au_ids,
+        active_threshold=active_threshold,
+        valid_mask=valid_mask,
+    )
+    return {
+        name: float(values[index])
+        for index, name in enumerate(FACIAL_DYNAMIC_FEATURE_NAMES)
     }
 
 
@@ -1787,6 +1860,87 @@ def _profile_model_score(
     }
 
 
+def _profile_facial_dynamics_score(
+    sequence: np.ndarray,
+    model: dict[str, Any],
+    *,
+    au_ids: tuple[int, ...],
+    active_threshold: float,
+) -> dict[str, Any]:
+    """Score AU dynamics against a class distribution, not a video."""
+    dynamics_model = model.get("facial_dynamics")
+    if not isinstance(dynamics_model, dict):
+        return {
+            "facial_expression_dynamics_score_0_1": None,
+            "facial_dynamics_distance": None,
+            "facial_dynamics_threshold": None,
+            "facial_dynamics_features": None,
+            "facial_dynamics_available": False,
+        }
+
+    feature_names = tuple(
+        str(value)
+        for value in dynamics_model.get(
+            "feature_names",
+            FACIAL_DYNAMIC_FEATURE_NAMES,
+        )
+    )
+    if feature_names != FACIAL_DYNAMIC_FEATURE_NAMES:
+        return {
+            "facial_expression_dynamics_score_0_1": None,
+            "facial_dynamics_distance": None,
+            "facial_dynamics_threshold": None,
+            "facial_dynamics_features": None,
+            "facial_dynamics_available": False,
+        }
+    features = facial_dynamic_feature_vector(
+        sequence,
+        au_ids=au_ids,
+        active_threshold=active_threshold,
+    )
+    mean = np.asarray(dynamics_model.get("mean", []), dtype=np.float64)
+    covariance = np.asarray(
+        dynamics_model.get("covariance", []),
+        dtype=np.float64,
+    )
+    if (
+        mean.shape != (len(FACIAL_DYNAMIC_FEATURE_NAMES),)
+        or covariance.shape != (
+            len(FACIAL_DYNAMIC_FEATURE_NAMES),
+            len(FACIAL_DYNAMIC_FEATURE_NAMES),
+        )
+    ):
+        return {
+            "facial_expression_dynamics_score_0_1": None,
+            "facial_dynamics_distance": None,
+            "facial_dynamics_threshold": None,
+            "facial_dynamics_features": None,
+            "facial_dynamics_available": False,
+        }
+    distance = float(
+        _mahalanobis(
+            features[None, :],
+            mean,
+            covariance,
+        )[0]
+    )
+    threshold = float(dynamics_model.get("distance_threshold", 3.0))
+    score = math.exp(-distance / max(threshold, 1e-6))
+    return {
+        "facial_expression_dynamics_score_0_1": max(
+            0.0,
+            min(1.0, float(score)),
+        ),
+        "facial_dynamics_distance": distance,
+        "facial_dynamics_threshold": threshold,
+        "facial_dynamics_features": {
+            name: float(features[index])
+            for index, name in enumerate(FACIAL_DYNAMIC_FEATURE_NAMES)
+        },
+        "facial_dynamics_available": True,
+    }
+
+
 def _profile_sequence_prototype_score(
     sequence: np.ndarray,
     model: dict[str, Any],
@@ -1896,6 +2050,45 @@ def _profile_sequence_prototype_score(
             if key != "summary"
         },
         "sequence_prototype_available": True,
+    }
+
+
+def _profile_facial_dynamics_evidence(
+    selected_score: dict[str, Any],
+) -> dict[str, Any]:
+    """Expose class-level facial dynamics evidence without sequence matching."""
+    score = selected_score.get(
+        "facial_expression_dynamics_score_0_1"
+    )
+    if score is None:
+        return {
+            "status": "unavailable",
+            "reason": (
+                "The AU profile has no facial-dynamics distribution. "
+                "Rebuild it from the current training CSV files."
+            ),
+            "source": "wangxing_training_profile_dynamic_statistics",
+            "facial_expression_dynamics_score_0_1": None,
+            "features": None,
+            "distance": None,
+            "threshold": None,
+            "comparison_scope": (
+                "activation_ratio_event_rate_duration_peak_intensity"
+            ),
+            "uses_reference_video": False,
+        }
+    return {
+        "status": "available",
+        "source": "wangxing_training_profile_dynamic_statistics",
+        "facial_expression_dynamics_score_0_1": float(score),
+        "features": selected_score.get("facial_dynamics_features"),
+        "distance": selected_score.get("facial_dynamics_distance"),
+        "threshold": selected_score.get("facial_dynamics_threshold"),
+        "comparison_scope": (
+            "activation_ratio_event_rate_duration_peak_intensity"
+        ),
+        "uses_reference_video": False,
+        "not_action_or_temporal_alignment": True,
     }
 
 
@@ -2539,6 +2732,12 @@ def score_au_compliance(
                 full_au_ids=au_ids,
                 supported_au_ids=generated_supported,
             ),
+            **_profile_facial_dynamics_score(
+                generated_scored,
+                model,
+                au_ids=generated_supported,
+                active_threshold=active_threshold,
+            ),
             **_profile_sequence_prototype_score(
                 generated_scored,
                 model,
@@ -2677,12 +2876,24 @@ def score_au_compliance(
         exact_profile_classes[0] if exact_profile_classes else None
     )
 
-    if expected_class:
-        if expected_class not in class_scores:
+    effective_expected_class = expected_class
+    if (
+        effective_expected_class == "annoyance"
+        and effective_expected_class not in class_scores
+        and "anger" in class_scores
+    ):
+        effective_expected_class = "anger"
+        auto_classification_reason = (
+            f"{auto_classification_reason} Legacy expected class annoyance "
+            "was evaluated using the rebuilt anger profile."
+        ).strip()
+
+    if effective_expected_class:
+        if effective_expected_class not in class_scores:
             raise ValueError(
                 f"Unknown expected expression class: {expected_class}"
             )
-        selected_class = expected_class
+        selected_class = effective_expected_class
     elif exact_profile_class is not None:
         selected_class = exact_profile_class
         auto_classification_reason = (
@@ -2735,6 +2946,9 @@ def score_au_compliance(
         class_scores[selected_class]
         if selected_class in class_scores
         else class_scores[target_evidence_class]
+    )
+    profile_facial_dynamics_evidence = _profile_facial_dynamics_evidence(
+        selected,
     )
     generated_presence_report = presence_reports.get(target_evidence_class)
     if generated_presence_report is None:
@@ -2876,12 +3090,19 @@ def score_au_compliance(
                 )
 
     classifier_risk: float | None = None
+    classifier_threshold = 0.50
     if leakage_classifier_path:
         classifier = json.loads(
             Path(leakage_classifier_path).read_text(
                 encoding="utf-8-sig"
             )
         )
+        try:
+            classifier_threshold = float(
+                classifier.get("decision_threshold", 0.50)
+            )
+        except (TypeError, ValueError):
+            classifier_threshold = 0.50
         classifier_au_ids = tuple(
             int(value) for value in classifier.get("au_ids", au_ids)
         )
@@ -3024,6 +3245,26 @@ def score_au_compliance(
             and generated_au_sha256 == driver_au_sha256
         ),
         "personal_au_score_0_1": personal_score,
+        "facial_expression_dynamics_score_0_1": (
+            profile_facial_dynamics_evidence.get(
+                "facial_expression_dynamics_score_0_1"
+            )
+        ),
+        "wangxing_facial_dynamics_evidence": (
+            profile_facial_dynamics_evidence
+        ),
+        # Deprecated compatibility fields. They are intentionally unusable
+        # because AU data cannot establish body action or training alignment.
+        "wangxing_action_compliance_score_0_1": None,
+        "wangxing_temporal_alignment_score_0_1": None,
+        "wangxing_action_evidence": {
+            "status": "deprecated",
+            "reason": (
+                "Removed: the available AU CSVs contain facial expression "
+                "features, not body action or a shared temporal task."
+            ),
+            "replacement": "wangxing_facial_dynamics_evidence",
+        },
         "driver_expression_score_0_1": driver_expression_score,
         "driver_dtw_score_0_1": driver_dtw_score,
         "driver_velocity_score_0_1": driver_velocity_score,
@@ -3032,6 +3273,7 @@ def score_au_compliance(
         ),
         "driver_similarity_proxy_0_1": driver_similarity_proxy,
         "driver_identity_leakage_risk_0_1": leakage_risk,
+        "leakage_threshold_0_1": classifier_threshold,
         "leakage_backend": leakage_backend,
         "evidence_quality_status": evidence_quality_status,
         "evidence_confidence_0_1": quality_confidence,
@@ -3191,14 +3433,24 @@ def fuse_compliance_scores(
     *,
     identity_score_0_1: float | None,
     personal_au_score_0_1: float | None,
-    driver_expression_score_0_1: float | None,
+    facial_dynamics_score_0_1: float | None = None,
+    action_compliance_score_0_1: float | None = None,
     leakage_risk_0_1: float | None,
     identity_threshold: float = 0.75,
     personal_au_threshold: float = 0.50,
-    driver_expression_threshold: float = 0.50,
+    facial_dynamics_threshold: float = 0.50,
+    action_compliance_threshold: float = 0.50,
     leakage_threshold: float = 0.50,
+    driver_expression_score_0_1: float | None = None,
+    driver_expression_threshold: float | None = None,
 ) -> dict[str, Any]:
-    """Fuse scores without hiding unavailable evidence."""
+    """Fuse identity, AU profile and facial-dynamics evidence."""
+    if facial_dynamics_score_0_1 is None:
+        facial_dynamics_score_0_1 = action_compliance_score_0_1
+    if facial_dynamics_score_0_1 is None:
+        facial_dynamics_score_0_1 = driver_expression_score_0_1
+    if driver_expression_threshold is not None:
+        facial_dynamics_threshold = driver_expression_threshold
     components = [
         (
             COMPLIANCE_COMPONENT_WEIGHTS["identity"],
@@ -3209,8 +3461,8 @@ def fuse_compliance_scores(
             personal_au_score_0_1,
         ),
         (
-            COMPLIANCE_COMPONENT_WEIGHTS["driver_expression"],
-            driver_expression_score_0_1,
+            COMPLIANCE_COMPONENT_WEIGHTS["facial_dynamics"],
+            facial_dynamics_score_0_1,
         ),
     ]
     valid = [
@@ -3236,10 +3488,10 @@ def fuse_compliance_scores(
     ):
         reasons.append("personal_au_below_threshold")
     if (
-        driver_expression_score_0_1 is not None
-        and driver_expression_score_0_1 < driver_expression_threshold
+        facial_dynamics_score_0_1 is not None
+        and facial_dynamics_score_0_1 < facial_dynamics_threshold
     ):
-        reasons.append("driver_expression_below_threshold")
+        reasons.append("facial_dynamics_below_threshold")
     if (
         leakage_risk_0_1 is not None
         and leakage_risk_0_1 >= leakage_threshold
@@ -3250,7 +3502,7 @@ def fuse_compliance_scores(
         for name, value in (
             ("identity", identity_score_0_1),
             ("personal_au", personal_au_score_0_1),
-            ("driver_expression", driver_expression_score_0_1),
+            ("facial_dynamics", facial_dynamics_score_0_1),
             ("leakage", leakage_risk_0_1),
         )
         if value is None
@@ -3274,7 +3526,7 @@ def fuse_compliance_scores(
         "thresholds": {
             "identity": identity_threshold,
             "personal_au": personal_au_threshold,
-            "driver_expression": driver_expression_threshold,
+            "facial_dynamics": facial_dynamics_threshold,
             "leakage": leakage_threshold,
         },
     }
@@ -3283,21 +3535,34 @@ def fuse_compliance_scores(
 def fuse_wangxing_targeted_scores(
     *,
     personal_au_score_0_1: float | None,
-    driver_expression_score_0_1: float | None,
+    facial_dynamics_score_0_1: float | None = None,
+    facial_dynamics_threshold: float = 0.50,
+    # Deprecated aliases kept for old standalone callers.
+    action_compliance_score_0_1: float | None = None,
     leakage_risk_0_1: float | None,
-    temporal_alignment_score_0_1: float | None = None,
+    temporal_compliance_score_0_1: float | None = None,
     evidence_quality_status: str = "available",
     evidence_confidence_0_1: float | None = None,
     uncertainty_reasons: Iterable[str] = (),
     personal_au_threshold: float = 0.50,
-    driver_expression_threshold: float = 0.50,
+    action_compliance_threshold: float = 0.50,
     leakage_threshold: float = 0.50,
+    driver_expression_score_0_1: float | None = None,
+    temporal_alignment_score_0_1: float | None = None,
+    driver_expression_threshold: float | None = None,
 ) -> dict[str, Any]:
-    """Judge Wang Xing-specific expression fit with explicit evidence coverage."""
+    """Judge Wang Xing-specific fit using facial AU evidence only."""
+    if facial_dynamics_score_0_1 is None:
+        facial_dynamics_score_0_1 = action_compliance_score_0_1
+    if facial_dynamics_score_0_1 is None:
+        facial_dynamics_score_0_1 = driver_expression_score_0_1
+    if driver_expression_threshold is not None:
+        facial_dynamics_threshold = driver_expression_threshold
+    elif action_compliance_threshold != 0.50:
+        facial_dynamics_threshold = action_compliance_threshold
     components = {
         "personal_au": personal_au_score_0_1,
-        "driver_expression": driver_expression_score_0_1,
-        "temporal_alignment": temporal_alignment_score_0_1,
+        "facial_dynamics": facial_dynamics_score_0_1,
     }
     valid_components = {
         name: float(score)
@@ -3317,16 +3582,6 @@ def fuse_wangxing_targeted_scores(
         if score_weight_coverage
         else None
     )
-    driver_scores = [
-        valid_components[name]
-        for name in ("driver_expression", "temporal_alignment")
-        if name in valid_components
-    ]
-    driver_fit = (
-        sum(driver_scores) / len(driver_scores)
-        if driver_scores
-        else None
-    )
     missing_evidence = [
         name for name, score in components.items() if score is None
     ]
@@ -3337,15 +3592,10 @@ def fuse_wangxing_targeted_scores(
     ):
         reasons.append("wangxing_au_below_threshold")
     if (
-        driver_expression_score_0_1 is not None
-        and driver_expression_score_0_1 < driver_expression_threshold
+        facial_dynamics_score_0_1 is not None
+        and facial_dynamics_score_0_1 < facial_dynamics_threshold
     ):
-        reasons.append("driver_expression_below_threshold")
-    if (
-        temporal_alignment_score_0_1 is not None
-        and temporal_alignment_score_0_1 < driver_expression_threshold
-    ):
-        reasons.append("temporal_alignment_below_threshold")
+        reasons.append("facial_dynamics_below_threshold")
     if (
         leakage_risk_0_1 is not None
         and leakage_risk_0_1 >= leakage_threshold
@@ -3353,10 +3603,8 @@ def fuse_wangxing_targeted_scores(
         reasons.append("identity_leakage_risk")
     if personal_au_score_0_1 is None:
         reasons.append("missing_personal_au")
-    if driver_expression_score_0_1 is None:
-        reasons.append("missing_driver_expression")
-    if temporal_alignment_score_0_1 is None:
-        reasons.append("missing_temporal_alignment")
+    if facial_dynamics_score_0_1 is None:
+        reasons.append("missing_facial_dynamics")
     for reason in uncertainty_reasons:
         if reason not in reasons:
             reasons.append(str(reason))
@@ -3385,26 +3633,24 @@ def fuse_wangxing_targeted_scores(
         "score_weight_coverage": score_weight_coverage,
         "evidence_coverage_0_1": score_weight_coverage,
         "decision_policy": (
-            "A complete allow decision requires personal AU, reference "
-            "driver trajectory, and temporal alignment. Missing evidence "
-            "keeps the score partial and requests review."
+            "A complete allow decision requires the personal AU profile and "
+            "facial-dynamics statistics from the rebuilt AU profile. These "
+            "statistics do not establish body action or temporal alignment."
         ),
         "evidence": {
             "personal_au": personal_au_score_0_1,
-            "driver_expression": driver_expression_score_0_1,
-            "temporal_alignment": temporal_alignment_score_0_1,
-            "driver_fit": driver_fit,
+            "facial_dynamics": facial_dynamics_score_0_1,
             "leakage_risk": leakage_risk_0_1,
         },
         "evidence_quality_status": evidence_quality_status,
         "evidence_confidence_0_1": evidence_confidence_0_1,
         "aggregation": (
-            "weighted mean of personal AU (40%), driver expression (35%), "
-            "and temporal alignment (25%) over available evidence"
+            "weighted mean of personal AU (70%) and facial expression "
+            "dynamics statistics (30%)"
         ),
         "thresholds": {
             "personal_au": personal_au_threshold,
-            "driver_expression": driver_expression_threshold,
+            "facial_dynamics": facial_dynamics_threshold,
             "leakage": leakage_threshold,
         },
     }

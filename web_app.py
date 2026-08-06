@@ -35,13 +35,16 @@ from evaluator.holistic_evaluator import (
     get_model_inventory,
     get_model_recommendation,
 )
-from evaluator.au_compliance import AU_EVALUATOR_VERSION
 from evaluator.evaluation_lock import serialized_evaluation
 from evaluator.hardware_policy import resolve_policy
 from evaluator.media import concatenate_videos, transcode_video_for_browser
 from evaluator.runtime import OUTPUT_DIR, PROJECT_ROOT
 from evaluator.subst import cleanup_project_subst_mappings
 from evaluator.video_metrics import is_video_path, probe_video
+from evaluator.wangxing_specialization import (
+    EXPRESSION_DISPLAY_NAMES,
+    SPECIALIZATION_EVALUATOR_VERSION,
+)
 
 
 WEB_DIR = PROJECT_ROOT / "web"
@@ -93,7 +96,6 @@ WANGXING_AU_CLASSES = {
     "anger",
     "surprise",
     "fear",
-    "annoyance",
     "sadness",
     "disgust",
 }
@@ -101,6 +103,15 @@ WANGXING_AU_PROFILE_PATH = PROJECT_ROOT / "data/au/wangxing_au_profile.json"
 WANGXING_AU_CLASSIFIER_PATH = PROJECT_ROOT / "data/au/au_leakage_classifier.json"
 ORIGINAL_EMOTION_AU_PROFILE_PATH = (
     PROJECT_ROOT / "data/au/original_emotion_au_profile.json"
+)
+WANGXING_IDENTITY_PROFILE_PATH = (
+    PROJECT_ROOT / "data/au/wangxing_identity_profile.json"
+)
+WANGXING_EXPRESSION_PROFILE_PATH = (
+    PROJECT_ROOT / "data/au/wangxing_expression_profile.json"
+)
+WANGXING_SOURCE_PROFILE_PATH = (
+    PROJECT_ROOT / "data/au/wangxing_source_profile.json"
 )
 WANGXING_AU_CACHE_ROOT = OUTPUT_DIR / "au_cache"
 GENERATED_REPORT_FILES = {
@@ -489,36 +500,38 @@ def _normalize_wangxing_class(value: str | None) -> str | None:
             status_code=422,
             detail=(
                 "wangxing_expected_class must be auto, smile, anger, "
-                "surprise, fear, annoyance, sadness, or disgust."
+                "surprise, fear, sadness, or disgust."
             ),
         )
     return normalized
 
 
 def _wangxing_au_status() -> dict[str, Any]:
+    identity_profile_exists = WANGXING_IDENTITY_PROFILE_PATH.is_file()
+    expression_profile_exists = WANGXING_EXPRESSION_PROFILE_PATH.is_file()
     ready = (
-        WANGXING_AU_PROFILE_PATH.is_file()
-        and WANGXING_AU_CLASSIFIER_PATH.is_file()
+        identity_profile_exists
+        and expression_profile_exists
     )
-    emotion_profile_exists = ORIGINAL_EMOTION_AU_PROFILE_PATH.is_file()
     return {
         "ready": ready,
-        "evaluator_version": AU_EVALUATOR_VERSION,
+        "evaluator_version": SPECIALIZATION_EVALUATOR_VERSION,
+        "identity_profile": str(WANGXING_IDENTITY_PROFILE_PATH),
+        "expression_profile": str(WANGXING_EXPRESSION_PROFILE_PATH),
+        "identity_profile_exists": identity_profile_exists,
+        "expression_profile_exists": expression_profile_exists,
+        # Keep legacy paths in the payload for older clients.
         "profile": str(WANGXING_AU_PROFILE_PATH),
         "classifier": str(WANGXING_AU_CLASSIFIER_PATH),
         "emotion_profile": str(ORIGINAL_EMOTION_AU_PROFILE_PATH),
-        "emotion_profile_exists": emotion_profile_exists,
         "classes": sorted(WANGXING_AU_CLASSES),
         "note": (
-            "Original AU profile classifies emotion; Wang Xing AU profile "
-            "checks whether the target person can perform it."
-            if ready and emotion_profile_exists
+            "ArcFace identity and real Wang Xing facial expression profiles "
+            "are ready. Seedance is used for identity calibration only."
+            if ready
             else (
-                "Wang Xing AU profile is ready, but the original AU emotion "
-                "profile is missing; automatic emotion classification is "
-                "unavailable."
-                if ready
-                else "Train the Wang Xing AU profile and classifier first."
+                "Train the Wang Xing identity and real-expression profiles "
+                "before enabling the specialization."
             )
         ),
     }
@@ -529,13 +542,16 @@ def _run_wangxing_au_assessment(
     *,
     result_path: Path,
     reference_image_paths: list[Path],
-    reference_video_path: Path | None,
     expected_class: str | None,
     device: str,
     run_dir: Path,
+    reference_video_path: Path | None = None,
     prompt_text: str | None = None,
     driver_source: str | None = None,
 ) -> dict[str, Any]:
+    # The specialization is self-contained; normal reference inputs remain
+    # available to the five ordinary scores.
+    del reference_video_path, driver_source
     status = _wangxing_au_status()
     if not status["ready"]:
         return {
@@ -548,28 +564,26 @@ def _run_wangxing_au_assessment(
     output_path.unlink(missing_ok=True)
     command = [
         sys.executable,
-        str(PROJECT_ROOT / "scripts/evaluate_generated_video.py"),
+        str(PROJECT_ROOT / "scripts/evaluate_wangxing_specialization.py"),
         "--generated-video",
         str(result_path),
+        "--identity-profile",
+        str(WANGXING_IDENTITY_PROFILE_PATH),
+        "--expression-profile",
+        str(WANGXING_EXPRESSION_PROFILE_PATH),
         "--output-root",
-        str(run_dir / "wangxing_au"),
+        str(run_dir / "wangxing_specialization"),
         "--cache-root",
         str(WANGXING_AU_CACHE_ROOT),
-        "--au-profile",
-        str(WANGXING_AU_PROFILE_PATH),
-        "--leakage-classifier",
-        str(WANGXING_AU_CLASSIFIER_PATH),
-        "--emotion-profile",
-        str(ORIGINAL_EMOTION_AU_PROFILE_PATH),
         "--output",
         str(output_path),
         "--device",
         au_device,
+        "--identity-frames",
+        "16",
     ]
     for reference_image_path in reference_image_paths:
         command.extend(["--target-image", str(reference_image_path)])
-    if reference_video_path is not None:
-        command.extend(["--driver-video", str(reference_video_path)])
     if expected_class is not None:
         command.extend(["--expected-class", expected_class])
 
@@ -634,21 +648,28 @@ def _run_wangxing_au_assessment(
 
     try:
         payload = json.loads(output_path.read_text(encoding="utf-8"))
-        payload["driver_source"] = (
-            driver_source if reference_video_path is not None else None
+        payload.setdefault("driver_source", None)
+        payload.setdefault("reference_action_used", False)
+        payload.setdefault(
+            "facial_dynamics_evidence_source",
+            "wangxing_training_profile_dynamic_statistics",
+        )
+        payload.setdefault(
+            "action_evidence_source",
+            "wangxing_training_profile_dynamic_statistics",
         )
         payload["prompt_evidence"] = {
             "provided": bool((prompt_text or "").strip()),
             "note": (
                 "Prompt is evaluated by the generic expression semantic "
-                "track; it does not replace AU driver trajectory evidence."
+                "track; it does not change the Wang Xing identity gate."
             ),
         }
         return payload
     except (OSError, json.JSONDecodeError) as exc:
         return {
             "status": "unavailable",
-            "reason": "Wang Xing AU report was not written.",
+            "reason": "Wang Xing specialization report was not written.",
             "error_type": type(exc).__name__,
         }
 
@@ -699,8 +720,7 @@ def _attach_wangxing_evidence(
             weight
             for name, weight in (
                 ("personal_au", 0.40),
-                ("driver_expression", 0.35),
-                ("temporal_alignment", 0.25),
+                ("facial_dynamics", 0.30),
             )
             if _finite_score(evidence.get(name)) is not None
         )
@@ -720,6 +740,55 @@ def _attach_wangxing_evidence(
         if reference_source not in {"", "none"}
         else 0.0
     ) + 0.40 * (1.0 if prompt_score is not None else 0.0)
+
+    if wangxing_au.get("schema_version") == "wangxing_specialization_v1":
+        identity = wangxing_au.get("identity", {})
+        expression_profile = wangxing_au.get("expression_profile", {})
+        if not isinstance(identity, dict):
+            identity = {}
+        if not isinstance(expression_profile, dict):
+            expression_profile = {}
+        compatibility = _finite_score(
+            expression_profile.get("compatibility_0_1")
+        )
+        result["expression_evidence"] = {
+            "generic": {
+                "score_0_1": _finite_score(expression.get("score_0_1")),
+                "coverage_0_1": generic_coverage,
+                "missing_evidence": [
+                    name
+                    for name, present in (
+                        (
+                            "reference_style",
+                            reference_source not in {"", "none"}
+                            and generic_style is not None,
+                        ),
+                        ("prompt_semantic", prompt_score is not None),
+                    )
+                    if not present
+                ],
+            },
+            "wangxing_specialization": {
+                "identity": identity,
+                "source": wangxing_au.get("source", {}),
+                "expression": expression_profile,
+                "decision": wangxing_au.get("decision"),
+            },
+            "wangxing_au": {
+                "score_0_1": compatibility,
+                "coverage_0_1": 1.0 if compatibility is not None else 0.0,
+                "status": wangxing_au.get("status"),
+                "decision": wangxing_au.get("decision"),
+            },
+            "scope": "separate_targeted_specialization",
+            "normal_expression_unchanged": True,
+            "prompt_semantic_backend": (
+                metrics.get("prompt_semantic_backend")
+                if prompt_text and prompt_text.strip()
+                else None
+            ),
+        }
+        return
 
     result["expression_evidence"] = {
         "generic": {
@@ -747,7 +816,14 @@ def _attach_wangxing_evidence(
         },
         "scope": "separate_targeted_specialization",
         "normal_expression_unchanged": True,
-        "driver_source": driver_source,
+        "driver_source": None,
+        "reference_action_used": False,
+        "facial_dynamics_evidence_source": (
+            "wangxing_training_profile_dynamic_statistics"
+        ),
+        "action_evidence_source": (
+            "wangxing_training_profile_dynamic_statistics"
+        ),
         "prompt_semantic_backend": (
             metrics.get("prompt_semantic_backend")
             if prompt_text and prompt_text.strip()
@@ -821,20 +897,15 @@ def _legacy_fuse_expression_evidence(
         au_components = (
             ("personal_au", targeted.get("evidence", {}).get("personal_au")),
             (
-                "driver_expression",
-                targeted.get("evidence", {}).get("driver_expression"),
-            ),
-            (
-                "temporal_alignment",
-                targeted.get("evidence", {}).get("temporal_alignment"),
+                "facial_dynamics",
+                targeted.get("evidence", {}).get("facial_dynamics"),
             ),
         )
         au_coverage = sum(
             weight
             for name, weight in (
-                ("personal_au", 0.40),
-                ("driver_expression", 0.35),
-                ("temporal_alignment", 0.25),
+                ("personal_au", 0.70),
+                ("facial_dynamics", 0.30),
             )
             if _finite_score(dict(au_components).get(name)) is not None
         )
@@ -1262,7 +1333,7 @@ def _pid_is_alive(pid: int) -> bool:
         return False
     try:
         os.kill(pid, 0)
-    except (OSError, ProcessLookupError):
+    except (OSError, ProcessLookupError, SystemError):
         return False
     return True
 
@@ -2108,28 +2179,20 @@ def _execute_job(job_id: str) -> None:
             expected_class = _normalize_wangxing_class(
                 str(parameters.get("wangxing_expected_class", "auto"))
             )
-            driver_video_path = reference_video_path or gt_path
-            driver_source = (
-                "reference_video"
-                if reference_video_path is not None
-                else ("ground_truth" if gt_path is not None else None)
-            )
             wangxing_au = _run_wangxing_au_assessment(
                 result_path=result_path,
                 reference_image_paths=reference_paths,
-                reference_video_path=driver_video_path,
                 expected_class=expected_class,
                 device=str(parameters.get("device", "auto")),
                 run_dir=_job_dir(job_id),
                 prompt_text=parameters.get("prompt_text"),
-                driver_source=driver_source,
             )
             result["wangxing_au"] = wangxing_au
             _attach_wangxing_evidence(
                 result,
                 wangxing_au=wangxing_au,
                 prompt_text=parameters.get("prompt_text"),
-                driver_source=driver_source,
+                driver_source=None,
             )
         else:
             result["wangxing_au"] = {
@@ -2590,10 +2653,16 @@ def create_job(
 
 
 @app.get("/api/jobs")
-def list_jobs(request: Request, limit: int = 20) -> dict[str, Any]:
+def list_jobs(
+    request: Request,
+    limit: int = 20,
+    *,
+    ensure_worker: bool = True,
+) -> dict[str, Any]:
     if limit < 1 or limit > 100:
         raise HTTPException(status_code=422, detail="limit must be between 1 and 100.")
-    _ensure_queue_worker()
+    if ensure_worker:
+        _ensure_queue_worker()
     client_ip = _client_ip(request)
     jobs = _jobs_for_ip(_all_jobs(), client_ip)
     display_jobs = _display_jobs(jobs)
@@ -2988,34 +3057,22 @@ def evaluate(
                 detail=f"Input videos cannot be evaluated: {exc}",
             ) from exc
         if wangxing_au_enabled:
-            driver_video_path = uploaded["reference_video"] or uploaded["gt_video"]
-            driver_source = (
-                "reference_video"
-                if uploaded["reference_video"] is not None
-                else (
-                    "ground_truth"
-                    if uploaded["gt_video"] is not None
-                    else None
-                )
-            )
             wangxing_au = _run_wangxing_au_assessment(
                 result_path=result_path,
                 reference_image_paths=uploaded["reference_images"],
-                reference_video_path=driver_video_path,
                 expected_class=_normalize_wangxing_class(
                     wangxing_expected_class
                 ),
                 device=device,
                 run_dir=run_dir,
                 prompt_text=prompt or None,
-                driver_source=driver_source,
             )
             result["wangxing_au"] = wangxing_au
             _attach_wangxing_evidence(
                 result,
                 wangxing_au=wangxing_au,
                 prompt_text=prompt or None,
-                driver_source=driver_source,
+                driver_source=None,
             )
         else:
             result["wangxing_au"] = {

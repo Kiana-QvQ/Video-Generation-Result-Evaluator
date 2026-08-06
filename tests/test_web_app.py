@@ -61,6 +61,13 @@ class WebAppTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.headers.get("cache-control"), "no-store")
 
+    def test_gt_report_no_longer_mentions_crop_alignment(self) -> None:
+        response = self.client.get("/assets/app.js")
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn("人脸保护裁剪", response.text)
+        self.assertNotIn("居中裁剪对齐", response.text)
+        self.assertNotIn("face_protected_crop_gt_to_result_aspect", response.text)
+
     def test_wangxing_result_copy_is_utf8_and_not_mojibake(self) -> None:
         response = self.client.get("/assets/app.js")
         self.assertEqual(response.status_code, 200)
@@ -89,7 +96,7 @@ class WebAppTests(unittest.TestCase):
         self.assertIn("ready", payload["wangxing_au"])
         self.assertIn("evaluator_version", payload["wangxing_au"])
 
-    def test_wangxing_au_runner_passes_identity_images_and_driver_video(self) -> None:
+    def test_wangxing_au_runner_passes_identity_images_without_driver_video(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             run_dir = Path(directory) / "run"
             run_dir.mkdir()
@@ -125,9 +132,11 @@ class WebAppTests(unittest.TestCase):
             self.assertIn("--target-image", command)
             self.assertIn(str(reference_image), command)
             self.assertIn("--cache-root", command)
+            self.assertNotIn("--driver-video", command)
+            self.assertFalse(result["reference_action_used"])
             self.assertEqual(
-                command[command.index("--driver-video") + 1],
-                str(reference_video),
+                result["action_evidence_source"],
+                "wangxing_training_profile_dynamic_statistics",
             )
             self.assertEqual(
                 command[command.index("--expected-class") + 1],

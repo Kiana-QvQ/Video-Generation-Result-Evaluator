@@ -452,27 +452,11 @@ function renderEvidence(result) {
     groundTruthStatus === "used" ||
     groundTruthStatus === "uploaded_but_unusable" ||
     Boolean(result.ground_truth_video);
-  const groundTruthAlignmentMode = String(
-    textureCategory.ground_truth_alignment?.mode ?? "",
-  );
-  const groundTruthWasCenterCropped =
-    groundTruthAlignmentMode === "center_crop_gt_to_result_aspect";
-  const groundTruthWasFaceProtectedCropped =
-    groundTruthAlignmentMode === "face_protected_crop_gt_to_result_aspect";
-  const groundTruthWasCropped =
-    groundTruthWasCenterCropped || groundTruthWasFaceProtectedCropped;
   const textureReferenceDetail = fullReference
-    ? groundTruthWasCropped
-      ? groundTruthWasFaceProtectedCropped
-        ? "GT 参考 / 人脸保护裁剪对齐"
-        : "GT 参考 / 居中裁剪对齐"
-      : "GT 参考"
+    ? "GT 参考"
     : groundTruthUploaded
       ? "GT 已上传 / 未通过对齐"
       : "无 GT";
-  const textureFallbackReason =
-    textureCategory.ground_truth_fallback_reason ||
-    (Array.isArray(textureCategory.warnings) ? textureCategory.warnings[0] : "");
   const manualAesthetic = aesthetics.manual_score_0_to_1;
   const vbenchAesthetic = aesthetics.vbench_aesthetic_quality_0_to_1;
   const aestheticValue = manualAesthetic;
@@ -525,17 +509,8 @@ function renderEvidence(result) {
       },
     )
     .join("") +
-    (groundTruthUploaded && (!fullReference || groundTruthWasCropped)
-      ? `<div class="evidence-note"><strong>${
-          fullReference
-            ? groundTruthWasFaceProtectedCropped
-              ? "GT 已使用，因宽高比不同采用人脸保护裁剪对齐。"
-              : "GT 已使用，因宽高比不同采用居中裁剪对齐。"
-            : "GT 已上传，但未用于 PSNR / SSIM / LPIPS。"
-        }</strong><span>${escapeHtml(
-          textureFallbackReason ||
-            "GT 与结果视频已按共同时间区间进行比较。",
-        )}</span></div>`
+    (groundTruthUploaded && !fullReference
+      ? `<div class="evidence-note"><strong>GT 已上传，但未用于 PSNR / SSIM / LPIPS。</strong><span>GT 与结果视频已按共同时间区间进行比较。</span></div>`
       : "");
 }
 
@@ -724,13 +699,9 @@ function renderAuTemporalEvidence(au) {
   return `
     <div class="wangxing-result-temporal">
       <div class="wangxing-result-section-head">
-        <span>AU TEMPORAL EVIDENCE / 表情时间段</span>
+        <span>AU EVENT STATISTICS / 当前视频表情事件</span>
         <small>${escapeHtml(
-          `${meshEnabled ? "Face Mesh + AU 交叉验证 · " : "AU 单独分析 · "}${
-            au.driver_au
-              ? "有参考视频 · 可比较节奏"
-              : "未提供参考视频 · 仅分析生成视频"
-          }`,
+          `${meshEnabled ? "Face Mesh + AU 交叉验证 · " : "AU 单独分析 · "}只描述当前视频面部变化`,
         )}</small>
       </div>
       <div class="au-expression-summary">
@@ -764,11 +735,7 @@ function renderAuTemporalEvidence(au) {
           : '<div class="au-expression-empty">未检测到明显的表情变化。</div>'
       }
       <p class="au-presence-note">
-        ${escapeHtml(
-          au.driver_au
-            ? "已提供参考视频，可进一步比较表情变化节奏。"
-            : "未提供参考视频，以上内容只说明生成视频中什么时候出现了什么表情。",
-        )}
+        以上内容只描述当前视频自身的面部 AU 表情时段；专项动态一致性来自训练 CSV 的统计分布，不比较参考视频或某条训练视频的时间轴。
       </p>
     </div>
   `;
@@ -781,6 +748,25 @@ function renderWangxingResult(result) {
     wangxingResult.classList.add("is-hidden");
     return;
   }
+  if (payload.schema_version === "wangxing_specialization_v1") {
+    renderWangxingSpecializationResult(payload);
+    return;
+  }
+  wangxingResult.classList.remove("is-hidden");
+  wangxingResult.innerHTML = `
+    <div class="wangxing-result-head">
+      <div>
+        <span class="wangxing-result-kicker">TARGET SPECIALIZATION / WANG XING</span>
+        <h3>王兴专项需要重新运行</h3>
+      </div>
+      <span class="wangxing-result-status review">LEGACY RESULT</span>
+    </div>
+    <p class="wangxing-result-note">
+      旧版专项结果不再展示动作、训练时序或单条训练视频对齐结论。
+      请使用当前的身份门控与表情画像报告。
+    </p>
+  `;
+  return;
   if (payload.status !== "available") {
     wangxingResult.classList.remove("is-hidden");
     const notApplicable = payload.status === "not_applicable";
@@ -828,7 +814,6 @@ function renderWangxingResult(result) {
     au.expected_expression_class ??
     targeted.expected_expression_class;
   const selectedClassScore = au.class_scores?.[selectedClass] ?? {};
-  const sameAuSequence = au.same_generated_driver_au === true;
   const exactProfileMatch =
     selectedClassScore.exact_sequence_match === true;
   const exactProfileMatchSource =
@@ -838,11 +823,16 @@ function renderWangxingResult(result) {
     ? `目标：${expressionLabel(expectedClass)}`
     : `自动归类：${expressionLabel(selectedClass)}`;
   const personal = normalizeScore(targeted.evidence?.personal_au);
-  const driver = normalizeScore(targeted.evidence?.driver_expression);
-  const eventAlignment = normalizeScore(
-    targeted.evidence?.temporal_alignment ??
-      au.driver_temporal_alignment_score_0_1,
+  const facialDynamics = normalizeScore(
+    targeted.evidence?.facial_dynamics ??
+      au.facial_expression_dynamics_score_0_1,
   );
+  const eventAggregate = au.temporal_events?.aggregate ?? {};
+  const eventCount = Number(eventAggregate.event_count ?? 0);
+  const eventActiveRatio = normalizeScore(eventAggregate.active_ratio);
+  const eventStatistics = Number.isFinite(eventCount)
+    ? `${Math.max(0, Math.round(eventCount))} 次`
+    : "—";
   const leakage = normalizeScore(targeted.evidence?.leakage_risk);
   const confidence = normalizeScore(
     targeted.evidence_confidence_0_1 ??
@@ -873,14 +863,12 @@ function renderWangxingResult(result) {
   }[qualityStatus] ?? "FACE QUALITY / CHECK";
   const reasonLabels = {
     missing_personal_au: "缺少个人 AU",
-    missing_driver_expression: "缺少参考动作轨迹",
-    missing_temporal_alignment: "缺少动作时间对齐",
+    missing_facial_dynamics: "缺少面部表情动态统计",
     automatic_expression_class_unavailable: "自动表情分类不可用",
     face_quality_low: "人脸质量不足",
     evidence_quality_low: "证据质量不足",
     wangxing_au_below_threshold: "AU 画像偏离",
-    driver_expression_below_threshold: "动作轨迹偏离",
-    temporal_alignment_below_threshold: "动作时间节奏偏离",
+    facial_dynamics_below_threshold: "面部表情动态统计偏离",
     identity_leakage_risk: "身份偏离风险",
   };
   const reasons = (targeted.decision_reasons ?? [])
@@ -926,12 +914,10 @@ function renderWangxingResult(result) {
     selectedClass === "unknown"
       ? autoClassificationNote
       : "",
-    sameAuSequence
-      ? exactProfileMatch
-        ? exactProfileMatchSource === "video_hash"
-          ? "Generated and driver AU inputs are identical and match a stored profile training video."
-          : "Generated and driver AU inputs are identical and match a stored profile AU sequence."
-        : "Generated and driver AU inputs are identical; this proves reference self-consistency, not personal-profile similarity."
+    exactProfileMatch
+      ? exactProfileMatchSource === "video_hash"
+        ? "生成视频与王兴画像中的训练视频精确匹配。"
+        : "生成 AU 序列与王兴画像中的训练序列精确匹配。"
       : "",
     reasons,
     missingEvidence ? `缺少证据：${missingEvidence}` : "",
@@ -950,7 +936,7 @@ function renderWangxingResult(result) {
     <div class="wangxing-result-head">
       <div>
         <span class="wangxing-result-kicker">TARGET SPECIALIZATION / WANG XING AU</span>
-        <h3>王兴会做出的动作与表情匹配度</h3>
+        <h3>王兴面部表情画像评估</h3>
       </div>
       <span class="wangxing-result-status ${escapeHtml(decision)}">${escapeHtml(decisionLabel)}</span>
     </div>
@@ -966,11 +952,21 @@ function renderWangxingResult(result) {
       )}
     </p>
     <div class="wangxing-result-evidence">
-      <span><strong>${formatEvidence(personal)}</strong>王兴 AU 画像</span>
-      <span><strong>${formatEvidence(driver)}</strong>参考动作轨迹</span>
-      <span><strong>${formatEvidence(eventAlignment)}</strong>动作时间对齐</span>
-      <span><strong>${formatEvidence(leakage)}</strong>身份偏离风险</span>
-      <span><strong>${formatEvidence(identity)}</strong>${escapeHtml(identityText)}</span>
+      <div class="wangxing-result-evidence-group">
+        <span class="wangxing-result-evidence-label">面部表情证据 / FACIAL AU EVIDENCE</span>
+        <div class="wangxing-result-evidence-grid">
+          <span class="is-primary"><strong>${formatEvidence(personal)}</strong>王兴 AU 画像</span>
+          <span class="is-primary"><strong>${formatEvidence(facialDynamics)}</strong>面部表情动态一致性</span>
+          <span><strong>${escapeHtml(eventStatistics)}</strong>当前视频表情事件</span>
+        </div>
+      </div>
+      <div class="wangxing-result-evidence-group">
+        <span class="wangxing-result-evidence-label">身份证据 / IDENTITY EVIDENCE</span>
+        <div class="wangxing-result-evidence-grid wangxing-result-evidence-grid-identity">
+          <span><strong>${formatEvidence(leakage)}</strong>身份偏离风险</span>
+          <span><strong>${formatEvidence(identity)}</strong>${escapeHtml(identityText)}</span>
+        </div>
+      </div>
     </div>
     <div class="wangxing-result-quality">
       <div class="wangxing-result-quality-head">
@@ -981,19 +977,151 @@ function renderWangxingResult(result) {
         <span style="width: ${confidence === null ? 0 : confidence * 100}%"></span>
       </div>
       <p>
-        有效人脸帧 ${formatEvidence(validFrameRatio)}
+        有效人脸帧 ${formatEvidence(validFrameRatio)} ·
+        表情活跃帧 ${formatEvidence(eventActiveRatio)}
       </p>
     </div>
     ${renderAuTemporalEvidence(au)}
     <p class="wangxing-result-note">
       ${escapeHtml(
         decisionNote ||
-          "以王兴 AU 画像为主判据；身份图和参考视频为可选证据。",
+          "本专项只评估面部 AU 画像和面部动态统计；不推断身体动作，也不进行训练视频时间轴对齐。参考视频不参与本专项，身份参考只用于 ArcFace 证据。",
       )}
     </p>
     <div class="wangxing-result-meta">
       evaluator ${escapeHtml(au.evaluator_version ?? "unknown")} ·
       profile ${escapeHtml(au.profile_schema_version ?? "unknown")}
+    </div>
+  `;
+}
+
+function renderWangxingSpecializationResult(payload) {
+  const identity = payload.identity ?? {};
+  const expression = payload.expression_profile ?? {};
+  const identityDecision = String(identity.decision ?? "uncertain");
+  const finalDecision = String(payload.decision ?? "uncertain_identity");
+  const identityLabels = {
+    wangxing: "王兴 / WANG XING",
+    not_wangxing: "不是王兴 / NOT WANG XING",
+    uncertain: "身份不确定 / UNCERTAIN",
+  };
+  const finalLabels = {
+    wangxing_expression_compatible: "王兴，表情符合画像",
+    wangxing_expression_incompatible: "王兴，但表情偏离画像",
+    uncertain_identity: "身份证据不足，需要复核",
+    uncertain_expression: "王兴，表情证据不足",
+    not_wangxing: "不是王兴",
+  };
+  const percent = (value) => {
+    const score = normalizeScore(value);
+    return score === null ? "--" : `${(score * 100).toFixed(1)}%`;
+  };
+  const score = normalizeScore(identity.probability_0_1);
+  const negativeProbability = normalizeScore(
+    identity.negative_class_probability_0_1,
+  );
+  const compatibility = normalizeScore(expression.compatibility_0_1);
+  const consistency = normalizeScore(identity.frame_consistency);
+  const validRatio = normalizeScore(identity.valid_frame_ratio);
+  const qualityWeight = normalizeScore(identity.quality_weight_mean);
+  const identityStatus =
+    identityDecision === "wangxing"
+      ? "allow"
+      : identityDecision === "not_wangxing"
+        ? "block"
+        : "review";
+  const topProfiles = Array.isArray(expression.top_profiles)
+    ? expression.top_profiles
+    : [];
+  const events = expression.event_statistics ?? {};
+  const reasons = [
+    ...(identity.uncertainty_reasons ?? []),
+    ...(expression.uncertainty_reasons ?? []),
+  ].filter((value, index, values) => values.indexOf(value) === index);
+  const reasonText = reasons.length
+    ? reasons.join(" / ")
+    : "身份与表情画像证据均通过当前阈值";
+  const expressionText =
+    identityDecision === "wangxing"
+      ? finalLabels[finalDecision] ?? finalDecision
+      : finalLabels[finalDecision] ?? identityLabels[identityDecision];
+
+  wangxingResult.classList.remove("is-hidden");
+  wangxingResult.innerHTML = `
+    <div class="wangxing-result-head">
+      <div>
+        <span class="wangxing-result-kicker">TARGET SPECIALIZATION / WANG XING</span>
+        <h3>王兴身份与面部表情画像</h3>
+      </div>
+      <span class="wangxing-result-status ${escapeHtml(identityStatus)}">
+        ${escapeHtml(identityLabels[identityDecision] ?? "UNCERTAIN")}
+      </span>
+    </div>
+    <div class="wangxing-result-score">
+      <strong>${escapeHtml(expressionText)}</strong>
+      <span>串联判断 / IDENTITY → EXPRESSION</span>
+    </div>
+    <div class="wangxing-result-evidence">
+      <div class="wangxing-result-evidence-group">
+        <span class="wangxing-result-evidence-label">人物身份 / IDENTITY</span>
+        <div class="wangxing-result-evidence-grid wangxing-result-evidence-grid-identity">
+          <span class="is-primary"><strong>${escapeHtml(percent(score))}</strong>王兴身份概率</span>
+          <span><strong>${escapeHtml(percent(negativeProbability))}</strong>负样本分类概率</span>
+          <span><strong>${escapeHtml(percent(consistency))}</strong>人脸帧一致性</span>
+          <span><strong>${escapeHtml(percent(validRatio))}</strong>有效人脸帧</span>
+          <span><strong>${escapeHtml(percent(qualityWeight))}</strong>平均帧质量权重</span>
+          <span><strong>${escapeHtml(String(identity.valid_frame_count ?? "--"))}</strong>有效帧数</span>
+        </div>
+      </div>
+      <div class="wangxing-result-evidence-group">
+        <span class="wangxing-result-evidence-label">表情画像 / EXPRESSION SUPPORT DOMAIN</span>
+        <div class="wangxing-result-evidence-grid">
+          <span class="is-primary"><strong>${escapeHtml(percent(compatibility))}</strong>画像符合度</span>
+          <span><strong>${escapeHtml(expression.selected_profile_display_name ?? "--")}</strong>最接近画像</span>
+          <span><strong>${escapeHtml(percent(expression.margin_0_1))}</strong>前二画像间隔</span>
+          <span><strong>${expression.severe_deviation ? "是" : "否"}</strong>严重偏离</span>
+        </div>
+      </div>
+    </div>
+    ${
+      topProfiles.length
+        ? `<div class="wangxing-result-note">
+            最接近的两个画像：
+            ${topProfiles
+              .map(
+                (profile, index) =>
+                  `${index + 1}. ${escapeHtml(
+                    profile.display_name ?? profile.class ?? "--",
+                  )} ${escapeHtml(percent(profile.score_0_1))}`,
+              )
+              .join(" / ")}
+          </div>`
+        : ""
+    }
+    <div class="wangxing-result-quality">
+      <div class="wangxing-result-quality-head">
+        <span>当前视频表情事件</span>
+        <strong>${escapeHtml(String(events.event_count ?? "--"))} 次</strong>
+      </div>
+      <div class="wangxing-result-quality-track">
+        <span style="width: ${Math.max(
+          0,
+          Math.min(100, Number(events.active_ratio ?? 0) * 100),
+        )}%"></span>
+      </div>
+      <p>
+        激活比例 ${escapeHtml(percent(events.active_ratio))} /
+        最长事件 ${escapeHtml(percent(events.longest_event_ratio))} /
+        峰值 ${escapeHtml(String(events.peak_intensity ?? "--"))}
+      </p>
+    </div>
+    <p class="wangxing-result-note">
+      ${escapeHtml(reasonText)}
+    </p>
+    <div class="wangxing-result-meta">
+      evaluator ${escapeHtml(payload.evaluator_version ?? "unknown")} /
+      identity ${escapeHtml(identity.backend ?? "unknown")} /
+      expression ${escapeHtml(expression.selected_profile ?? "not evaluated")}
     </div>
   `;
 }
@@ -1169,7 +1297,7 @@ const queueStageLabels = {
   preparing: ["upload", "准备输入文件"],
   sampling: ["sample", "抽取关键帧"],
   models: ["models", "运行本地模型"],
-  wangxing_au: ["models", "王兴 AU 特化动作评估"],
+  wangxing_au: ["models", "王兴面部表情画像评估"],
   report: ["report", "整理评估报告"],
   completed: ["report", "评估完成"],
   failed: ["report", "评估失败"],
