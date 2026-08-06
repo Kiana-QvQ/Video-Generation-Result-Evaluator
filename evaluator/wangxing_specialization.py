@@ -1104,8 +1104,8 @@ def _identity_calibration_metrics(
             "roc_auc": None,
             "pr_auc": None,
             "eer": None,
-            "fpr_at_1pct_recall": None,
-            "fpr_at_5pct_recall": None,
+            "recall_at_1pct_fpr": None,
+            "recall_at_5pct_fpr": None,
         }
 
     order = np.argsort(-values, kind="mergesort")
@@ -1128,16 +1128,16 @@ def _identity_calibration_metrics(
     eer_index = int(np.argmin(np.abs(fpr - fnr)))
     eer = float((fpr[eer_index] + fnr[eer_index]) / 2.0)
 
-    def fpr_at_recall(target_recall: float) -> float:
-        valid = fpr[recall >= target_recall]
-        return float(np.min(valid)) if valid.size else 1.0
+    def recall_at_fpr(target_fpr: float) -> float:
+        valid = recall[fpr <= target_fpr]
+        return float(np.max(valid)) if valid.size else 0.0
 
     return {
         "roc_auc": roc_auc,
         "pr_auc": pr_auc,
         "eer": eer,
-        "fpr_at_1pct_recall": fpr_at_recall(0.01),
-        "fpr_at_5pct_recall": fpr_at_recall(0.05),
+        "recall_at_1pct_fpr": recall_at_fpr(0.01),
+        "recall_at_5pct_fpr": recall_at_fpr(0.05),
     }
 
 
