@@ -28,7 +28,7 @@ FULL_DATASET_CLASS_PREFIXES = {
     "fennu": "anger",
     "jingya": "surprise",
     "kongju": "fear",
-    "shengqi": "annoyance",
+    "shengqi": "anger",
     "beishang": "sadness",
     "yanwu": "disgust",
 }

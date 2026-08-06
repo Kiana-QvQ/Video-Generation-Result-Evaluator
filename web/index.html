@@ -229,15 +229,15 @@
                 <div class="wangxing-au-card-head">
                   <div>
                     <p class="eyebrow">03 / TARGET SPECIALIZATION</p>
-                    <h3 id="wangxing-au-title">王兴特化动作评估</h3>
+                    <h3 id="wangxing-au-title">王兴身份与面部表情画像</h3>
                   </div>
                   <span id="wangxing-au-readiness" class="au-readiness">CHECKING</span>
                 </div>
                 <label class="au-toggle">
                   <input name="wangxing_au_enabled" type="checkbox" />
                   <span class="au-toggle-copy">
-                    <strong>启用 Wang Xing 专项 AU</strong>
-                    <small>仅在测试王兴目标人物时启用；普通生成内容测评请保持关闭</small>
+                    <strong>启用王兴专项</strong>
+                    <small>先判断人物身份，再判断面部表情是否符合王兴画像。</small>
                   </span>
                   <span class="toggle-switch" aria-hidden="true"></span>
                 </label>
@@ -245,28 +245,27 @@
                   <label class="field">
                     <span class="field-label">
                       <span>EXPECTED EXPRESSION</span>
-                      <small>可选</small>
+                      <small>可选画像提示</small>
                     </span>
                     <select name="wangxing_expected_class">
                       <option value="auto" selected>自动判定</option>
                       <option value="smile">微笑 / smile</option>
-                      <option value="anger">爆发式愤怒 / anger</option>
+                      <option value="anger">愤怒 / anger</option>
                       <option value="surprise">惊讶 / surprise</option>
                       <option value="fear">恐惧 / fear</option>
-                      <option value="annoyance">压抑式生气 / annoyance</option>
                       <option value="sadness">悲伤 / sadness</option>
                       <option value="disgust">厌恶 / disgust</option>
                     </select>
                   </label>
                   <div class="au-driver-note">
-                    <span class="au-mini-label">OPTIONAL DRIVER</span>
-                    <strong>参考视频可直接复用</strong>
-                    <small>上传参考视频后，会额外比较 AU 时间轨迹。</small>
+                    <span class="au-mini-label">REFERENCE VIDEO OPTIONAL</span>
+                    <strong>本专项不需要参考动作视频</strong>
+                    <small>专项使用真实王兴表情支持域；参考视频仍只属于普通评估链路。</small>
                   </div>
                 </div>
                 <p class="au-card-note">
                   <span class="note-pin"></span>
-                  只在检测到清晰人脸时输出 AU；结果会保存到本次任务报告。
+                  只有身份跟踪可用时才输出专项结论；结果会保存到本次任务报告。
                 </p>
               </section>
 

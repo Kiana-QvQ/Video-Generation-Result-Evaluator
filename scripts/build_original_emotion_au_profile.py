@@ -36,7 +36,7 @@ ORIGINAL_CLASS_PREFIXES = {
     "fennu": "anger",
     "jingya": "surprise",
     "kongju": "fear",
-    "shengqi": "annoyance",
+    "shengqi": "anger",
     "beishang": "sadness",
     "yanwu": "disgust",
 }
@@ -63,6 +63,14 @@ def main(argv: list[str] | None = None) -> int:
         default="data/au/original_emotion_au_profile.json",
     )
     parser.add_argument("--video-root", default="data/MD_CL")
+    parser.add_argument(
+        "--csv-only",
+        action="store_true",
+        help=(
+            "Use the existing AU CSV files without checking or extracting "
+            "source videos."
+        ),
+    )
     parser.add_argument("--min-samples-per-class", type=int, default=3)
     parser.add_argument("--min-output-rows", type=int, default=DEFAULT_MIN_AU_ROWS)
     parser.add_argument(
@@ -95,9 +103,13 @@ def main(argv: list[str] | None = None) -> int:
     quality_filtered_file_count = 0
     quality_dropped_frame_count = 0
     quality_source_file_counts: Counter[str] = Counter()
-    if not video_root.is_dir() and not args.allow_incomplete:
+    if (
+        not args.csv_only
+        and not video_root.is_dir()
+        and not args.allow_incomplete
+    ):
         raise SystemExit(f"Original video root was not found: {video_root}")
-    if video_root.is_dir():
+    if not args.csv_only and video_root.is_dir():
         for video_path in sorted(video_root.rglob("*.mp4")):
             if _class_from_path(video_path) is None:
                 continue
@@ -173,16 +185,22 @@ def main(argv: list[str] | None = None) -> int:
                     presence = presence[quality_mask]
                 quality_filtered_file_count += 1
                 quality_dropped_frame_count += dropped
+            relative = path.relative_to(au_root)
+            source_video = video_root / relative.with_suffix(".mp4")
             labeled_sequences.append((expression_class, sequence))
             metadata: dict[str, object] = {
                 "source_id": relative.as_posix(),
-                "source_path": str(video_path),
-                "au_path": str(au_path),
-                "au_sha256": sha256_file(au_path),
+                "source_path": (
+                    str(source_video)
+                    if source_video.is_file()
+                    else relative.with_suffix(".mp4").as_posix()
+                ),
+                "au_path": str(path),
+                "au_sha256": sha256_file(path),
             }
-            if video_path.is_file():
-                metadata["video_path"] = str(video_path)
-                metadata["video_sha256"] = sha256_file(video_path)
+            if source_video.is_file():
+                metadata["video_path"] = str(source_video)
+                metadata["video_sha256"] = sha256_file(source_video)
             sample_metadata.append(metadata)
             if presence is not None and presence_supported:
                 presence_sequences.append((expression_class, presence))

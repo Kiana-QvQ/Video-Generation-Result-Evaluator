@@ -461,6 +461,61 @@ class AUComplianceTests(unittest.TestCase):
         self.assertGreater(result["personal_au_score_0_1"], 0.5)
         self.assertEqual(payload["schema_version"], AU_PROFILE_SCHEMA)
 
+    def test_profile_facial_dynamics_uses_profile_statistics_without_driver(
+        self,
+    ) -> None:
+        base = np.asarray(
+            [
+                [0, 0, 1, 1, 0, 0],
+                [0.1, 0, 0.9, 0.8, 0, 0.2],
+                [0.2, 0, 0.8, 0.7, 0, 0.3],
+            ],
+            dtype=np.float32,
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            profile_path = root / "profile.json"
+            training_path = root / "training.csv"
+            generated_path = root / "generated.csv"
+            _write_au_csv(training_path, base)
+            _write_au_csv(generated_path, base * 0.98)
+            fit_au_profile(
+                [("smile", base)],
+                profile_path,
+                sample_metadata=[
+                    {
+                        "source_id": "training",
+                        "au_path": str(training_path),
+                    }
+                ],
+            )
+
+            result = score_au_compliance(
+                profile_path,
+                generated_path,
+                expected_class="smile",
+            )
+
+        self.assertEqual(
+            result["wangxing_facial_dynamics_evidence"]["source"],
+            "wangxing_training_profile_dynamic_statistics",
+        )
+        self.assertIsNotNone(
+            result["facial_expression_dynamics_score_0_1"]
+        )
+        self.assertEqual(
+            result["wangxing_action_compliance_score_0_1"],
+            None,
+        )
+        self.assertEqual(
+            result["wangxing_temporal_alignment_score_0_1"],
+            None,
+        )
+        self.assertTrue(
+            result["wangxing_facial_dynamics_evidence"]["uses_reference_video"]
+            is False
+        )
+
     def test_exact_training_sequence_uses_profile_control(self) -> None:
         base = np.asarray(
             [[0, 0, 1, 1, 0, 0], [0.1, 0, 0.9, 0.8, 0, 0.2]],
@@ -750,7 +805,7 @@ class AUComplianceTests(unittest.TestCase):
         self.assertEqual(result["decision"], "review")
         self.assertIn("driver_identity_leakage", result["decision_reasons"])
 
-    def test_wangxing_targeted_fit_reviews_missing_driver_evidence(self) -> None:
+    def test_wangxing_targeted_fit_reviews_missing_dynamic_evidence(self) -> None:
         result = fuse_wangxing_targeted_scores(
             personal_au_score_0_1=0.8,
             driver_expression_score_0_1=None,
@@ -758,9 +813,8 @@ class AUComplianceTests(unittest.TestCase):
         )
         self.assertEqual(result["decision"], "review")
         self.assertEqual(result["status"], "partial")
-        self.assertIn("driver_expression", result["missing_evidence"])
-        self.assertIn("temporal_alignment", result["missing_evidence"])
-        self.assertAlmostEqual(result["score_weight_coverage"], 0.4)
+        self.assertIn("facial_dynamics", result["missing_evidence"])
+        self.assertAlmostEqual(result["score_weight_coverage"], 0.7)
         self.assertAlmostEqual(
             result["wangxing_expression_fit_score_0_1"],
             0.8,

@@ -452,7 +452,11 @@ class FrameAuditService(pb2_grpc.FrameAuditServicer):
         try:
             limit = request.limit or 20
             return _json_response(
-                web_app.list_jobs(_request_for(context), limit=limit)
+                web_app.list_jobs(
+                    _request_for(context),
+                    limit=limit,
+                    ensure_worker=False,
+                )
             )
         except Exception as exc:
             _abort(context, exc)

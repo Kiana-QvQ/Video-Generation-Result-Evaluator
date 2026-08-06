@@ -14,10 +14,10 @@ from evaluator.expression_dataset import (
 
 
 class ExpressionDatasetTests(unittest.TestCase):
-    def test_emotion_mapping_keeps_anger_and_annoyance_separate(self) -> None:
+    def test_emotion_mapping_includes_shengqi_in_anger(self) -> None:
         self.assertEqual(classify_performance("Xiao"), "smile")
         self.assertEqual(classify_performance("FenNu"), "anger")
-        self.assertEqual(classify_performance("ShengQi"), "annoyance")
+        self.assertEqual(classify_performance("ShengQi"), "anger")
         self.assertEqual(classify_performance("BeiShang2"), "sadness")
 
     def test_support_performances_are_not_emotions(self) -> None:

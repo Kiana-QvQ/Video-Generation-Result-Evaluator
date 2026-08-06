@@ -85,7 +85,7 @@ The evaluator keeps two separate profiles:
 
 Extract original AU CSV files into `data\au\MD_CL` first. The directory name is
 used as the class label: `CL_kaixin` -> `smile`, `CL_fennu` -> `anger`,
-`CL_jingya` -> `surprise`, `CL_kongju` -> `fear`, `CL_shengqi` -> `annoyance`,
+`CL_jingya` -> `surprise`, `CL_kongju` -> `fear`, `CL_shengqi*` -> `anger`,
 and `CL_beishang` -> `sadness`.
 `CL_yanwu` -> `disgust`.
 
@@ -105,14 +105,15 @@ at least two emotion classes and three labeled files per class. This prevents a
 partial dataset from producing a confident but misleading class such as
 `annoyance`.
 
-The profile uses the seven canonical emotion classes:
+The rebuilt profile uses six active emotion classes:
 
 ```text
-smile, anger, surprise, fear, annoyance, sadness, disgust
+smile, anger, surprise, fear, sadness, disgust
 ```
 
-`anger` is `FenNu` and means explosive anger. `annoyance` is `ShengQi`
-and means suppressed displeasure. They are not merged.
+`anger` includes both `FenNu` and `ShengQi` source directories. The legacy
+`annoyance` label remains accepted as a compatibility alias for `anger`, but
+new profile builds do not create a separate `annoyance` class.
 
 The trained feature contract keeps LibreFace tasks separate:
 
@@ -135,10 +136,26 @@ are never silently interpreted as zero activation.
 ```
 
 The Wang Xing personal profile uses the complete Wang Xing emotion AU set,
-not the smaller 85-record expression-reference manifest. The current full
-profile contains 645 samples across seven supported Wang Xing classes:
-anger, annoyance, disgust, fear, sadness, smile, and surprise.
+not the smaller 85-record expression-reference manifest. The current rebuilt
+profile contains 645 samples across six active Wang Xing classes:
+anger, disgust, fear, sadness, smile, and surprise. The legacy `annoyance`
+input remains a compatibility alias for `anger`.
 `CL_yanwu*` maps to `disgust` (厌恶).
+
+Validate the rebuilt CSV-only classifiers without using reference images,
+reference videos, or GT videos:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\validate_au_models.py `
+    --au-root data\au\MD_CL `
+    --negative-root data\au\negative `
+    --output outputs\au_validation\au_validation_report.json `
+    --leakage-output data\au\au_leakage_classifier.json
+```
+
+The report uses source-directory holdout splits and includes accuracy,
+balanced accuracy, precision, recall, macro-F1, one-vs-rest AUC, confusion
+matrices, leakage-threshold calibration, and misclassified CSV paths.
 
 ## 3. Optional leakage classifier
 
@@ -222,6 +239,15 @@ The training command then:
 RAVDESS is a cross-identity real-expression negative set. It should not be
 interpreted as a ground-truth expression set for Wang Xing.
 
+For the formal rebuild when AU CSV files already exist, use the CSV-only
+entry point below. It rebuilds the Wang Xing profile, original emotion
+profile, and leakage classifier without extracting videos or downloading
+any data:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\retrain_au_from_csv.py
+```
+
 ## 3.2 One-click licensed Synthesized MetaHuman negative-data pipeline
 
 The Synthesized MetaHuman dataset is access-controlled. Complete its
@@ -287,12 +313,12 @@ The output contains:
 - ArcFace identity preservation;
 - AU personal-pattern compliance;
 - Intensity and Presence AU coverage as separate evidence;
-- AU DTW driver-expression preservation;
-- constrained AU DTW plus first-order velocity similarity;
+- Wang Xing facial-expression dynamics consistency against class-level
+  statistics fitted from the existing training CSV files;
 - AU time curves for generated and optional driver sequences;
 - event-level AU records with start/end frame, duration, peak frame, and peak
   intensity;
-- driver temporal-event alignment;
+- current-video facial-expression event statistics;
 - face-quality gate status and usable-frame ratio;
 - driver identity leakage risk;
 - combined person-likeness score;
@@ -300,23 +326,32 @@ The output contains:
 
 ## 4.2 Profile provenance and self-pair controls
 
-The profile builder stores one compact summary prototype per training AU
-sequence, together with the AU file hash, training video hash, and source
-identifier. New profiles also include a provenance block with the manifest
-hash and profile format version.
+The profile builder reads the existing AU CSV files directly. It stores one
+compact summary prototype per training AU sequence, class distributions, and
+facial-dynamics distributions (activation ratio, event rate, duration ratios,
+and peak intensity), together with the AU file hash and source identifier.
+New profiles also include a provenance block and profile format version.
 
 The evaluator reports these controls separately:
 
-- `same_generated_driver_au` means the generated and driver AU files are
-  byte-identical. This validates reference self-consistency only.
+- Web Wang Xing specialization does not read `reference_video` or GT as an
+  action driver. Its facial-dynamics evidence compares the generated AU CSV
+  with class-level statistics fitted from the existing Wang Xing training
+  CSVs.
+- Legacy `driver_au` fields remain readable for older standalone reports, but
+  they are not used by the web specialization fusion. They remain available
+  only for ordinary reference-video comparisons.
 - `exact_sequence_match` means either the generated AU hash or the generated
   video hash matches a stored training prototype for the selected class. The
   report exposes `exact_sequence_match_source` as `au_hash` or `video_hash`.
   This is the only case that activates the exact training-sequence control and
   can produce a near-100 personal AU score.
-- `sequence_prototype_score_0_1` is an auxiliary nearest-training-sequence
-  score. It does not silently replace the statistical class score for
-  non-exact samples.
+- `sequence_prototype_score_0_1` is an auxiliary legacy control. It is not
+  used as a Wang Xing action or temporal score.
+- `facial_expression_dynamics_score_0_1` is a class-distribution score over
+  AU activation ratio, event rate, event duration ratios, and peak intensity.
+  It does not compare event order, onset position, or duration against a
+  particular training video.
 
 Rebuild the Wang Xing profile after changing the training dataset:
 
@@ -352,19 +387,21 @@ Wang Xing. When it is disabled, the report marks this section
 `not_applicable` and the five general evaluation categories continue normally.
 
 The general fusion currently records the implemented weights explicitly:
-identity 40%, personal AU 40%, and driver expression 20%. Missing components
-are renormalized over the available evidence. The Wang Xing-targeted score is
-an arithmetic mean of available personal-AU, driver-expression, and temporal
-alignment evidence; it has no fixed identity weight. These weights are
-implementation defaults and should be calibrated on a held-out validation set.
+identity 40%, personal AU 40%, and facial-dynamics statistics 20%. Missing
+components are renormalized over the available evidence. The Wang
+Xing-targeted score uses personal AU 70% and facial-dynamics statistics 30%;
+identity evidence remains a separate review signal. These weights are
+implementation defaults and should be calibrated on a held-out validation
+set.
 
 The current automatic mode also reports an `evidence_quality_status`,
 `evidence_confidence_0_1`, and `evaluation_meta.evaluator_version`. A low
 face-quality or low usable-frame ratio forces the targeted decision to
 `review` instead of silently treating the AU score as reliable. These
 decisions are deterministic model evidence and should not be interpreted as
-human ground truth. AU dynamics are an individualized behavioral prior and
-evidence of pattern drift; they are not, by themselves, an identity verdict.
+human ground truth. AU dynamics are an individualized facial-expression
+prior and evidence of pattern drift; they are not body-action recognition,
+training-time alignment, or an identity verdict.
 The AU report is score-and-review-only: a low AU score or high leakage risk is
 reported as evidence and may produce `review`, but it does not block uploads
 or generic evaluation. The reasons and thresholds remain in the JSON report.
@@ -382,9 +419,10 @@ sequence:
 
 - Personal AU and identity evidence use only frames passing the face-quality
   mask.
-- AU event timing keeps the original frame indices and full clip duration,
+- AU event statistics keep the original frame indices and full clip duration,
   marking low-quality frames as invalid instead of concatenating the valid
-  frames.
+  frames. These statistics describe the generated clip itself; they are not
+  compared with a training-video timeline.
 
 The main evaluator's temporal-stability category remains independent from the
 Wang Xing AU path and reads the original result video. Do not replace the
