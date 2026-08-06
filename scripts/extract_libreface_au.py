@@ -18,6 +18,11 @@ from evaluator.au_dataset import (  # noqa: E402
     DEFAULT_MIN_FRAME_COVERAGE,
     validate_au_csv,
 )
+from evaluator.subst import (  # noqa: E402
+    cleanup_project_subst_mappings,
+    list_subst_mappings,
+    remove_subst_drive,
+)
 MPL_CONFIG_DIR = PROJECT_ROOT / ".tmp" / "matplotlib"
 MPL_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
 os.environ.setdefault("MPLCONFIGDIR", str(MPL_CONFIG_DIR))
@@ -146,17 +151,9 @@ def _find_executable(runtime_python: Path | None = None) -> str:
 def _free_subst_drive() -> str | None:
     if os.name != "nt":
         return None
-    result = subprocess.run(
-        ["subst"],
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        check=False,
-    )
-    occupied = result.stdout.upper()
+    occupied = {drive for drive, _ in list_subst_mappings()}
     for letter in "RSTUVWXYZ":
-        if f"{letter}:\\" not in occupied:
+        if letter not in occupied:
             return f"{letter}:"
     return None
 
@@ -182,6 +179,8 @@ def _run_libreface(
         staged_input = temporary_root / f"input{video_path.suffix.lower()}"
         staged_output = temporary_root / "output.csv"
         shutil.copy2(video_path, staged_input)
+        # Recover mappings left behind by a prior forced process termination.
+        cleanup_project_subst_mappings(PROJECT_ROOT)
         drive = _free_subst_drive()
         mapped = False
         if drive is not None:
@@ -317,11 +316,7 @@ def _run_libreface(
             shutil.copy2(staged_output, output_path)
         finally:
             if mapped and drive is not None:
-                subprocess.run(
-                    ["subst", drive, "/D"],
-                    capture_output=True,
-                    check=False,
-                )
+                remove_subst_drive(drive)
 
 
 def main() -> int:
