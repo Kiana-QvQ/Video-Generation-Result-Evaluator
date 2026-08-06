@@ -40,6 +40,7 @@ from evaluator.evaluation_lock import serialized_evaluation
 from evaluator.hardware_policy import resolve_policy
 from evaluator.media import concatenate_videos, transcode_video_for_browser
 from evaluator.runtime import OUTPUT_DIR, PROJECT_ROOT
+from evaluator.subst import cleanup_project_subst_mappings
 from evaluator.video_metrics import is_video_path, probe_video
 
 
@@ -158,12 +159,14 @@ class JobUpdate(BaseModel):
 @asynccontextmanager
 async def app_lifespan(_: FastAPI):
     global JOB_WORKER
+    cleanup_project_subst_mappings(PROJECT_ROOT)
     _ensure_queue_worker()
     try:
         yield
     finally:
         JOB_WORKER_STOP.set()
         _terminate_all_job_processes()
+        cleanup_project_subst_mappings(PROJECT_ROOT)
         with JOB_LOCK:
             worker = JOB_WORKER
         if worker is not None and worker.is_alive():
@@ -2264,12 +2267,12 @@ def _process_job(job_id: str) -> None:
 def _terminate_job_process(job_id: str) -> None:
     with JOB_LOCK:
         process = JOB_PROCESSES.get(job_id)
-    if process is None:
-        raise HTTPException(
-            status_code=409,
-            detail="评估进程尚未准备好，稍后再试。",
-        )
     try:
+        if process is None:
+            raise HTTPException(
+                status_code=409,
+                detail="评估进程尚未准备好，稍后再试。",
+            )
         if process.is_alive():
             if os.name == "nt" and getattr(process, "pid", None):
                 # The evaluator can launch ffmpeg, VBench, or Docker children.
@@ -2291,11 +2294,16 @@ def _terminate_job_process(job_id: str) -> None:
         if process.is_alive():
             process.kill()
             process.join(timeout=JOB_PROCESS_JOIN_TIMEOUT_SECONDS)
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(
             status_code=409,
             detail=f"无法中断评估进程: {type(exc).__name__}: {exc}",
         ) from exc
+    finally:
+        # taskkill /T /F can bypass the child's Python finally block.
+        cleanup_project_subst_mappings(PROJECT_ROOT)
 
 
 def _terminate_all_job_processes() -> None:
