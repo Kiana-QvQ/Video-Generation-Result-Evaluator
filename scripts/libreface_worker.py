@@ -186,15 +186,54 @@ def _get_aligned_video_frames_with_fallback(
     headpose_list: list[dict[str, object]] = []
     landmark_list: list[dict[str, float]] = []
     indexes_to_drop: list[int] = []
+
+    def recover_with_fallback(
+        image_path: str,
+        frame_index: int,
+    ) -> tuple[str, dict[str, object], dict[str, float]] | None:
+        if fallback is None:
+            return None
+        recovered = fallback.align(
+            image_path,
+            frame_index=frame_index,
+        )
+        if recovered is None:
+            return None
+        fallback_path, fallback_headpose, fallback_landmarks = recovered
+        if fallback_landmarks:
+            return fallback_path, fallback_headpose, fallback_landmarks
+
+        # InsightFace supplies a stable crop, while MediaPipe is better at
+        # producing the dense landmarks used by the forensic motion branch.
+        # Retry only the difficult frame instead of replacing the fast path.
+        try:
+            retry_path, retry_headpose, retry_landmarks = get_aligned_image(
+                fallback_path,
+                temp_dir=os.path.join(temp_dir, "fallback_mediapipe"),
+            )
+        except Exception:
+            return fallback_path, fallback_headpose, {}
+        if not retry_landmarks:
+            return fallback_path, fallback_headpose, {}
+        return (
+            retry_path,
+            {
+                **fallback_headpose,
+                **retry_headpose,
+                "face_alignment_method": "insightface_bbox_mediapipe",
+            },
+            retry_landmarks,
+        )
+
     for index, row in tqdm(
         frames_df.iterrows(),
         desc="Aligning face for video frames...",
     ):
         image_path = str(row["path_to_frame"])
         if face_fallback_first and fallback is not None:
-            recovered = fallback.align(
+            recovered = recover_with_fallback(
                 image_path,
-                frame_index=int(row["frame_idx"]),
+                int(row["frame_idx"]),
             )
             if recovered is not None:
                 aligned_image_path, headpose, landmarks = recovered
@@ -220,9 +259,9 @@ def _get_aligned_video_frames_with_fallback(
             if fallback is None:
                 indexes_to_drop.append(index)
                 continue
-            recovered = fallback.align(
+            recovered = recover_with_fallback(
                 image_path,
-                frame_index=int(row["frame_idx"]),
+                int(row["frame_idx"]),
             )
             if recovered is None:
                 print(
