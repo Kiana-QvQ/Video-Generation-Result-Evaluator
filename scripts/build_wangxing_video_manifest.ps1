@@ -11,6 +11,15 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+$coreRecordProperties = @(
+    'record_id', 'source_type', 'generator', 'subject', 'subject_status',
+    'capture_date', 'top_level', 'emotion_pinyin', 'emotion_class',
+    'source_folder', 'semantic_label', 'action_labels', 'device_labels',
+    'modality', 'quality_status',
+    'variant_type', 'needs_review', 'duplicate_key', 'size_bytes',
+    'file_name', 'relative_path', 'full_path', 'duplicate_count'
+)
+
 function Join-Labels {
     param([System.Collections.Generic.List[string]]$Values)
 
@@ -137,6 +146,16 @@ function Get-ActionLabels {
             Name = 'Speech'
         },
         [PSCustomObject]@{
+            Pattern = '(?i)(^|[^a-z0-9])shengyin(?=$|[^a-z0-9])'
+            Label = 'speech_audio'
+            Name = 'ShengYin'
+        },
+        [PSCustomObject]@{
+            Pattern = '(?i)(^|[^a-z0-9])wenshengshipin(?=$|[^a-z0-9])'
+            Label = 'text_to_video'
+            Name = 'WenShengShiPin'
+        },
+        [PSCustomObject]@{
             Pattern = '(?i)(^|[^a-z0-9])biaoyan\d*(?=$|[^a-z0-9])'
             Label = 'performance'
             Name = 'BiaoYan'
@@ -211,32 +230,58 @@ function Get-SubjectInfo {
     }
 
     $subjects = @(
-        @{ Pattern = '(?i)(^|[^a-z0-9])liyou(?=$|[^a-z0-9])'; Name = 'LiYou' },
         @{ Pattern = '(?i)(^|[^a-z0-9])qianliuying(?=$|[^a-z0-9])'; Name = 'QianLiuYing' },
         @{ Pattern = '(?i)(^|[^a-z0-9])qingkangzhi(?=$|[^a-z0-9])'; Name = 'QingKangZhi' },
         @{ Pattern = '(?i)(^|[^a-z0-9])suntengfei(?=$|[^a-z0-9])'; Name = 'SunTengFei' },
         @{ Pattern = '(?i)(^|[^a-z0-9])tianjiudata(?=$|[^a-z0-9])'; Name = 'TianJiuData' },
-        @{ Pattern = '(?i)(^|[^a-z0-9])xuhuan(?=$|[^a-z0-9])'; Name = 'XuHuan' }
+        @{ Pattern = '(?i)(^|[^a-z0-9])xuhuan(?=$|[^a-z0-9])'; Name = 'XuHuan' },
+        @{ Pattern = '(?i)(^|[^a-z0-9])xiaoxiao(?=$|[^a-z0-9])'; Name = 'XiaoXiao' },
+        @{ Pattern = '(?i)(^|[^a-z0-9])xiaoyue1(?=$|[^a-z0-9])'; Name = 'XiaoYue1' },
+        @{ Pattern = '(?i)(^|[^a-z0-9])xiaoyue2(?=$|[^a-z0-9])'; Name = 'XiaoYue2' },
+        @{ Pattern = '(?i)(^|[^a-z0-9])zhouzhicheng(?=$|[^a-z0-9])'; Name = 'ZhouZhicheng' }
     )
     foreach ($subject in $subjects) {
         if ($Text -match $subject.Pattern) {
             return [PSCustomObject]@{
                 Subject = $subject.Name
-                Status = 'not_wangxing'
+                Status = 'other_named'
             }
         }
     }
 
-    if ($TopLevel -eq '2026_07_10') {
-        return [PSCustomObject]@{
-            Subject = 'unknown'
-            Status = 'not_wangxing'
+    return [PSCustomObject]@{
+        Subject = 'WangXing'
+        Status = 'wangxing'
+    }
+}
+
+function Get-ExclusionInfo {
+    param([string]$RelativePath)
+
+    $rules = @(
+        @{ Pattern = '(?i)^2026_07_09/Canon_Video2_grid45_9x5\.mp4$'; Reason = 'sample_025' },
+        @{ Pattern = '(?i)^2026_07_09/Canon_Video2/'; Reason = 'sample_026_folder' },
+        @{ Pattern = '(?i)^2026_07_09/Canon_Video3/'; Reason = 'sample_027_folder' },
+        @{ Pattern = '(?i)^2026_07_13/5335/'; Reason = 'sample_029_folder' },
+        @{ Pattern = '(?i)^2026_07_15/Canon/Background/'; Reason = 'sample_031_folder' },
+        @{ Pattern = '(?i)^2026_07_10/Canon_OLAT1/'; Reason = 'not_wangxing_2026_07_10_olat1' },
+        @{ Pattern = '(?i)^2026_07_10/Canon_OLAT2/'; Reason = 'not_wangxing_2026_07_10_olat2' },
+        @{ Pattern = '(?i)^2026_07_10/Canon_OLAT3/'; Reason = 'not_wangxing_2026_07_10_olat3' },
+        @{ Pattern = '(?i)^2026_07_30/Video/Canon2/Marker/'; Reason = 'sample_124_folder' },
+        @{ Pattern = '(?i)^2026_07_30/Video/MD/Marker/'; Reason = 'sample_126_folder' },
+        @{ Pattern = '(?i)^2026_08_04/Data/MD/BeiJing/BeiJing/'; Reason = 'sample_158_folder' }
+    )
+    foreach ($rule in $rules) {
+        if ($RelativePath -match $rule.Pattern) {
+            return [PSCustomObject]@{
+                Excluded = 'yes'
+                Reason = $rule.Reason
+            }
         }
     }
-
     return [PSCustomObject]@{
-        Subject = 'unknown'
-        Status = 'unknown'
+        Excluded = 'no'
+        Reason = ''
     }
 }
 
@@ -378,7 +423,9 @@ function Export-RecordsCsv {
         return
     }
 
-    $Rows | Export-Csv -LiteralPath $Path -NoTypeInformation -Encoding UTF8
+    $Rows |
+        Select-Object $coreRecordProperties |
+        Export-Csv -LiteralPath $Path -NoTypeInformation -Encoding UTF8
 }
 
 function Select-MultiLabelRows {
@@ -483,6 +530,17 @@ try {
             $source = Get-SourceInfo -Text $nameText -TopLevel $topLevel
             $subject = Get-SubjectInfo -Text $nameText -TopLevel $topLevel
             $quality = Get-QualityInfo -Text $nameText -FileName $file.Name
+            $exclusion = Get-ExclusionInfo $relativePath
+            $sourceFolder = $file.Directory.Name
+            $semanticLabel = if ($emotion.Pinyin) {
+                $emotion.Pinyin
+            }
+            elseif ($action.Labels) {
+                $action.Labels
+            }
+            else {
+                $sourceFolder
+            }
             $deviceLabels = @(Get-DeviceLabels $nameText)
             $device = if ($deviceLabels.Count -gt 0) { $deviceLabels[0] } else { '' }
             $modality = Get-Modality $nameText
@@ -514,6 +572,8 @@ try {
                     top_level = $topLevel
                     emotion_pinyin = $emotion.Pinyin
                     emotion_class = $emotion.Class
+                    source_folder = $sourceFolder
+                    semantic_label = $semanticLabel
                     action_labels = $action.Labels
                     device_labels = ($deviceLabels -join ';')
                     modality = $modality
@@ -525,6 +585,8 @@ try {
                     file_name = $file.Name
                     relative_path = $relativePath
                     full_path = ($CanonicalRoot.TrimEnd('\') + '\' + $relativeWindows)
+                    excluded = $exclusion.Excluded
+                    exclusion_reason = $exclusion.Reason
                 })
             $branchMp4Count++
             $branchSize += $file.Length
@@ -545,7 +607,16 @@ finally {
     }
 }
 
-$allRecords = @($records | Sort-Object relative_path)
+$sourceRecords = @(
+    $records |
+        Where-Object excluded -eq 'no' |
+        Sort-Object relative_path
+)
+$namedRecords = @(
+    $sourceRecords |
+        Where-Object subject_status -in @('wangxing', 'other_named')
+)
+$allRecords = @($sourceRecords)
 if ($OnlyWangXing) {
     $allRecords = @($allRecords | Where-Object subject_status -eq 'wangxing')
     $filteredSummary = [System.Collections.Generic.List[object]]::new()
@@ -580,8 +651,8 @@ $aiRecords = @($allRecords | Where-Object source_type -eq 'ai_generated')
 $reviewRecords = @($allRecords | Where-Object needs_review -eq 'yes')
 
 $folderReviewRows = @(
-    $records |
-        Where-Object subject_status -ne 'wangxing' |
+    $sourceRecords |
+        Where-Object subject_status -eq 'unknown' |
         ForEach-Object {
             $relativeFolder = Split-Path `
                 -Path $_.relative_path.Replace('/', '\') `
@@ -624,7 +695,9 @@ $folderReviewRows = @(
         Sort-Object relative_folder
 )
 
-$allRecords | Export-Csv -LiteralPath (Join-Path $outputPath 'manifest_all.csv') -NoTypeInformation -Encoding UTF8
+$allRecords |
+    Select-Object $coreRecordProperties |
+    Export-Csv -LiteralPath (Join-Path $outputPath 'manifest_all.csv') -NoTypeInformation -Encoding UTF8
 $emotionTaxonomy | Export-Csv -LiteralPath (Join-Path $outputPath 'emotion_taxonomy.csv') -NoTypeInformation -Encoding UTF8
 @($errors | ForEach-Object { $_ }) | Export-Csv `
     -LiteralPath (Join-Path $outputPath 'scan_errors.csv') `
@@ -632,36 +705,50 @@ $emotionTaxonomy | Export-Csv -LiteralPath (Join-Path $outputPath 'emotion_taxon
 @($branchSummary | Sort-Object top_level) | Export-Csv `
     -LiteralPath (Join-Path $outputPath 'directory_summary.csv') `
     -NoTypeInformation -Encoding UTF8
-$folderReviewRows | Export-Csv `
-    -LiteralPath (Join-Path $outputPath 'folder_review.csv') `
-    -NoTypeInformation -Encoding UTF8
-$pendingFolderRows = @(
-    $folderReviewRows |
-        Where-Object suggested_status -eq 'pending_user_judgment'
-)
-$pendingFolderPaths = @(
-    $pendingFolderRows |
-        Select-Object full_folder_path
-)
-$pendingFolderPaths | Export-Csv `
-    -LiteralPath (Join-Path $outputPath 'folder_review_pending.csv') `
-    -NoTypeInformation -Encoding UTF8
-@(
-    $pendingFolderRows |
-        Group-Object top_level |
-        ForEach-Object {
-            [PSCustomObject]@{
-                top_level = $_.Name
-                folder_count = $_.Count
-                mp4_count = (
-                    ($_.Group | Measure-Object -Property mp4_count -Sum).Sum
-                )
-            }
-        } |
-        Sort-Object top_level
-) | Export-Csv `
-    -LiteralPath (Join-Path $outputPath 'folder_review_summary_by_date.csv') `
-    -NoTypeInformation -Encoding UTF8
+if ($folderReviewRows.Count -gt 0) {
+    $folderReviewRows | Export-Csv `
+        -LiteralPath (Join-Path $outputPath 'folder_review.csv') `
+        -NoTypeInformation -Encoding UTF8
+    $pendingFolderRows = @(
+        $folderReviewRows |
+            Where-Object suggested_status -eq 'pending_user_judgment'
+    )
+    $pendingFolderPaths = @(
+        $pendingFolderRows |
+            Select-Object full_folder_path
+    )
+    $pendingFolderPaths | Export-Csv `
+        -LiteralPath (Join-Path $outputPath 'folder_review_pending.csv') `
+        -NoTypeInformation -Encoding UTF8
+    @(
+        $pendingFolderRows |
+            Group-Object top_level |
+            ForEach-Object {
+                [PSCustomObject]@{
+                    top_level = $_.Name
+                    folder_count = $_.Count
+                    mp4_count = (
+                        ($_.Group | Measure-Object -Property mp4_count -Sum).Sum
+                    )
+                }
+            } |
+            Sort-Object top_level
+    ) | Export-Csv `
+        -LiteralPath (Join-Path $outputPath 'folder_review_summary_by_date.csv') `
+        -NoTypeInformation -Encoding UTF8
+}
+else {
+    foreach ($reviewFile in @(
+            'folder_review.csv',
+            'folder_review_pending.csv',
+            'folder_review_summary_by_date.csv'
+        )) {
+        $reviewPath = Join-Path $outputPath $reviewFile
+        if (Test-Path -LiteralPath $reviewPath) {
+            Remove-Item -LiteralPath $reviewPath -Force
+        }
+    }
+}
 
 $summary = @(
     [PSCustomObject]@{
@@ -753,17 +840,42 @@ $subjectDirectory = Join-Path $outputPath 'by_subject'
 New-Item -ItemType Directory -Path $subjectDirectory -Force | Out-Null
 $subjectCategories = @(
     'WangXing', 'LiYou', 'QianLiuYing', 'QingKangZhi',
-    'SunTengFei', 'TianJiuData', 'XuHuan'
+    'SunTengFei', 'TianJiuData', 'XuHuan', 'XiaoXiao',
+    'XiaoYue1', 'XiaoYue2', 'ZhouZhicheng'
 )
 foreach ($category in $subjectCategories) {
-    $rows = @($allRecords | Where-Object subject -eq $category)
+    $rows = @($namedRecords | Where-Object subject -eq $category)
     Export-RecordsCsv `
         -Rows $rows `
         -Path (Join-Path $subjectDirectory ($category + '.csv')) `
         -Template $templateRecord
     $viewStats.Add((Get-CategoryStats -Rows $rows -Dimension 'subject' -Category $category))
 }
-$notWangXingRows = @($allRecords | Where-Object subject_status -eq 'not_wangxing')
+$otherPeopleRows = @(
+    $namedRecords | Where-Object subject_status -eq 'other_named'
+)
+$otherPeopleRows | Select-Object $coreRecordProperties | Export-Csv `
+    -LiteralPath (Join-Path $outputPath 'other_people_manifest.csv') `
+    -NoTypeInformation -Encoding UTF8
+$otherPeopleSummary = @(
+    $otherPeopleRows |
+        Group-Object subject |
+        ForEach-Object {
+            [PSCustomObject]@{
+                subject = $_.Name
+                mp4_count = $_.Count
+                size_bytes = (
+                    ($_.Group | Measure-Object -Property size_bytes -Sum).Sum
+                )
+            }
+        } |
+        Sort-Object subject
+)
+$otherPeopleSummary | Export-Csv `
+    -LiteralPath (Join-Path $outputPath 'other_people_summary.csv') `
+    -NoTypeInformation -Encoding UTF8
+
+$notWangXingRows = @()
 Export-RecordsCsv `
     -Rows $notWangXingRows `
     -Path (Join-Path $subjectDirectory 'NotWangXing.csv') `
@@ -773,7 +885,7 @@ $viewStats.Add((Get-CategoryStats `
         -Dimension 'subject' `
         -Category 'NotWangXing'))
 
-$unknownSubjectRows = @($allRecords | Where-Object subject_status -eq 'unknown')
+$unknownSubjectRows = @()
 Export-RecordsCsv `
     -Rows $unknownSubjectRows `
     -Path (Join-Path $subjectDirectory 'Unknown.csv') `
