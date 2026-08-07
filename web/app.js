@@ -766,7 +766,6 @@ function renderWangxingResult(result) {
       请使用当前的身份门控与表情画像报告。
     </p>
   `;
-  return;
   if (payload.status !== "available") {
     wangxingResult.classList.remove("is-hidden");
     const notApplicable = payload.status === "not_applicable";
@@ -1045,6 +1044,64 @@ function renderWangxingSpecializationResult(payload) {
     identityDecision === "wangxing"
       ? finalLabels[finalDecision] ?? finalDecision
       : finalLabels[finalDecision] ?? identityLabels[identityDecision];
+  const forensics = payload.forensics ?? {};
+  const forensicFusion = forensics.fusion ?? {};
+  const forensicScores = forensics.scores ?? {};
+  const forensicBranches = forensics.branches ?? {};
+  const forensicRaw = normalizeScore(
+    forensicScores.raw_real_domain_evidence_0_1 ??
+      forensicFusion.raw_real_domain_evidence_0_1,
+  );
+  const forensicProbability = normalizeScore(
+    forensicScores.calibrated_real_probability_0_1 ??
+      forensicFusion.real_capture_likelihood_0_1,
+  );
+  const forensicFacial = normalizeScore(
+    forensicBranches.facial_motion?.metrics?.raw_real_domain_evidence_0_1,
+  );
+  const forensicTexture = normalizeScore(
+    forensicBranches.texture_detail?.metrics?.raw_real_domain_evidence_0_1,
+  );
+  const forensicStatus = String(
+    forensics.status ?? forensicFusion.status ?? "unavailable",
+  );
+  const forensicWarning =
+    forensicFusion.warning ??
+    forensics.reason ??
+    (Array.isArray(forensics.authenticity?.uncertainty_reasons)
+      ? forensics.authenticity.uncertainty_reasons.join(" / ")
+      : null);
+  const forensicMarkup =
+    Object.keys(forensics).length > 0
+      ? `
+        <div class="wangxing-result-evidence">
+          <div class="wangxing-result-evidence-group">
+            <span class="wangxing-result-evidence-label">FORENSICS / REAL VS SEEDANCE</span>
+            <div class="wangxing-result-evidence-grid">
+              <span class="is-primary"><strong>${escapeHtml(
+                percent(forensicRaw),
+              )}</strong>raw domain evidence</span>
+              <span><strong>${escapeHtml(
+                forensicProbability === null
+                  ? "NOT CALIBRATED"
+                  : percent(forensicProbability),
+              )}</strong>calibrated real probability</span>
+              <span><strong>${escapeHtml(
+                percent(forensicFacial),
+              )}</strong>facial motion branch</span>
+              <span><strong>${escapeHtml(
+                percent(forensicTexture),
+              )}</strong>texture branch</span>
+            </div>
+          </div>
+          <p class="wangxing-result-note">
+            status ${escapeHtml(forensicStatus)}${forensicWarning ? ` / ${escapeHtml(
+              forensicWarning,
+            )}` : ""}
+          </p>
+        </div>
+      `
+      : "";
 
   wangxingResult.classList.remove("is-hidden");
   wangxingResult.innerHTML = `
@@ -1115,6 +1172,7 @@ function renderWangxingSpecializationResult(payload) {
         峰值 ${escapeHtml(String(events.peak_intensity ?? "--"))}
       </p>
     </div>
+    ${forensicMarkup}
     <p class="wangxing-result-note">
       ${escapeHtml(reasonText)}
     </p>
