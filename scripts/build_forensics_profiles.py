@@ -322,6 +322,7 @@ def main() -> int:
             )
 
     output.parent.mkdir(parents=True, exist_ok=True)
+    payload["warnings"] = list(dict.fromkeys(payload["warnings"]))
     output.write_text(
         json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
