@@ -3,6 +3,7 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import cv2
 import numpy as np
@@ -12,6 +13,8 @@ from evaluator.wangxing_specialization import (
     _identity_calibration_metrics,
     _weighted_prototype,
     evaluate_identity_profile,
+    score_expression_profile,
+    sequence_feature_names,
 )
 
 
@@ -117,6 +120,45 @@ class WangxingSpecializationTests(unittest.TestCase):
         self.assertEqual(result["decision"], "wangxing")
         self.assertGreater(result["probability_0_1"], 0.5)
         self.assertGreater(result["frame_consistency"], 0.99)
+
+    def test_expression_compatibility_uses_max_support_domain_score(self) -> None:
+        feature_count = len(sequence_feature_names())
+        quality = {
+            "frame_count": 12,
+            "valid_frame_ratio": 1.0,
+            "event_statistics": {"event_count": 1},
+        }
+        classes = {}
+        for index, expression_class in enumerate(
+            ("smile", "anger", "surprise", "fear", "sadness", "disgust")
+        ):
+            classes[expression_class] = {
+                "display_name": expression_class,
+                "location": [float(index)] * feature_count,
+                "scale": [1.0] * feature_count,
+                "distance_threshold": 1.0,
+                "sample_count": 10,
+            }
+        profile = {"classes": classes}
+
+        with patch(
+            "evaluator.wangxing_specialization.extract_sequence_features",
+            return_value=(
+                np.zeros(feature_count, dtype=np.float32),
+                quality,
+            ),
+        ):
+            result = score_expression_profile(
+                "unused.csv",
+                profile,
+                expected_class="anger",
+            )
+
+        self.assertEqual(result["profile_winner"], "smile")
+        self.assertEqual(result["selected_profile"], "anger")
+        self.assertEqual(result["compatibility_0_1"], 1.0)
+        self.assertLess(result["expected_profile_score_0_1"], 1.0)
+        self.assertEqual(len(result["most_compatible_profiles"]), 2)
 
 
 if __name__ == "__main__":

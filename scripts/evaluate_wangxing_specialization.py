@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import argparse
 import json
-from pathlib import Path
 import sys
-from typing import Sequence
+from collections.abc import Sequence
+from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
@@ -29,6 +29,10 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--expression-profile",
         default="data/au/wangxing_expression_profile.json",
+    )
+    parser.add_argument(
+        "--source-profile",
+        default="data/au/wangxing_source_profile.json",
     )
     parser.add_argument(
         "--output-root",
@@ -58,6 +62,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     generated_video = project_path(args.generated_video)
     identity_profile = project_path(args.identity_profile)
     expression_profile = project_path(args.expression_profile)
+    source_profile = project_path(args.source_profile)
     output_root = project_path(args.output_root)
     cache_root = project_path(args.cache_root)
     output = project_path(args.output) if args.output else None
@@ -84,6 +89,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         au_path=generated_au,
         identity_profile_path=identity_profile,
         expression_profile_path=expression_profile,
+        source_profile_path=(
+            source_profile if source_profile.is_file() else None
+        ),
         expected_class=args.expected_class,
         device=args.device,
         max_identity_frames=args.identity_frames,
@@ -93,6 +101,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         "generated_au": str(generated_au),
         "identity_profile": str(identity_profile),
         "expression_profile": str(expression_profile),
+        "source_profile": (
+            str(source_profile) if source_profile.is_file() else None
+        ),
     }
     serialized = json.dumps(result, ensure_ascii=False, indent=2)
     if output is not None:

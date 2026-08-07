@@ -195,13 +195,50 @@ def _safe_statistic(values: np.ndarray, statistic: str) -> float:
     raise ValueError(f"Unsupported statistic: {statistic}")
 
 
-def _sequence_summary(values: np.ndarray, prefix: str) -> dict[str, float]:
+def _sequence_summary(
+    values: np.ndarray,
+    prefix: str,
+    *,
+    timestamps_seconds: np.ndarray | None = None,
+) -> dict[str, float]:
     values = np.asarray(values, dtype=np.float32)
-    velocity = np.diff(values) if len(values) > 1 else np.zeros(1)
-    acceleration = (
-        np.diff(values, n=2) if len(values) > 2 else np.zeros(1)
-    )
-    jerk = np.diff(values, n=3) if len(values) > 3 else np.zeros(1)
+    if timestamps_seconds is None or len(timestamps_seconds) != len(values):
+        velocity = np.diff(values) if len(values) > 1 else np.zeros(1)
+        acceleration = (
+            np.diff(values, n=2) if len(values) > 2 else np.zeros(1)
+        )
+        jerk = np.diff(values, n=3) if len(values) > 3 else np.zeros(1)
+    else:
+        timestamps = np.asarray(timestamps_seconds, dtype=np.float32)
+        deltas = np.diff(timestamps)
+        positive_deltas = deltas[deltas > 1e-6]
+        fallback_delta = (
+            float(np.median(positive_deltas))
+            if positive_deltas.size
+            else 1.0
+        )
+        deltas = np.where(deltas > 1e-6, deltas, fallback_delta)
+        velocity = (
+            np.diff(values) / deltas
+            if len(values) > 1
+            else np.zeros(1)
+        )
+        if len(velocity) > 1:
+            velocity_deltas = np.maximum(
+                (deltas[:-1] + deltas[1:]) / 2.0,
+                1e-6,
+            )
+            acceleration = np.diff(velocity) / velocity_deltas
+        else:
+            acceleration = np.zeros(1)
+        if len(acceleration) > 1:
+            acceleration_deltas = np.maximum(
+                velocity_deltas[1:],
+                1e-6,
+            )
+            jerk = np.diff(acceleration) / acceleration_deltas
+        else:
+            jerk = np.zeros(1)
     result = {
         f"{prefix}_median": _safe_statistic(values, "median"),
         f"{prefix}_q25": _safe_statistic(values, "q25"),
@@ -252,6 +289,31 @@ def _event_features(values: np.ndarray, threshold: float) -> dict[str, float]:
     }
 
 
+def _timestamp_axis(
+    rows: Sequence[dict[str, str]],
+) -> tuple[np.ndarray | None, str]:
+    for field_name, unit in (
+        ("frame_time_in_ms", "milliseconds"),
+        ("timestamp_ms", "milliseconds"),
+        ("timestamp", "seconds"),
+    ):
+        if not any(field_name in row for row in rows):
+            continue
+        values = np.asarray(
+            [_finite(row.get(field_name), math.nan) for row in rows],
+            dtype=np.float64,
+        )
+        if not np.all(np.isfinite(values)):
+            continue
+        if unit == "milliseconds":
+            values /= 1000.0
+        values -= values[0]
+        if len(values) < 2 or np.any(np.diff(values) <= 0.0):
+            continue
+        return values.astype(np.float32), f"{field_name}_seconds"
+    return None, "row_index"
+
+
 def _correlation(left: np.ndarray, right: np.ndarray) -> float:
     left = np.asarray(left, dtype=np.float32)
     right = np.asarray(right, dtype=np.float32)
@@ -289,11 +351,41 @@ def _feature_vector(features: dict[str, Any], names: Sequence[str]) -> np.ndarra
     )
 
 
+def _is_landmark_feature(name: str) -> bool:
+    return (
+        name.startswith("landmark_")
+        or name in {
+            "motion_coherence_0_1",
+        }
+    )
+
+
+def _scoring_feature_names(
+    profile_names: Sequence[str],
+    feature_record: dict[str, Any],
+) -> tuple[list[str], str]:
+    """Avoid treating unavailable Face Mesh values as measured zeros."""
+    landmark_available = bool(feature_record.get("landmark_available"))
+    coverage = _finite(
+        feature_record.get("features", {}).get(
+            "landmark_valid_frame_ratio",
+            0.0,
+        )
+    )
+    if landmark_available and coverage >= 0.5:
+        return list(profile_names), "au_plus_landmark"
+    au_names = [
+        name for name in profile_names if not _is_landmark_feature(name)
+    ]
+    return (au_names or list(profile_names)), "au_only"
+
+
 def extract_facial_motion_features(
     csv_path: str | Path,
     *,
     au_ids: Iterable[int] = DEFAULT_AU_IDS,
     active_threshold: float = DEFAULT_ACTIVE_THRESHOLD,
+    time_aware_derivatives: bool = False,
 ) -> dict[str, Any]:
     """Extract AU and normalized Face Mesh motion features from one CSV."""
     rows, fieldnames = _read_rows(csv_path)
@@ -301,6 +393,10 @@ def extract_facial_motion_features(
         raise ValueError(f"No rows found in AU CSV: {csv_path}")
 
     requested_au_ids = tuple(int(value) for value in au_ids)
+    timestamps_seconds, timebase = _timestamp_axis(rows)
+    derivative_timestamps = (
+        timestamps_seconds if time_aware_derivatives else None
+    )
     au_columns = {
         au_id: _column_for_au(fieldnames, au_id) for au_id in requested_au_ids
     }
@@ -346,7 +442,11 @@ def extract_facial_motion_features(
     features: dict[str, Any] = {}
     for column_index, au_id in enumerate(requested_au_ids):
         features.update(
-            _sequence_summary(au_matrix[:, column_index], f"au_{au_id:02d}")
+            _sequence_summary(
+                au_matrix[:, column_index],
+                f"au_{au_id:02d}",
+                timestamps_seconds=derivative_timestamps,
+            )
         )
     event_signal = np.max(au_matrix, axis=1) if au_matrix.size else np.zeros(1)
     features.update(
@@ -362,7 +462,13 @@ def extract_facial_motion_features(
         x_values = landmark_matrix[:, group_index * 2]
         y_values = landmark_matrix[:, group_index * 2 + 1]
         radial = np.sqrt(x_values * x_values + y_values * y_values)
-        features.update(_sequence_summary(radial, f"landmark_{group_name}"))
+        features.update(
+            _sequence_summary(
+                radial,
+                f"landmark_{group_name}",
+                timestamps_seconds=derivative_timestamps,
+            )
+        )
 
     for left_id, right_id in COACTIVATION_PAIRS:
         if left_id not in requested_au_ids or right_id not in requested_au_ids:
@@ -415,17 +521,54 @@ def extract_facial_motion_features(
         0.7 * float(features["landmark_phase_coherence_0_1"])
         + 0.3 * (1.0 - float(features["landmark_mean_phase_lag_0_1"])),
     ) if landmark_available else 0.0
+    window_records: list[dict[str, Any]] = []
+    window_size = 32
+    for window_index, start in enumerate(range(0, len(event_signal), window_size)):
+        stop = min(len(event_signal), start + window_size)
+        window_signal = event_signal[start:stop]
+        event = _event_features(window_signal, active_threshold)
+        window_records.append(
+            {
+                "window_index": window_index,
+                "start_frame": start,
+                "end_frame": stop - 1,
+                "start_time_seconds": (
+                    float(timestamps_seconds[start])
+                    if timestamps_seconds is not None
+                    else None
+                ),
+                "end_time_seconds": (
+                    float(timestamps_seconds[stop - 1])
+                    if timestamps_seconds is not None
+                    else None
+                ),
+                "active_ratio": event["active_ratio"],
+                "peak_intensity": event["peak_intensity"],
+                "evidence_score_0_1": _clamp(
+                    0.60 * event["active_ratio"]
+                    + 0.40 * event["peak_intensity"]
+                ),
+            }
+        )
 
     return {
         "schema_version": FACIAL_MOTION_SCHEMA,
         "source": str(csv_path),
         "frame_count": len(rows),
+        "timestamps_seconds": (
+            timestamps_seconds.astype(float).tolist()
+            if timestamps_seconds is not None
+            else None
+        ),
+        "timebase": timebase,
+        "time_aware_derivatives": bool(time_aware_derivatives),
         "au_ids": list(requested_au_ids),
         "supported_au_ids": [
             au_id for au_id, column in au_columns.items() if column is not None
         ],
         "landmark_available": landmark_available,
         "features": features,
+        "window_records": window_records,
     }
 
 
@@ -466,7 +609,10 @@ def build_facial_motion_profile(
     domain: str = "real",
 ) -> dict[str, Any]:
     records = [
-        extract_facial_motion_features(path)
+        extract_facial_motion_features(
+            path,
+            time_aware_derivatives=True,
+        )
         for path in csv_paths
     ]
     return _profile_from_feature_records(records, domain=domain)
@@ -477,11 +623,17 @@ def build_two_domain_facial_motion_profile(
     seedance_csv_paths: Iterable[str | Path],
 ) -> dict[str, Any]:
     real_records = [
-        extract_facial_motion_features(path)
+        extract_facial_motion_features(
+            path,
+            time_aware_derivatives=True,
+        )
         for path in real_csv_paths
     ]
     seedance_records = [
-        extract_facial_motion_features(path)
+        extract_facial_motion_features(
+            path,
+            time_aware_derivatives=True,
+        )
         for path in seedance_csv_paths
     ]
     if not real_records or not seedance_records:
@@ -511,6 +663,10 @@ def build_two_domain_facial_motion_profile(
         "feature_names": feature_names,
         "real": domain_stats(real_records),
         "seedance": domain_stats(seedance_records),
+        "feature_protocol": {
+            "time_aware_derivatives": True,
+            "derivative_time_unit": "seconds",
+        },
         "note": (
             "Initial calibrated profile. It is not a universal detector and "
             "must be evaluated on held-out videos."
@@ -536,23 +692,50 @@ def score_facial_motion(
 ) -> dict[str, Any]:
     """Score real-domain fit and optional Seedance-domain fit."""
     features = (
-        extract_facial_motion_features(features_or_csv)
+        extract_facial_motion_features(
+            features_or_csv,
+            time_aware_derivatives=bool(
+                profile.get("feature_protocol", {}).get(
+                    "time_aware_derivatives",
+                    False,
+                )
+            ),
+        )
         if isinstance(features_or_csv, (str, Path))
         else features_or_csv
     )
-    names = list(profile.get("feature_names", []))
+    profile_names = list(profile.get("feature_names", []))
+    names, feature_mode = _scoring_feature_names(
+        profile_names,
+        features,
+    )
+    profile_indexes = [profile_names.index(name) for name in names]
     values = _feature_vector(features.get("features", {}), names)
     real = profile.get("real")
     if real is None:
         real = profile if profile.get("domain") == "real" else None
     seedance = profile.get("seedance")
+    def _profile_stats(
+        domain: dict[str, Any] | None,
+    ) -> tuple[list[float], list[float]]:
+        if not domain:
+            return [], []
+        mean = domain.get("mean", [])
+        std = domain.get("std", [])
+        return (
+            [float(mean[index]) for index in profile_indexes],
+            [float(std[index]) for index in profile_indexes],
+        )
+
+    real_mean, real_std = _profile_stats(real)
+    seedance_mean, seedance_std = _profile_stats(seedance)
     real_fit = (
-        _fit_score(values, real.get("mean", []), real.get("std", []))
+        _fit_score(values, real_mean, real_std)
         if real
         else None
     )
     seedance_fit = (
-        _fit_score(values, seedance.get("mean", []), seedance.get("std", []))
+        _fit_score(values, seedance_mean, seedance_std)
         if seedance
         else None
     )
@@ -565,13 +748,20 @@ def score_facial_motion(
     )
     return {
         "status": "calibrated" if authenticity is not None else "features_only",
+        "probability_calibrated": False,
         "backend": "au_landmark_temporal_profile",
         "schema_version": FACIAL_MOTION_SCHEMA,
         "metrics": {
             "real_domain_fit_0_1": real_fit,
             "seedance_domain_fit_0_1": seedance_fit,
+            "raw_real_domain_evidence_0_1": authenticity,
+            # Kept for clients using the initial forensic schema. This field
+            # is a profile-distance ratio, not a calibrated probability.
             "real_capture_likelihood_0_1": authenticity,
+            "calibrated_real_probability_0_1": None,
             "motion_coherence_0_1": _clamp(motion_coherence),
+            "feature_mode": feature_mode,
+            "scored_feature_count": len(names),
             "landmark_valid_frame_ratio": _clamp(
                 _finite(
                     features.get("features", {}).get(
@@ -582,7 +772,13 @@ def score_facial_motion(
         },
         "feature_record": features,
         "warnings": (
-            []
+            [
+                (
+                    "The two-domain score is raw profile evidence only; "
+                    "a held-out probability calibrator is required for an "
+                    "authenticity decision."
+                )
+            ]
             if authenticity is not None
             else [
                 (

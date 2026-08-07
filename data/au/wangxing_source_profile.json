@@ -1,7 +1,7 @@
 {
   "schema_version": "wangxing_source_profile_v1",
   "specialization_schema": "wangxing_specialization_v1",
-  "evaluator_version": "wangxing_specialization_eval_v2",
+  "evaluator_version": "wangxing_specialization_eval_v3",
   "feature_names": [
     "au_intensity_1_median",
     "au_intensity_1_q25",

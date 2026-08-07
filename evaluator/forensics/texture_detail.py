@@ -9,10 +9,18 @@ from typing import Any
 import cv2
 import numpy as np
 
+from ..face_detection import FaceDetector
 from ..video_metrics import sample_video_frames
 
 TEXTURE_DETAIL_SCHEMA = "texture_detail_forensics_v1"
 DEFAULT_CROP_SIZE = (192, 192)
+REGION_BOXES = {
+    "skin_forehead": (0.22, 0.04, 0.78, 0.28),
+    "skin_left_cheek": (0.04, 0.34, 0.36, 0.76),
+    "skin_right_cheek": (0.64, 0.34, 0.96, 0.76),
+    "eyes": (0.14, 0.22, 0.86, 0.50),
+    "mouth": (0.24, 0.54, 0.76, 0.88),
+}
 
 
 def _clamp(value: float, lower: float = 0.0, upper: float = 1.0) -> float:
@@ -67,7 +75,7 @@ def _entropy(values: np.ndarray) -> float:
     return float(-np.sum(probabilities * np.log2(probabilities)))
 
 
-def _frame_texture_features(crop: np.ndarray) -> dict[str, float]:
+def _basic_texture_features(crop: np.ndarray) -> dict[str, float]:
     gray = cv2.cvtColor(crop, cv2.COLOR_RGB2GRAY).astype(np.float32)
     normalized = gray / 255.0
     blur = cv2.GaussianBlur(normalized, (0, 0), 1.2)
@@ -94,6 +102,25 @@ def _frame_texture_features(crop: np.ndarray) -> dict[str, float]:
         "intensity_entropy": _entropy(gray.astype(np.uint8)),
         "dct_high_frequency_ratio": high_frequency_dct / total_energy,
     }
+
+
+def _normalized_region(crop: np.ndarray, box: tuple[float, float, float, float]) -> np.ndarray:
+    height, width = crop.shape[:2]
+    left, top, right, bottom = box
+    x1 = max(0, min(width - 1, round(left * width)))
+    y1 = max(0, min(height - 1, round(top * height)))
+    x2 = max(x1 + 1, min(width, round(right * width)))
+    y2 = max(y1 + 1, min(height, round(bottom * height)))
+    return crop[y1:y2, x1:x2]
+
+
+def _frame_texture_features(crop: np.ndarray) -> dict[str, float]:
+    features = _basic_texture_features(crop)
+    for region_name, region_box in REGION_BOXES.items():
+        region = _normalized_region(crop, region_box)
+        for name, value in _basic_texture_features(region).items():
+            features[f"region_{region_name}_{name}"] = value
+    return features
 
 
 def _warp_previous(previous: np.ndarray, current: np.ndarray) -> np.ndarray:
@@ -133,6 +160,7 @@ def extract_texture_detail_features(
     face_boxes: Sequence[tuple[int, int, int, int] | None] | None = None,
     max_frames: int = 64,
     sample_fps: float = 8.0,
+    detect_faces: bool = True,
 ) -> dict[str, Any]:
     """Extract local texture, frequency and frame-to-frame residual features."""
     if isinstance(frames_or_video, (str, Path)):
@@ -150,6 +178,21 @@ def extract_texture_detail_features(
 
     if face_boxes is not None and len(face_boxes) != len(frames):
         raise ValueError("face_boxes must have one entry per sampled frame.")
+    detection_backend = "provided"
+    if face_boxes is None and detect_faces:
+        detector = FaceDetector()
+        detected_boxes: list[tuple[int, int, int, int] | None] = []
+        for frame in frames:
+            detected = detector.detect(frame)
+            if detected is None:
+                detected_boxes.append(None)
+                continue
+            x, y, width, height = detected
+            detected_boxes.append((x, y, x + width, y + height))
+        face_boxes = detected_boxes
+        detection_backend = "opencv_haar"
+    elif face_boxes is None:
+        detection_backend = "full_frame"
     crops = [
         _crop_frame(
             frame,
@@ -169,6 +212,9 @@ def extract_texture_detail_features(
     residuals: list[float] = []
     raw_differences: list[float] = []
     high_frequency_differences: list[float] = []
+    region_flicker: dict[str, list[float]] = {
+        region_name: [] for region_name in REGION_BOXES
+    }
     for previous, current in pairwise(crops):
         warped = _warp_previous(previous, current)
         current_float = current.astype(np.float32) / 255.0
@@ -193,17 +239,46 @@ def extract_texture_detail_features(
                 - previous_features["high_frequency_ratio"]
             )
         )
+        for region_name in REGION_BOXES:
+            key = f"region_{region_name}_high_frequency_ratio"
+            region_flicker[region_name].append(
+                abs(current_features[key] - previous_features[key])
+            )
     features["temporal_warp_residual_mean"] = _safe_mean(residuals)
     features["temporal_warp_residual_std"] = _safe_std(residuals)
     features["temporal_raw_difference_mean"] = _safe_mean(raw_differences)
     features["texture_flicker_mean"] = _safe_mean(high_frequency_differences)
     features["texture_flicker_std"] = _safe_std(high_frequency_differences)
+    for region_name, values in region_flicker.items():
+        features[f"region_{region_name}_flicker_mean"] = _safe_mean(values)
+        features[f"region_{region_name}_flicker_std"] = _safe_std(values)
     features["frame_count"] = float(len(crops))
     features["face_box_coverage"] = (
         float(sum(box is not None for box in face_boxes) / len(crops))
         if face_boxes is not None
         else 0.0
     )
+
+    window_records: list[dict[str, Any]] = []
+    window_size = 8
+    for window_index, start in enumerate(range(0, len(per_frame), window_size)):
+        stop = min(len(per_frame), start + window_size)
+        high_frequency_values = [
+            record["high_frequency_ratio"] for record in per_frame[start:stop]
+        ]
+        flicker_values = high_frequency_differences[start : max(start, stop - 1)]
+        window_records.append(
+            {
+                "window_index": window_index,
+                "start_frame": start,
+                "end_frame": stop - 1,
+                "high_frequency_mean": _safe_mean(high_frequency_values),
+                "texture_flicker_mean": _safe_mean(flicker_values),
+                "evidence_score_0_1": _clamp(
+                    _safe_mean(flicker_values) * 10.0
+                ),
+            }
+        )
 
     return {
         "schema_version": TEXTURE_DETAIL_SCHEMA,
@@ -212,6 +287,9 @@ def extract_texture_detail_features(
         "timestamps": [float(value) for value in timestamps],
         "video_info": video_info,
         "features": features,
+        "window_records": window_records,
+        "regions": list(REGION_BOXES),
+        "face_detection_backend": detection_backend,
         "note": (
             "These are quality and temporal-texture features. A calibrated "
             "real-versus-Seedance profile is required for authenticity claims."
@@ -279,6 +357,7 @@ def score_texture_detail(
     face_boxes: Sequence[tuple[int, int, int, int] | None] | None = None,
     max_frames: int = 64,
     sample_fps: float = 8.0,
+    detect_faces: bool = True,
 ) -> dict[str, Any]:
     """Score texture features and optionally calibrate them by domain."""
     if isinstance(features_or_video, dict):
@@ -289,10 +368,12 @@ def score_texture_detail(
             face_boxes=face_boxes,
             max_frames=max_frames,
             sample_fps=sample_fps,
+            detect_faces=detect_faces,
         )
     if profile is None:
         return {
             "status": "features_only",
+            "probability_calibrated": False,
             "backend": "aligned_texture_frequency_temporal_features",
             "schema_version": TEXTURE_DETAIL_SCHEMA,
             "metrics": {
@@ -311,7 +392,9 @@ def score_texture_detail(
                     features["features"].get("texture_flicker_mean", 1.0)
                     * 10.0
                 ),
+                "raw_real_domain_evidence_0_1": None,
                 "real_capture_likelihood_0_1": None,
+                "calibrated_real_probability_0_1": None,
             },
             "feature_record": features,
             "warnings": [
@@ -346,12 +429,17 @@ def score_texture_detail(
         authenticity = real_fit / max(real_fit + seedance_fit, 1e-6)
     return {
         "status": "calibrated" if authenticity is not None else "features_only",
+        "probability_calibrated": False,
         "backend": "aligned_texture_frequency_temporal_profile",
         "schema_version": TEXTURE_DETAIL_SCHEMA,
         "metrics": {
             "real_domain_fit_0_1": real_fit,
             "seedance_domain_fit_0_1": seedance_fit,
+            "raw_real_domain_evidence_0_1": authenticity,
+            # Kept for clients using the initial forensic schema. This field
+            # is a profile-distance ratio, not a calibrated probability.
             "real_capture_likelihood_0_1": authenticity,
+            "calibrated_real_probability_0_1": None,
             "temporal_stability_proxy_0_1": _clamp(
                 1.0
                 - features["features"].get("temporal_warp_residual_mean", 1.0)
@@ -362,7 +450,13 @@ def score_texture_detail(
         },
         "feature_record": features,
         "warnings": (
-            []
+            [
+                (
+                    "The two-domain score is raw profile evidence only; "
+                    "a held-out probability calibrator is required for an "
+                    "authenticity decision."
+                )
+            ]
             if authenticity is not None
             else [
                 (

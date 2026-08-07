@@ -107,3 +107,36 @@ only high-confidence pseudo-labels enter the expression support domain.
 The generated identity profile stores calibration metrics including ROC-AUC,
 PR-AUC, EER, and FPR at 1% and 5% false-positive rates. These are calibration
 summaries, not a substitute for a held-out cross-batch evaluation.
+
+## Redesign Contract
+
+The specialization follows two serial decisions:
+
+1. Identity: decide `wangxing`, `not_wangxing`, or `uncertain` from a
+   quality-weighted multi-frame ArcFace track, real and generated Wang Xing
+   prototypes, and external negative prototypes.
+2. Expression support: only after identity is `wangxing`, measure the maximum
+   compatibility with the real Wang Xing expression support domains. The
+   result exposes the top two profiles and can report that the exact emotion
+   class is uncertain.
+
+The generated Seedance source profile is secondary real-versus-generated
+evidence. It does not gate identity and does not turn unknown or ambiguous
+Seedance emotion labels into expression ground truth. Only
+`high_confidence` pseudo labels can be included as auxiliary expression
+samples.
+
+The ordinary five category scores are kept separate. The specialization is
+reported under `wangxing_au` / `expression_evidence` and must not rewrite the
+ordinary expression score or weighted total.
+
+Run the implementation/data audit with:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\check_wangxing_redesign.py `
+  --output outputs\wangxing_redesign_check.json
+```
+
+Use `--strict` in CI or before deployment. The current workspace is expected
+to remain `partial` until the texture forensic profile is expanded beyond its
+small preliminary calibration set.

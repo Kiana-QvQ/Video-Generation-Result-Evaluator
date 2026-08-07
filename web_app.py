@@ -41,6 +41,7 @@ from evaluator.media import concatenate_videos, transcode_video_for_browser
 from evaluator.runtime import OUTPUT_DIR, PROJECT_ROOT
 from evaluator.subst import cleanup_project_subst_mappings
 from evaluator.video_metrics import is_video_path, probe_video
+from evaluator.forensics import analyze_forensics
 from evaluator.wangxing_specialization import (
     EXPRESSION_DISPLAY_NAMES,
     SPECIALIZATION_EVALUATOR_VERSION,
@@ -114,6 +115,7 @@ WANGXING_SOURCE_PROFILE_PATH = (
     PROJECT_ROOT / "data/au/wangxing_source_profile.json"
 )
 WANGXING_AU_CACHE_ROOT = OUTPUT_DIR / "au_cache"
+FORENSICS_PROFILE_PATH = PROJECT_ROOT / "outputs/forensics/forensics_profiles.json"
 GENERATED_REPORT_FILES = {
     "summary.csv",
     "frame_metrics.csv",
@@ -518,8 +520,12 @@ def _wangxing_au_status() -> dict[str, Any]:
         "evaluator_version": SPECIALIZATION_EVALUATOR_VERSION,
         "identity_profile": str(WANGXING_IDENTITY_PROFILE_PATH),
         "expression_profile": str(WANGXING_EXPRESSION_PROFILE_PATH),
+        "source_profile": str(WANGXING_SOURCE_PROFILE_PATH),
         "identity_profile_exists": identity_profile_exists,
         "expression_profile_exists": expression_profile_exists,
+        "source_profile_exists": WANGXING_SOURCE_PROFILE_PATH.is_file(),
+        "forensics_profile": str(FORENSICS_PROFILE_PATH),
+        "forensics_profile_exists": FORENSICS_PROFILE_PATH.is_file(),
         # Keep legacy paths in the payload for older clients.
         "profile": str(WANGXING_AU_PROFILE_PATH),
         "classifier": str(WANGXING_AU_CLASSIFIER_PATH),
@@ -535,6 +541,40 @@ def _wangxing_au_status() -> dict[str, Any]:
             )
         ),
     }
+
+
+def _run_forensics_assessment(
+    *,
+    result_path: Path,
+    au_path: Path | None,
+) -> dict[str, Any]:
+    if not FORENSICS_PROFILE_PATH.is_file():
+        return {
+            "status": "unavailable",
+            "reason": "Forensics profile is missing.",
+        }
+    try:
+        profiles = json.loads(
+            FORENSICS_PROFILE_PATH.read_text(encoding="utf-8-sig")
+        )
+        result = analyze_forensics(
+            facial_motion=au_path if au_path is not None else None,
+            facial_motion_profile=profiles.get("facial_motion"),
+            texture_detail=result_path,
+            texture_detail_profile=profiles.get("texture_detail"),
+            authenticity_calibrator=profiles.get(
+                "authenticity_calibrator"
+            ),
+            max_frames=16,
+            sample_fps=8.0,
+        )
+        result["auto_invoked_by"] = "wangxing_specialization_web_flow"
+        return result
+    except (OSError, ValueError, json.JSONDecodeError, RuntimeError) as exc:
+        return {
+            "status": "unavailable",
+            "reason": f"Forensics scoring failed: {exc}",
+        }
 
 
 @serialized_evaluation
@@ -571,6 +611,8 @@ def _run_wangxing_au_assessment(
         str(WANGXING_IDENTITY_PROFILE_PATH),
         "--expression-profile",
         str(WANGXING_EXPRESSION_PROFILE_PATH),
+        "--source-profile",
+        str(WANGXING_SOURCE_PROFILE_PATH),
         "--output-root",
         str(run_dir / "wangxing_specialization"),
         "--cache-root",
@@ -657,6 +699,19 @@ def _run_wangxing_au_assessment(
         payload.setdefault(
             "action_evidence_source",
             "wangxing_training_profile_dynamic_statistics",
+        )
+        generated_au = (
+            payload.get("evaluation_meta", {}).get("generated_au")
+            if isinstance(payload.get("evaluation_meta"), dict)
+            else None
+        )
+        payload["forensics"] = _run_forensics_assessment(
+            result_path=result_path,
+            au_path=(
+                Path(str(generated_au))
+                if generated_au and Path(str(generated_au)).is_file()
+                else None
+            ),
         )
         payload["prompt_evidence"] = {
             "provided": bool((prompt_text or "").strip()),
@@ -771,8 +826,10 @@ def _attach_wangxing_evidence(
             "wangxing_specialization": {
                 "identity": identity,
                 "source": wangxing_au.get("source", {}),
+                "source_domain_evidence": wangxing_au.get("source", {}),
                 "expression": expression_profile,
                 "decision": wangxing_au.get("decision"),
+                "forensics": wangxing_au.get("forensics"),
             },
             "wangxing_au": {
                 "score_0_1": compatibility,
