@@ -1,0 +1,594 @@
+from __future__ import annotations
+
+import csv
+import math
+import re
+from collections.abc import Iterable, Sequence
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+
+FACIAL_MOTION_SCHEMA = "facial_motion_forensics_v1"
+DEFAULT_AU_IDS = (
+    1,
+    2,
+    4,
+    5,
+    6,
+    7,
+    9,
+    10,
+    12,
+    14,
+    15,
+    17,
+    20,
+    23,
+    24,
+    25,
+    26,
+)
+DEFAULT_ACTIVE_THRESHOLD = 0.20
+DEFAULT_MAX_LAG = 4
+
+# The groups are intentionally compact for the initial implementation. They
+# can later be expanded to all 478 landmarks without changing the output API.
+LANDMARK_GROUPS: dict[str, tuple[int, ...]] = {
+    "brow_left": (70, 105, 107),
+    "brow_right": (300, 334, 336),
+    "eye_left": (33, 133, 145, 159),
+    "eye_right": (263, 362, 374, 386),
+    "mouth": (13, 14, 61, 291),
+    "cheek_left": (116, 123, 147),
+    "cheek_right": (345, 352, 376),
+    "jaw": (172, 397, 152),
+}
+FACE_ANCHORS = (234, 454, 10, 152)
+COACTIVATION_PAIRS = ((1, 2), (4, 7), (6, 12), (12, 25), (17, 26))
+
+
+def _finite(value: Any, default: float = 0.0) -> float:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return default
+    return parsed if math.isfinite(parsed) else default
+
+
+def _clamp(value: float, lower: float = 0.0, upper: float = 1.0) -> float:
+    return float(max(lower, min(upper, value)))
+
+
+def _au_id(name: str) -> int | None:
+    match = re.search(r"\bau[\s_-]*0*(\d{1,2})(?!\d)", str(name), re.IGNORECASE)
+    if not match:
+        return None
+    value = int(match.group(1))
+    return value if 1 <= value <= 45 else None
+
+
+def _is_intensity_column(name: str) -> bool:
+    normalized = str(name).lower().replace(" ", "")
+    return (
+        "intensity" in normalized
+        or normalized.endswith("_r")
+        or bool(re.fullmatch(r"au[_-]*0*\d{1,2}", normalized))
+    )
+
+
+def _column_for_au(fieldnames: Sequence[str], au_id: int) -> str | None:
+    candidates = [
+        name
+        for name in fieldnames
+        if _au_id(name) == au_id and _is_intensity_column(name)
+    ]
+    return candidates[0] if candidates else None
+
+
+def _read_rows(path: str | Path) -> tuple[list[dict[str, str]], list[str]]:
+    with Path(path).open("r", encoding="utf-8-sig", newline="") as handle:
+        sample = handle.read(8192)
+        handle.seek(0)
+        first_line = sample.splitlines()[0] if sample.splitlines() else ""
+        delimiter = "\t" if "\t" in first_line else ","
+        reader = csv.DictReader(handle, delimiter=delimiter)
+        return [dict(row) for row in reader], list(reader.fieldnames or [])
+
+
+def _landmark_columns(
+    fieldnames: Iterable[str],
+) -> dict[int, tuple[str, str]]:
+    names = list(fieldnames)
+    pairs: dict[int, tuple[str, str]] = {}
+    for name in names:
+        match = re.fullmatch(r"lm_mp_(\d+)_x", str(name), re.IGNORECASE)
+        if not match:
+            continue
+        index = int(match.group(1))
+        y_name = next(
+            (
+                candidate
+                for candidate in names
+                if str(candidate).lower() == f"lm_mp_{index}_y"
+            ),
+            None,
+        )
+        if y_name is not None:
+            pairs[index] = (name, y_name)
+    return pairs
+
+
+def _frame_landmarks(
+    row: dict[str, str],
+    landmark_columns: dict[int, tuple[str, str]],
+) -> dict[int, np.ndarray]:
+    points: dict[int, np.ndarray] = {}
+    for index, (x_name, y_name) in landmark_columns.items():
+        x = _finite(row.get(x_name), math.nan)
+        y = _finite(row.get(y_name), math.nan)
+        if math.isfinite(x) and math.isfinite(y):
+            points[index] = np.asarray([x, y], dtype=np.float32)
+    return points
+
+
+def _normalized_landmark_frame(
+    points: dict[int, np.ndarray],
+) -> dict[int, np.ndarray]:
+    if not all(index in points for index in FACE_ANCHORS):
+        return {}
+    left, right, top, bottom = (points[index] for index in FACE_ANCHORS)
+    width = float(np.linalg.norm(right - left))
+    height = float(np.linalg.norm(bottom - top))
+    if width < 1e-6 or height < 1e-6:
+        return {}
+    center = (left + right + top + bottom) / 4.0
+    normalized: dict[int, np.ndarray] = {}
+    for index, point in points.items():
+        normalized[index] = np.asarray(
+            [(point[0] - center[0]) / width, (point[1] - center[1]) / height],
+            dtype=np.float32,
+        )
+    return normalized
+
+
+def _group_centroids(
+    normalized_points: dict[int, np.ndarray],
+) -> dict[str, np.ndarray]:
+    centroids: dict[str, np.ndarray] = {}
+    for name, indexes in LANDMARK_GROUPS.items():
+        values = [normalized_points[index] for index in indexes if index in normalized_points]
+        if values:
+            centroids[name] = np.mean(np.stack(values), axis=0)
+    return centroids
+
+
+def _fill_missing(sequence: np.ndarray) -> np.ndarray:
+    result = np.asarray(sequence, dtype=np.float32).copy()
+    if result.ndim != 2:
+        raise ValueError("Expected a two-dimensional sequence.")
+    for column in range(result.shape[1]):
+        values = result[:, column]
+        valid = values[np.isfinite(values)]
+        replacement = float(np.median(valid)) if valid.size else 0.0
+        values[~np.isfinite(values)] = replacement
+    return result
+
+
+def _safe_statistic(values: np.ndarray, statistic: str) -> float:
+    finite = np.asarray(values, dtype=np.float32)
+    finite = finite[np.isfinite(finite)]
+    if finite.size == 0:
+        return 0.0
+    if statistic == "median":
+        return float(np.median(finite))
+    if statistic == "q25":
+        return float(np.quantile(finite, 0.25))
+    if statistic == "q75":
+        return float(np.quantile(finite, 0.75))
+    if statistic == "std":
+        return float(np.std(finite))
+    if statistic == "p95":
+        return float(np.quantile(finite, 0.95))
+    if statistic == "max":
+        return float(np.max(finite))
+    raise ValueError(f"Unsupported statistic: {statistic}")
+
+
+def _sequence_summary(values: np.ndarray, prefix: str) -> dict[str, float]:
+    values = np.asarray(values, dtype=np.float32)
+    velocity = np.diff(values) if len(values) > 1 else np.zeros(1)
+    acceleration = (
+        np.diff(values, n=2) if len(values) > 2 else np.zeros(1)
+    )
+    jerk = np.diff(values, n=3) if len(values) > 3 else np.zeros(1)
+    result = {
+        f"{prefix}_median": _safe_statistic(values, "median"),
+        f"{prefix}_q25": _safe_statistic(values, "q25"),
+        f"{prefix}_q75": _safe_statistic(values, "q75"),
+        f"{prefix}_std": _safe_statistic(values, "std"),
+        f"{prefix}_p95": _safe_statistic(values, "p95"),
+        f"{prefix}_max": _safe_statistic(values, "max"),
+        f"{prefix}_velocity_median": _safe_statistic(np.abs(velocity), "median"),
+        f"{prefix}_velocity_p95": _safe_statistic(np.abs(velocity), "p95"),
+        f"{prefix}_acceleration_p95": _safe_statistic(
+            np.abs(acceleration),
+            "p95",
+        ),
+        f"{prefix}_jerk_p95": _safe_statistic(np.abs(jerk), "p95"),
+    }
+    return result
+
+
+def _event_features(values: np.ndarray, threshold: float) -> dict[str, float]:
+    active = np.asarray(values >= threshold, dtype=bool)
+    if active.size == 0:
+        return {
+            "event_count": 0.0,
+            "active_ratio": 0.0,
+            "longest_event_ratio": 0.0,
+            "mean_event_ratio": 0.0,
+            "peak_intensity": 0.0,
+        }
+    lengths: list[int] = []
+    current = 0
+    for item in active:
+        if item:
+            current += 1
+        elif current:
+            lengths.append(current)
+            current = 0
+    if current:
+        lengths.append(current)
+    frame_count = max(len(active), 1)
+    return {
+        "event_count": float(len(lengths)),
+        "active_ratio": float(np.mean(active)),
+        "longest_event_ratio": float(max(lengths, default=0) / frame_count),
+        "mean_event_ratio": (
+            float(np.mean(lengths) / frame_count) if lengths else 0.0
+        ),
+        "peak_intensity": float(np.max(values)),
+    }
+
+
+def _correlation(left: np.ndarray, right: np.ndarray) -> float:
+    left = np.asarray(left, dtype=np.float32)
+    right = np.asarray(right, dtype=np.float32)
+    if len(left) < 2 or len(right) != len(left):
+        return 0.0
+    left = left - float(np.mean(left))
+    right = right - float(np.mean(right))
+    denominator = float(np.linalg.norm(left) * np.linalg.norm(right))
+    return float(np.dot(left, right) / denominator) if denominator > 1e-8 else 0.0
+
+
+def _max_lag_correlation(
+    left: np.ndarray,
+    right: np.ndarray,
+    max_lag: int = DEFAULT_MAX_LAG,
+) -> tuple[float, float]:
+    if len(left) < 3 or len(right) != len(left):
+        return 0.0, 0.0
+    candidates: list[tuple[float, int]] = []
+    for lag in range(-max_lag, max_lag + 1):
+        if lag < 0:
+            score = _correlation(left[:lag], right[-lag:])
+        elif lag > 0:
+            score = _correlation(left[lag:], right[:-lag])
+        else:
+            score = _correlation(left, right)
+        candidates.append((score, lag))
+    return max(candidates, key=lambda item: abs(item[0]))
+
+
+def _feature_vector(features: dict[str, Any], names: Sequence[str]) -> np.ndarray:
+    return np.asarray(
+        [_finite(features.get(name), 0.0) for name in names],
+        dtype=np.float32,
+    )
+
+
+def extract_facial_motion_features(
+    csv_path: str | Path,
+    *,
+    au_ids: Iterable[int] = DEFAULT_AU_IDS,
+    active_threshold: float = DEFAULT_ACTIVE_THRESHOLD,
+) -> dict[str, Any]:
+    """Extract AU and normalized Face Mesh motion features from one CSV."""
+    rows, fieldnames = _read_rows(csv_path)
+    if not rows:
+        raise ValueError(f"No rows found in AU CSV: {csv_path}")
+
+    requested_au_ids = tuple(int(value) for value in au_ids)
+    au_columns = {
+        au_id: _column_for_au(fieldnames, au_id) for au_id in requested_au_ids
+    }
+    au_matrix = np.full((len(rows), len(requested_au_ids)), np.nan, dtype=np.float32)
+    for row_index, row in enumerate(rows):
+        for column_index, au_id in enumerate(requested_au_ids):
+            column = au_columns[au_id]
+            if column is None:
+                continue
+            value = _finite(row.get(column), math.nan)
+            if math.isfinite(value) and value > 1.0:
+                value /= 5.0
+            au_matrix[row_index, column_index] = _clamp(value, 0.0, 1.0)
+    au_matrix = _fill_missing(au_matrix)
+
+    landmark_columns = _landmark_columns(fieldnames)
+    group_names = tuple(LANDMARK_GROUPS)
+    landmark_matrix = np.full(
+        (len(rows), len(group_names) * 2),
+        np.nan,
+        dtype=np.float32,
+    )
+    valid_landmark_frames = 0
+    for row_index, row in enumerate(rows):
+        points = _normalized_landmark_frame(
+            _frame_landmarks(row, landmark_columns)
+        )
+        groups = _group_centroids(points)
+        if groups:
+            valid_landmark_frames += 1
+        for group_index, group_name in enumerate(group_names):
+            if group_name not in groups:
+                continue
+            landmark_matrix[row_index, group_index * 2 : group_index * 2 + 2] = (
+                groups[group_name]
+            )
+    landmark_available = valid_landmark_frames >= max(3, len(rows) // 3)
+    if landmark_available:
+        landmark_matrix = _fill_missing(landmark_matrix)
+    else:
+        landmark_matrix = np.zeros_like(landmark_matrix)
+
+    features: dict[str, Any] = {}
+    for column_index, au_id in enumerate(requested_au_ids):
+        features.update(
+            _sequence_summary(au_matrix[:, column_index], f"au_{au_id:02d}")
+        )
+    event_signal = np.max(au_matrix, axis=1) if au_matrix.size else np.zeros(1)
+    features.update(
+        {
+            f"au_event_{key}": value
+            for key, value in _event_features(event_signal, active_threshold).items()
+        }
+    )
+
+    for group_index, group_name in enumerate(group_names):
+        if not landmark_available:
+            continue
+        x_values = landmark_matrix[:, group_index * 2]
+        y_values = landmark_matrix[:, group_index * 2 + 1]
+        radial = np.sqrt(x_values * x_values + y_values * y_values)
+        features.update(_sequence_summary(radial, f"landmark_{group_name}"))
+
+    for left_id, right_id in COACTIVATION_PAIRS:
+        if left_id not in requested_au_ids or right_id not in requested_au_ids:
+            continue
+        left_index = requested_au_ids.index(left_id)
+        right_index = requested_au_ids.index(right_id)
+        features[f"au_pair_corr_{left_id:02d}_{right_id:02d}"] = _correlation(
+            au_matrix[:, left_index],
+            au_matrix[:, right_index],
+        )
+
+    phase_values: list[float] = []
+    lag_values: list[float] = []
+    motion_columns: dict[str, np.ndarray] = {}
+    for group_index, group_name in enumerate(group_names):
+        if not landmark_available:
+            continue
+        x_values = landmark_matrix[:, group_index * 2]
+        y_values = landmark_matrix[:, group_index * 2 + 1]
+        motion_columns[group_name] = np.sqrt(
+            np.diff(x_values, prepend=x_values[0]) ** 2
+            + np.diff(y_values, prepend=y_values[0]) ** 2
+        )
+    for left_name, right_name in (
+        ("brow_left", "eye_left"),
+        ("brow_right", "eye_right"),
+        ("mouth", "jaw"),
+        ("cheek_left", "mouth"),
+        ("cheek_right", "mouth"),
+    ):
+        if left_name not in motion_columns or right_name not in motion_columns:
+            continue
+        correlation, lag = _max_lag_correlation(
+            motion_columns[left_name],
+            motion_columns[right_name],
+        )
+        phase_values.append(abs(correlation))
+        lag_values.append(float(abs(lag) / max(DEFAULT_MAX_LAG, 1)))
+    features["landmark_phase_coherence_0_1"] = (
+        float(np.mean(phase_values)) if phase_values else 0.0
+    )
+    features["landmark_mean_phase_lag_0_1"] = (
+        float(np.mean(lag_values)) if lag_values else 0.0
+    )
+    features["landmark_valid_frame_ratio"] = valid_landmark_frames / max(
+        len(rows),
+        1,
+    )
+    features["motion_coherence_0_1"] = _clamp(
+        0.7 * float(features["landmark_phase_coherence_0_1"])
+        + 0.3 * (1.0 - float(features["landmark_mean_phase_lag_0_1"])),
+    ) if landmark_available else 0.0
+
+    return {
+        "schema_version": FACIAL_MOTION_SCHEMA,
+        "source": str(csv_path),
+        "frame_count": len(rows),
+        "au_ids": list(requested_au_ids),
+        "supported_au_ids": [
+            au_id for au_id, column in au_columns.items() if column is not None
+        ],
+        "landmark_available": landmark_available,
+        "features": features,
+    }
+
+
+def _profile_from_feature_records(
+    records: Sequence[dict[str, Any]],
+    *,
+    domain: str,
+) -> dict[str, Any]:
+    if not records:
+        raise ValueError("At least one feature record is required.")
+    names = sorted(
+        {
+            name
+            for record in records
+            for name in record.get("features", {})
+            if isinstance(name, str)
+        }
+    )
+    matrix = np.stack(
+        [_feature_vector(record.get("features", {}), names) for record in records]
+    )
+    mean = np.mean(matrix, axis=0)
+    std = np.maximum(np.std(matrix, axis=0), 0.05)
+    return {
+        "schema_version": FACIAL_MOTION_SCHEMA,
+        "domain": domain,
+        "sample_count": len(records),
+        "feature_names": names,
+        "mean": mean.astype(float).tolist(),
+        "std": std.astype(float).tolist(),
+        "source_records": [record.get("source") for record in records],
+    }
+
+
+def build_facial_motion_profile(
+    csv_paths: Iterable[str | Path],
+    *,
+    domain: str = "real",
+) -> dict[str, Any]:
+    records = [
+        extract_facial_motion_features(path)
+        for path in csv_paths
+    ]
+    return _profile_from_feature_records(records, domain=domain)
+
+
+def build_two_domain_facial_motion_profile(
+    real_csv_paths: Iterable[str | Path],
+    seedance_csv_paths: Iterable[str | Path],
+) -> dict[str, Any]:
+    real_records = [
+        extract_facial_motion_features(path)
+        for path in real_csv_paths
+    ]
+    seedance_records = [
+        extract_facial_motion_features(path)
+        for path in seedance_csv_paths
+    ]
+    if not real_records or not seedance_records:
+        raise ValueError("Both real and Seedance records are required.")
+    feature_names = sorted(
+        {
+            name
+            for record in [*real_records, *seedance_records]
+            for name in record.get("features", {})
+        }
+    )
+
+    def domain_stats(records: Sequence[dict[str, Any]]) -> dict[str, Any]:
+        matrix = np.stack(
+            [_feature_vector(record["features"], feature_names) for record in records]
+        )
+        return {
+            "sample_count": len(records),
+            "mean": np.mean(matrix, axis=0).astype(float).tolist(),
+            "std": np.maximum(np.std(matrix, axis=0), 0.05).astype(float).tolist(),
+            "source_records": [record.get("source") for record in records],
+        }
+
+    return {
+        "schema_version": FACIAL_MOTION_SCHEMA,
+        "domain": "real_vs_seedance",
+        "feature_names": feature_names,
+        "real": domain_stats(real_records),
+        "seedance": domain_stats(seedance_records),
+        "note": (
+            "Initial calibrated profile. It is not a universal detector and "
+            "must be evaluated on held-out videos."
+        ),
+    }
+
+
+def _fit_score(
+    values: np.ndarray,
+    mean: Sequence[float],
+    std: Sequence[float],
+) -> float:
+    expected = np.asarray(mean, dtype=np.float32)
+    scale = np.maximum(np.asarray(std, dtype=np.float32), 0.05)
+    z = (values - expected) / scale
+    distance = float(np.mean(np.minimum(np.abs(z), 8.0)))
+    return float(math.exp(-distance / 2.0))
+
+
+def score_facial_motion(
+    features_or_csv: dict[str, Any] | str | Path,
+    profile: dict[str, Any],
+) -> dict[str, Any]:
+    """Score real-domain fit and optional Seedance-domain fit."""
+    features = (
+        extract_facial_motion_features(features_or_csv)
+        if isinstance(features_or_csv, (str, Path))
+        else features_or_csv
+    )
+    names = list(profile.get("feature_names", []))
+    values = _feature_vector(features.get("features", {}), names)
+    real = profile.get("real")
+    if real is None:
+        real = profile if profile.get("domain") == "real" else None
+    seedance = profile.get("seedance")
+    real_fit = (
+        _fit_score(values, real.get("mean", []), real.get("std", []))
+        if real
+        else None
+    )
+    seedance_fit = (
+        _fit_score(values, seedance.get("mean", []), seedance.get("std", []))
+        if seedance
+        else None
+    )
+    authenticity = None
+    if real_fit is not None and seedance_fit is not None:
+        authenticity = real_fit / max(real_fit + seedance_fit, 1e-6)
+    motion_coherence = _finite(
+        features.get("features", {}).get("motion_coherence_0_1"),
+        0.0,
+    )
+    return {
+        "status": "calibrated" if authenticity is not None else "features_only",
+        "backend": "au_landmark_temporal_profile",
+        "schema_version": FACIAL_MOTION_SCHEMA,
+        "metrics": {
+            "real_domain_fit_0_1": real_fit,
+            "seedance_domain_fit_0_1": seedance_fit,
+            "real_capture_likelihood_0_1": authenticity,
+            "motion_coherence_0_1": _clamp(motion_coherence),
+            "landmark_valid_frame_ratio": _clamp(
+                _finite(
+                    features.get("features", {}).get(
+                        "landmark_valid_frame_ratio"
+                    )
+                )
+            ),
+        },
+        "feature_record": features,
+        "warnings": (
+            []
+            if authenticity is not None
+            else [
+                (
+                    "No two-domain profile was supplied; this result is not "
+                    "a real-versus-Seedance decision."
+                )
+            ]
+        ),
+    }
