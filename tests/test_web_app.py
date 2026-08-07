@@ -76,6 +76,17 @@ class WebAppTests(unittest.TestCase):
         self.assertNotIn("缂哄皯璇佹嵁", response.text)
         self.assertNotIn("璇佹嵁瑕嗙洊", response.text)
 
+    def test_wangxing_result_keeps_unavailable_state_and_forensics_visible(self) -> None:
+        response = self.client.get("/assets/app.js")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('if (payload.status !== "available")', response.text)
+        self.assertNotIn(
+            'return;\n  if (payload.status !== "available")',
+            response.text,
+        )
+        self.assertIn("raw_real_domain_evidence_0_1", response.text)
+        self.assertIn("NOT CALIBRATED", response.text)
+
     def test_model_inventory_exposes_readiness(self) -> None:
         response = self.client.get("/api/models")
         self.assertEqual(response.status_code, 200)
@@ -432,6 +443,34 @@ class WebAppTests(unittest.TestCase):
         self.assertEqual(result["status"], "unavailable")
         self.assertIn("编码失败", result["reason"])
         self.assertNotIn("未检测到可用人脸关键点", result["reason"])
+
+    def test_forensics_failure_is_optional_and_does_not_abort_specialization(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            result_path = root / "result.mp4"
+            au_path = root / "generated.csv"
+            result_path.write_bytes(b"result")
+            au_path.write_text("frame_idx\n0\n", encoding="utf-8")
+            with patch(
+                "web_app.FORENSICS_PROFILE_PATH",
+                root / "forensics_profiles.json",
+            ), patch(
+                "web_app.analyze_forensics",
+                side_effect=TypeError("malformed forensic profile"),
+            ):
+                (root / "forensics_profiles.json").write_text(
+                    json.dumps({"facial_motion": {}, "texture_detail": {}}),
+                    encoding="utf-8",
+                )
+                result = web_app._run_forensics_assessment(
+                    result_path=result_path,
+                    au_path=au_path,
+                )
+
+        self.assertEqual(result["status"], "unavailable")
+        self.assertIn("malformed forensic profile", result["reason"])
 
     def test_invalid_wangxing_expression_class_is_rejected_before_queueing(
         self,

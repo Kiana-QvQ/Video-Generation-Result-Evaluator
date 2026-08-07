@@ -570,7 +570,7 @@ def _run_forensics_assessment(
         )
         result["auto_invoked_by"] = "wangxing_specialization_web_flow"
         return result
-    except (OSError, ValueError, json.JSONDecodeError, RuntimeError) as exc:
+    except Exception as exc:
         return {
             "status": "unavailable",
             "reason": f"Forensics scoring failed: {exc}",
