@@ -37,7 +37,15 @@ def _files(root: Path, suffixes: set[str]) -> list[Path]:
 
 
 def _limit(paths: list[Path], limit: int) -> list[Path]:
-    return paths if limit <= 0 else paths[:limit]
+    if limit <= 0 or len(paths) <= limit:
+        return paths
+    if limit == 1:
+        return [paths[0]]
+    indexes = [
+        round(index * (len(paths) - 1) / (limit - 1))
+        for index in range(limit)
+    ]
+    return [paths[index] for index in indexes]
 
 
 def _relative_sources(paths: list[Path], root: Path) -> list[str]:
@@ -90,8 +98,11 @@ def main() -> int:
             "motion and texture detail."
         )
     )
-    parser.add_argument("--real-au-root", required=True)
-    parser.add_argument("--seedance-au-root", required=True)
+    parser.add_argument("--real-au-root", default="data/au/MD_CL")
+    parser.add_argument(
+        "--seedance-au-root",
+        default="data/au/WangXing_Seedance",
+    )
     parser.add_argument(
         "--real-video-root",
         help="Optional real-video root for the texture-detail profile.",
@@ -112,47 +123,135 @@ def main() -> int:
     )
     parser.add_argument("--max-frames", type=int, default=64)
     parser.add_argument("--sample-fps", type=float, default=8.0)
-    args = parser.parse_args()
-
-    real_au_root = project_path(args.real_au_root)
-    seedance_au_root = project_path(args.seedance_au_root)
-    output = project_path(args.output)
-    real_au_paths = _files(real_au_root, {".csv", ".tsv"})
-    seedance_au_paths = _files(seedance_au_root, {".csv", ".tsv"})
-    if not real_au_paths:
-        print(f"ERROR: no AU files found under {real_au_root}")
-        return 1
-    if not seedance_au_paths:
-        print(f"ERROR: no AU files found under {seedance_au_root}")
-        return 1
-
-    try:
-        facial_motion_profile = build_two_domain_facial_motion_profile(
-            real_au_paths,
-            seedance_au_paths,
-        )
-    except (OSError, ValueError, RuntimeError) as exc:
-        print(f"ERROR: facial-motion profile failed: {exc}")
-        return 1
-    facial_motion_profile["provenance"] = {
-        "real_au_root": str(real_au_root),
-        "seedance_au_root": str(seedance_au_root),
-        "real_au_count": len(real_au_paths),
-        "seedance_au_count": len(seedance_au_paths),
-        "real_au_sources": _relative_sources(real_au_paths, real_au_root),
-        "seedance_au_sources": _relative_sources(
-            seedance_au_paths,
-            seedance_au_root,
+    parser.add_argument(
+        "--skip-motion",
+        action="store_true",
+        help="Reuse the facial_motion profile already stored in --output.",
+    )
+    parser.add_argument(
+        "--motion-only",
+        action="store_true",
+        help=(
+            "Rebuild facial_motion with the current feature protocol while "
+            "preserving texture_detail from the existing output."
         ),
-    }
+    )
+    parser.add_argument(
+        "--authenticity-calibrator",
+        help=(
+            "Optional held-out calibrator JSON. Provisional calibrators are "
+            "stored but ignored by the runtime scorer."
+        ),
+    )
+    args = parser.parse_args()
+    if args.skip_motion and args.motion_only:
+        print("ERROR: --skip-motion and --motion-only cannot be combined.")
+        return 1
+
+    output = project_path(args.output)
+    existing_payload: dict[str, Any] = {}
+    if output.is_file():
+        try:
+            loaded = json.loads(output.read_text(encoding="utf-8-sig"))
+            if isinstance(loaded, dict):
+                existing_payload = loaded
+        except (OSError, json.JSONDecodeError):
+            existing_payload = {}
+    real_au_paths: list[Path] = []
+    seedance_au_paths: list[Path] = []
+    if args.skip_motion:
+        if not output.is_file():
+            print(f"ERROR: --skip-motion requires an existing output: {output}")
+            return 1
+        try:
+            existing_payload = json.loads(
+                output.read_text(encoding="utf-8-sig")
+            )
+            facial_motion_profile = existing_payload["facial_motion"]
+        except (OSError, KeyError, json.JSONDecodeError) as exc:
+            print(f"ERROR: unable to reuse facial-motion profile: {exc}")
+            return 1
+    else:
+        real_au_root = project_path(args.real_au_root)
+        seedance_au_root = project_path(args.seedance_au_root)
+        real_au_paths = _files(real_au_root, {".csv", ".tsv"})
+        seedance_au_paths = _files(seedance_au_root, {".csv", ".tsv"})
+        if not real_au_paths:
+            print(f"ERROR: no AU files found under {real_au_root}")
+            return 1
+        if not seedance_au_paths:
+            print(f"ERROR: no AU files found under {seedance_au_root}")
+            return 1
+
+        try:
+            facial_motion_profile = build_two_domain_facial_motion_profile(
+                real_au_paths,
+                seedance_au_paths,
+            )
+        except (OSError, ValueError, RuntimeError) as exc:
+            print(f"ERROR: facial-motion profile failed: {exc}")
+            return 1
+        facial_motion_profile["provenance"] = {
+            "real_au_root": str(real_au_root),
+            "seedance_au_root": str(seedance_au_root),
+            "real_au_count": len(real_au_paths),
+            "seedance_au_count": len(seedance_au_paths),
+            "real_au_sources": _relative_sources(real_au_paths, real_au_root),
+            "seedance_au_sources": _relative_sources(
+                seedance_au_paths,
+                seedance_au_root,
+            ),
+        }
+
+    if args.motion_only:
+        args.real_video_root = None
+        args.seedance_video_root = None
 
     payload: dict[str, Any] = {
         "schema_version": "forensics_profiles_v1",
         "facial_motion": facial_motion_profile,
-        "texture_detail": None,
-        "texture_provenance": None,
-        "warnings": [],
+        "texture_detail": (
+            existing_payload.get("texture_detail")
+            if args.motion_only
+            else None
+        ),
+        "texture_provenance": (
+            existing_payload.get("texture_provenance")
+            if args.motion_only
+            else None
+        ),
+        "warnings": (
+            list(existing_payload.get("warnings", []))
+            if args.motion_only
+            and isinstance(existing_payload.get("warnings"), list)
+            else []
+        ),
     }
+    if args.motion_only:
+        payload["warnings"].append(
+            "Facial-motion profile rebuilt independently; texture profile "
+            "was preserved from the previous output."
+        )
+    if args.authenticity_calibrator:
+        calibrator_path = project_path(args.authenticity_calibrator)
+        if not calibrator_path.is_file():
+            payload["warnings"].append(
+                f"Authenticity calibrator was not found: {calibrator_path}"
+            )
+        else:
+            calibrator_payload = json.loads(
+                calibrator_path.read_text(encoding="utf-8-sig")
+            )
+            calibrator = calibrator_payload.get(
+                "calibrator",
+                calibrator_payload,
+            )
+            if isinstance(calibrator, dict):
+                payload["authenticity_calibrator"] = calibrator
+            else:
+                payload["warnings"].append(
+                    "Authenticity calibrator JSON did not contain an object."
+                )
     if bool(args.real_video_root) != bool(args.seedance_video_root):
         payload["warnings"].append(
             "Both --real-video-root and --seedance-video-root are required "
@@ -210,9 +309,17 @@ def main() -> int:
             "seedance_video_root": str(seedance_video_root),
             "real_video_count": len(real_video_paths),
             "seedance_video_count": len(seedance_video_paths),
+            "max_videos_per_domain": args.max_videos,
+            "max_frames_per_video": args.max_frames,
+            "sample_fps": args.sample_fps,
             "real_report": real_report,
             "seedance_report": seedance_report,
         }
+        if args.max_videos > 0:
+            payload["warnings"].append(
+                "Texture profile is a sampled preliminary calibration set; "
+                "expand it before production use."
+            )
 
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(

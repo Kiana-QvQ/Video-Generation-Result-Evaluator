@@ -45,9 +45,17 @@ codec, and resolution in the surrounding manifest.
 
 The first baseline uses profile distance rather than a learned deep video
 classifier. This keeps the result inspectable and reduces the chance that the
-detector learns a trivial resolution or codec shortcut. It should be replaced
-or supplemented with a held-out classifier after enough matched Seedance
-videos are available.
+detector learns a trivial resolution or codec shortcut. The profile-distance
+ratio is raw domain evidence, not a probability. A separate held-out
+Platt-style calibrator is required before a real/Seedance decision is emitted.
+The runtime returns `uncertain` when that calibrator is absent or provisional.
+The calibrator builder also requires Seedance samples to be marked
+metadata-complete in the forensic manifest; unknown version, mode, input type,
+or codec values are not inferred.
+Facial-motion profiles rebuilt with the current protocol use CSV timestamps
+for temporal derivatives and exclude unavailable Face Mesh features from the
+profile distance. This prevents frame-rate differences and missing landmark
+fields from becoming accidental source shortcuts.
 
 ## Current Boundary
 

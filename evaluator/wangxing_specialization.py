@@ -5,15 +5,15 @@ import json
 import math
 import re
 from collections import Counter
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 import cv2
 import numpy as np
 
-
 SPECIALIZATION_SCHEMA = "wangxing_specialization_v1"
-SPECIALIZATION_EVALUATOR_VERSION = "wangxing_specialization_eval_v2"
+SPECIALIZATION_EVALUATOR_VERSION = "wangxing_specialization_eval_v3"
 IDENTITY_PROFILE_SCHEMA = "wangxing_identity_profile_v2"
 EXPRESSION_PROFILE_SCHEMA = "wangxing_expression_profile_v2"
 
@@ -137,7 +137,11 @@ def _finite_float(value: Any, default: float = 0.0) -> float:
 
 
 def _canonical_au_id(name: str) -> int | None:
-    match = re.search(r"\bau[\s_-]*0*(\d{1,2})(?!\d)", str(name), re.I)
+    match = re.search(
+        r"\bau[\s_-]*0*(\d{1,2})(?!\d)",
+        str(name),
+        re.IGNORECASE,
+    )
     if not match:
         return None
     value = int(match.group(1))
@@ -440,6 +444,7 @@ def build_expression_profile(
     *,
     pseudo_label_manifest: str | Path | None = None,
     max_pseudo_per_class: int = 40,
+    real_paths: Iterable[str | Path] | None = None,
 ) -> dict[str, Any]:
     """Fit class support domains from real data plus trusted pseudo-labels."""
     au_root = Path(au_root)
@@ -448,7 +453,12 @@ def build_expression_profile(
     skipped: list[dict[str, str]] = []
     real_sample_count = 0
     pseudo_sample_count = 0
-    for path in sorted(au_root.rglob("*.csv")):
+    source_paths = (
+        sorted(Path(path) for path in real_paths)
+        if real_paths is not None
+        else sorted(au_root.rglob("*.csv"))
+    )
+    for path in source_paths:
         expression_class = _expression_class_from_path(path)
         if expression_class is None:
             continue
@@ -595,6 +605,8 @@ def build_expression_profile(
         "class_counts": dict(class_counts),
         "provenance": {
             "source": "data/au/MD_CL",
+            "real_paths_explicit": real_paths is not None,
+            "real_paths_count": len(source_paths),
             "source_role": (
                 "real_wangxing_expression_distribution"
                 if pseudo_sample_count == 0
@@ -841,7 +853,7 @@ def _identity_frame_embeddings(
     backend: Any,
     max_frames: int,
 ) -> tuple[np.ndarray, dict[str, Any]]:
-    indexes, frames, fps = _sample_frames(path, max_frames)
+    _indexes, frames, fps = _sample_frames(path, max_frames)
     embeddings: list[np.ndarray] = []
     quality_weights: list[float] = []
     backends: Counter[str] = Counter()
@@ -1110,7 +1122,6 @@ def _identity_calibration_metrics(
 
     order = np.argsort(-values, kind="mergesort")
     sorted_labels = target[order]
-    sorted_scores = values[order]
     tp = np.cumsum(sorted_labels == 1)
     fp = np.cumsum(sorted_labels == 0)
     tpr = tp / positives
@@ -1512,7 +1523,7 @@ def _load_json(path: str | Path) -> dict[str, Any]:
     with Path(path).open("r", encoding="utf-8-sig") as handle:
         payload = json.load(handle)
     if not isinstance(payload, dict):
-        raise ValueError(f"Expected JSON object: {path}")
+        raise TypeError(f"Expected JSON object: {path}")
     return payload
 
 
@@ -1546,8 +1557,11 @@ def score_expression_profile(
             "status": "unavailable",
             "decision": "uncertain",
             "compatibility_0_1": None,
+            "expression_compatibility_0_1": None,
             "class_scores": {},
             "top_profiles": [],
+            "most_compatible_profiles": [],
+            "profile_winner": None,
             "event_statistics": quality["event_statistics"],
             "quality": quality,
             "uncertainty_reasons": ["expression_profile_unavailable"],
@@ -1558,7 +1572,11 @@ def score_expression_profile(
         key=lambda item: item[1]["score_0_1"],
         reverse=True,
     )
-    selected_class = expected_class if expected_class in class_scores else ranked[0][0]
+    profile_winner = ranked[0][0]
+    profile_winner_score = ranked[0][1]["score_0_1"]
+    selected_class = (
+        expected_class if expected_class in class_scores else profile_winner
+    )
     selected_score = class_scores[selected_class]["score_0_1"]
     top_score = ranked[0][1]["score_0_1"]
     second_score = ranked[1][1]["score_0_1"] if len(ranked) > 1 else 0.0
@@ -1581,9 +1599,18 @@ def score_expression_profile(
     return {
         "status": "available",
         "decision": decision,
-        "compatibility_0_1": float(selected_score),
+        "compatibility_0_1": float(top_score),
+        "expression_compatibility_0_1": float(top_score),
         "selected_profile": selected_class,
         "selected_profile_display_name": class_scores[selected_class]["display_name"],
+        "profile_winner": profile_winner,
+        "profile_winner_display_name": class_scores[profile_winner][
+            "display_name"
+        ],
+        "profile_winner_score_0_1": float(profile_winner_score),
+        "expected_profile_score_0_1": float(selected_score)
+        if expected_class in class_scores
+        else None,
         "top_profiles": [
             {
                 "class": expression_class,
@@ -1591,10 +1618,22 @@ def score_expression_profile(
             }
             for expression_class, score in ranked[:2]
         ],
+        "most_compatible_profiles": [
+            {
+                "class": expression_class,
+                "score_0_1": float(score["score_0_1"]),
+                "display_name": score["display_name"],
+            }
+            for expression_class, score in ranked[:2]
+        ],
         "class_scores": class_scores,
         "margin_0_1": float(margin),
         "emotion_uncertain": bool(margin < 0.05),
+        "expression_class_uncertain": bool(margin < 0.05),
         "expected_profile": expected_class,
+        "compatibility_basis": (
+            "max_similarity_to_real_wangxing_expression_support_domain"
+        ),
         "event_statistics": quality["event_statistics"],
         "quality": quality,
         "uncertainty_reasons": reasons,
@@ -1621,7 +1660,6 @@ def evaluate_specialization(
 
     identity_profile = _load_json(identity_profile_path)
     expression_profile = _load_json(expression_profile_path)
-    del source_profile_path
     backend = _IdentityBackend(_FaceDetector(), device=device)
     identity = evaluate_identity_profile(
         video_path,
@@ -1641,11 +1679,34 @@ def evaluate_specialization(
             "status": "not_evaluated",
             "decision": "not_evaluated_due_to_identity",
             "compatibility_0_1": None,
+            "expression_compatibility_0_1": None,
             "top_profiles": [],
+            "most_compatible_profiles": [],
+            "profile_winner": None,
             "event_statistics": None,
             "quality": None,
             "uncertainty_reasons": ["identity_gate_not_passed"],
         }
+    source: dict[str, Any] = {
+        "status": "not_available",
+        "decision": "not_evaluated",
+        "reason": "source_profile_not_supplied",
+    }
+    if source_profile_path is not None:
+        source_path = Path(source_profile_path)
+        if source_path.is_file():
+            source = score_source_profile(au_path, _load_json(source_path))
+            source["role"] = (
+                "secondary_real_vs_generated_domain_evidence; "
+                "not_used_for_identity_gate"
+            )
+        else:
+            source = {
+                "status": "unavailable",
+                "decision": "uncertain",
+                "reason": "source_profile_missing",
+                "path": str(source_path),
+            }
     if identity["decision"] == "not_wangxing":
         final_decision = "not_wangxing"
     elif identity["decision"] == "uncertain":
@@ -1663,6 +1724,7 @@ def evaluate_specialization(
         "evaluator_version": SPECIALIZATION_EVALUATOR_VERSION,
         "identity": identity,
         "expression_profile": expression,
+        "source": source,
         "decision": final_decision,
         "decision_policy": (
             "Identity is gated before expression compatibility. Non-Wang Xing "
@@ -1673,6 +1735,11 @@ def evaluate_specialization(
         "sources": {
             "identity_profile": str(identity_profile_path),
             "expression_profile": str(expression_profile_path),
+            "source_profile": (
+                str(source_profile_path)
+                if source_profile_path is not None
+                else None
+            ),
             "generated_au": str(au_path),
             "generated_video": str(video_path),
         },

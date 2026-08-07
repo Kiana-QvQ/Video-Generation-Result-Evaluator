@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import logging
 import math
 import os
@@ -2300,6 +2301,8 @@ def evaluate_all(
     manual_expression_score: float | None = None,
     manual_aesthetic_score: float | None = None,
     vbench_output_root: str | Path | None = None,
+    forensics_profile_path: str | Path | None = None,
+    forensics_au_path: str | Path | None = None,
 ) -> dict[str, Any]:
     policy = resolve_policy(device)
     effective_device = policy.resolved_device
@@ -2482,6 +2485,54 @@ def evaluate_all(
         identity,
         max_frames,
     )
+    forensics: dict[str, Any] | None = None
+    if forensics_profile_path is not None:
+        try:
+            profile_path = Path(forensics_profile_path)
+            profiles = json.loads(
+                profile_path.read_text(encoding="utf-8-sig")
+            )
+            from .forensics import analyze_forensics
+
+            forensics = analyze_forensics(
+                facial_motion=forensics_au_path,
+                facial_motion_profile=profiles.get("facial_motion"),
+                texture_detail=result_path,
+                texture_detail_profile=profiles.get("texture_detail"),
+                authenticity_calibrator=profiles.get(
+                    "authenticity_calibrator"
+                ),
+                max_frames=max_frames,
+                sample_fps=DEFAULT_SAMPLE_FPS,
+            )
+            forensics["profile"] = str(profile_path)
+            forensics["au_csv"] = (
+                str(forensics_au_path)
+                if forensics_au_path is not None
+                else None
+            )
+        except (
+            OSError,
+            TypeError,
+            ValueError,
+            json.JSONDecodeError,
+            RuntimeError,
+        ) as exc:
+            forensics = {
+                "status": "unavailable",
+                "scores": {
+                    "facial_expression_muscle_score_0_1": None,
+                    "texture_detail_score_0_1": None,
+                    "real_capture_likelihood_0_1": None,
+                },
+                "warning": f"Forensics scoring unavailable: {exc}",
+                "profile": str(forensics_profile_path),
+                "au_csv": (
+                    str(forensics_au_path)
+                    if forensics_au_path is not None
+                    else None
+                ),
+            }
     categories = {
         "identity": identity,
         "texture": texture,
@@ -2732,4 +2783,5 @@ def evaluate_all(
         "etva_judge": etva_judge,
         "frame_records": frame_table,
         "warnings": warnings,
+        "forensics": forensics,
     }
