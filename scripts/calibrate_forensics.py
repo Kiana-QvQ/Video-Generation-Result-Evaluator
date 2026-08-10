@@ -178,6 +178,40 @@ def _expected_calibration_error(
     return float(error)
 
 
+def _cross_fitted_probabilities(
+    real_scores: list[float],
+    seedance_scores: list[float],
+) -> list[float | None]:
+    """Estimate calibration metrics without scoring each row with its own fit."""
+    scores = [*real_scores, *seedance_scores]
+    predictions: list[float | None] = []
+    for index, score in enumerate(scores):
+        if index < len(real_scores):
+            train_real = real_scores[:index] + real_scores[index + 1 :]
+            train_seedance = seedance_scores
+        else:
+            seedance_index = index - len(real_scores)
+            train_real = real_scores
+            train_seedance = (
+                seedance_scores[:seedance_index]
+                + seedance_scores[seedance_index + 1 :]
+            )
+        if not train_real or not train_seedance:
+            predictions.append(None)
+            continue
+        fold_calibrator = fit_probability_calibrator(
+            train_real,
+            train_seedance,
+        )
+        predictions.append(
+            apply_probability_calibrator(
+                score,
+                {**fold_calibrator, "status": "ready"},
+            )
+        )
+    return predictions
+
+
 def _manifest_paths(
     manifest_path: Path,
     *,
@@ -273,6 +307,100 @@ def _score_samples(
     return scored, failures
 
 
+def _cached_scored_samples(
+    path: Path,
+    *,
+    real_samples: list[dict[str, Any]],
+    seedance_samples: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Reuse scores only when they match the current explicit holdout pairs."""
+    payload = json.loads(path.read_text(encoding="utf-8-sig"))
+    cached = payload.get("samples")
+    if not isinstance(cached, list):
+        raise SystemExit(f"Cached calibration has no samples list: {path}")
+
+    def key(sample: dict[str, Any]) -> tuple[str, str | None, str | None]:
+        def resolved(value: Any) -> str | None:
+            if isinstance(value, Path):
+                value = str(value)
+            if not isinstance(value, str) or not value.strip():
+                return None
+            return str(Path(value).resolve())
+
+        return (
+            str(sample.get("domain", "")),
+            resolved(sample.get("au_path")),
+            resolved(sample.get("video_path")),
+        )
+
+    allowed = {
+        key(
+            {
+                "domain": sample["domain"],
+                "au_path": sample.get("au_path"),
+                "video_path": sample.get("video_path"),
+            }
+        )
+        for sample in [*real_samples, *seedance_samples]
+    }
+    real: list[dict[str, Any]] = []
+    seedance: list[dict[str, Any]] = []
+    for sample in cached:
+        if not isinstance(sample, dict):
+            continue
+        sample_key = key(sample)
+        if sample_key not in allowed:
+            raise SystemExit(
+                "Cached calibration sample does not match the current "
+                f"holdout manifest: {sample_key}"
+            )
+        raw = sample.get("raw_real_domain_evidence_0_1")
+        if not isinstance(raw, (int, float)) or not np.isfinite(raw):
+            raise SystemExit(
+                f"Cached calibration sample has invalid raw evidence: {sample}"
+            )
+        normalized = {
+            **sample,
+            "raw_real_domain_evidence_0_1": float(raw),
+            "confidence_0_1": float(sample.get("confidence_0_1", 0.0)),
+        }
+        if sample_key[0] == "real":
+            real.append(normalized)
+        elif sample_key[0] == "seedance":
+            seedance.append(normalized)
+    expected_real = {
+        key(
+            {
+                "domain": "real",
+                "au_path": sample.get("au_path"),
+                "video_path": sample.get("video_path"),
+            }
+        )
+        for sample in real_samples
+    }
+    expected_seedance = {
+        key(
+            {
+                "domain": "seedance",
+                "au_path": sample.get("au_path"),
+                "video_path": sample.get("video_path"),
+            }
+        )
+        for sample in seedance_samples
+    }
+    if {key(sample) for sample in real} != expected_real:
+        raise SystemExit(
+            "Cached calibration does not contain exactly the current real "
+            "holdout samples."
+        )
+    if {key(sample) for sample in seedance} != expected_seedance:
+        raise SystemExit(
+            "Cached calibration does not contain exactly the current "
+            "Seedance holdout samples."
+        )
+    return real, seedance
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
@@ -325,6 +453,14 @@ def main() -> int:
     parser.add_argument(
         "--update-profile",
         help="Also add the calibrator payload to this profile JSON.",
+    )
+    parser.add_argument(
+        "--reuse-samples-from",
+        help=(
+            "Reuse scored samples from a prior calibration JSON after "
+            "verifying they match the current explicit holdout manifest. "
+            "This avoids decoding the same videos again."
+        ),
     )
     args = parser.parse_args()
 
@@ -411,20 +547,32 @@ def main() -> int:
         au_root=seedance_au_root,
         video_root=seedance_video_root,
     )
-    scored_real, real_failures = _score_samples(
-        real_samples,
-        facial_profile=facial_profile,
-        texture_profile=texture_profile,
-        max_frames=args.max_frames,
-        sample_fps=args.sample_fps,
-    )
-    scored_seedance, seedance_failures = _score_samples(
-        seedance_samples,
-        facial_profile=facial_profile,
-        texture_profile=texture_profile,
-        max_frames=args.max_frames,
-        sample_fps=args.sample_fps,
-    )
+    if args.reuse_samples_from:
+        cache_path = project_path(args.reuse_samples_from)
+        if not cache_path.is_file():
+            raise SystemExit(f"Cached calibration was not found: {cache_path}")
+        scored_real, scored_seedance = _cached_scored_samples(
+            cache_path,
+            real_samples=real_samples,
+            seedance_samples=seedance_samples,
+        )
+        real_failures: list[dict[str, str]] = []
+        seedance_failures: list[dict[str, str]] = []
+    else:
+        scored_real, real_failures = _score_samples(
+            real_samples,
+            facial_profile=facial_profile,
+            texture_profile=texture_profile,
+            max_frames=args.max_frames,
+            sample_fps=args.sample_fps,
+        )
+        scored_seedance, seedance_failures = _score_samples(
+            seedance_samples,
+            facial_profile=facial_profile,
+            texture_profile=texture_profile,
+            max_frames=args.max_frames,
+            sample_fps=args.sample_fps,
+        )
     real_scores = [
         item["raw_real_domain_evidence_0_1"] for item in scored_real
     ]
@@ -472,6 +620,33 @@ def main() -> int:
         if len(calibrated_scores) == len(labels)
         else None
     )
+    cross_fitted_scores = _cross_fitted_probabilities(
+        real_scores,
+        seedance_scores,
+    )
+    cross_fitted_labels = [
+        label
+        for label, probability in zip(labels, cross_fitted_scores)
+        if probability is not None
+    ]
+    cross_fitted_values = [
+        probability
+        for probability in cross_fitted_scores
+        if probability is not None
+    ]
+    cross_fitted_brier = (
+        _brier_score(cross_fitted_labels, cross_fitted_values)
+        if len(cross_fitted_labels) == len(labels)
+        else None
+    )
+    cross_fitted_ece = (
+        _expected_calibration_error(
+            cross_fitted_labels,
+            cross_fitted_values,
+        )
+        if len(cross_fitted_labels) == len(labels)
+        else None
+    )
     payload = {
         "schema_version": "forensics_authenticity_calibration_v1",
         "status": calibrator["status"],
@@ -497,9 +672,13 @@ def main() -> int:
             "roc_auc_real_vs_seedance": _roc_auc(labels, scores),
             "brier_score": brier_score,
             "expected_calibration_error_10": expected_calibration_error,
+            "cross_fitted_brier_score": cross_fitted_brier,
+            "cross_fitted_expected_calibration_error_10": cross_fitted_ece,
             "warning": (
-                "These scores describe the calibration split and are not "
-                "an independent final generalization estimate."
+                "In-sample Brier/ECE use the final fit; cross-fitted "
+                "Brier/ECE are less optimistic but still describe only this "
+                "source-video holdout split, not independent final "
+                "generalization."
             ),
         },
         "sampling": {
@@ -514,6 +693,12 @@ def main() -> int:
                 _files(seedance_video_root, VIDEO_SUFFIXES)
             ),
             "holdout_manifest": str(holdout_manifest_path),
+            "reused_scored_samples": bool(args.reuse_samples_from),
+            "reused_samples_from": (
+                str(project_path(args.reuse_samples_from))
+                if args.reuse_samples_from
+                else None
+            ),
             "real_selected_samples": len(real_samples),
             "seedance_selected_samples": len(seedance_samples),
             "max_samples_per_domain": args.max_samples_per_domain,

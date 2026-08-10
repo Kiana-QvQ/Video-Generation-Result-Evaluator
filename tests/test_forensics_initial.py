@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -21,6 +22,8 @@ from evaluator.forensics import (
 )
 from scripts.calibrate_forensics import (
     _brier_score,
+    _cached_scored_samples,
+    _cross_fitted_probabilities,
     _expected_calibration_error,
 )
 
@@ -256,4 +259,62 @@ class ForensicsInitialTests(unittest.TestCase):
         )
         self.assertIsNotNone(
             _expected_calibration_error(labels, probabilities)
+        )
+
+    def test_cross_fitted_calibration_probabilities_are_out_of_fold(self) -> None:
+        probabilities = _cross_fitted_probabilities(
+            [0.70, 0.80, 0.90],
+            [0.10, 0.20, 0.30],
+        )
+        self.assertEqual(len(probabilities), 6)
+        self.assertTrue(all(value is not None for value in probabilities))
+        self.assertGreater(probabilities[0], probabilities[-1])
+
+    def test_cached_calibration_samples_must_match_holdout_pairs(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "cached.json"
+            real_au = Path(directory) / "real.csv"
+            seedance_au = Path(directory) / "seedance.csv"
+            real_video = Path(directory) / "real.mp4"
+            seedance_video = Path(directory) / "seedance.mp4"
+            cached = {
+                "samples": [
+                    {
+                        "domain": "real",
+                        "au_path": str(real_au),
+                        "video_path": str(real_video),
+                        "raw_real_domain_evidence_0_1": 0.8,
+                    },
+                    {
+                        "domain": "seedance",
+                        "au_path": str(seedance_au),
+                        "video_path": str(seedance_video),
+                        "raw_real_domain_evidence_0_1": 0.2,
+                    },
+                ]
+            }
+            path.write_text(json.dumps(cached), encoding="utf-8")
+            real, seedance = _cached_scored_samples(
+                path,
+                real_samples=[
+                    {
+                        "domain": "real",
+                        "au_path": real_au,
+                        "video_path": real_video,
+                    }
+                ],
+                seedance_samples=[
+                    {
+                        "domain": "seedance",
+                        "au_path": seedance_au,
+                        "video_path": seedance_video,
+                    }
+                ],
+            )
+
+        self.assertEqual(len(real), 1)
+        self.assertEqual(len(seedance), 1)
+        self.assertEqual(
+            real[0]["raw_real_domain_evidence_0_1"],
+            0.8,
         )
