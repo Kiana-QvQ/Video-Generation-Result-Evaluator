@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from evaluator.core.model_profile import get_recommended_model
-from evaluator.backends.vbench_runner import _ensure_dino_compat_source, discover_vbench
+from backends.vbench_runner import _ensure_dino_compat_source, discover_vbench
 
 
 class ModelProfileTests(unittest.TestCase):
@@ -46,23 +46,23 @@ class ModelProfileTests(unittest.TestCase):
 
             with (
                 patch(
-                    "evaluator.backends.vbench_runner._dino_available",
+                    "backends.vbench_runner._dino_available",
                     return_value=True,
                 ),
                 patch(
-                    "evaluator.backends.vbench_runner.importlib.util.find_spec",
+                    "backends.vbench_runner.importlib.util.find_spec",
                     side_effect=find_spec,
                 ),
                 patch(
-                    "evaluator.backends.vbench_runner._launch_script",
+                    "backends.vbench_runner._launch_script",
                     return_value=Path(directory) / "launch" / "evaluate.py",
                 ),
                 patch(
-                    "evaluator.backends.vbench_runner.shutil.which",
+                    "backends.vbench_runner.shutil.which",
                     return_value="docker",
                 ),
                 patch(
-                    "evaluator.backends.vbench_runner._docker_image_available",
+                    "backends.vbench_runner._docker_image_available",
                     return_value=True,
                 ),
             ):

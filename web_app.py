@@ -40,7 +40,7 @@ from evaluator.core.hardware_policy import resolve_policy
 from evaluator.core.media import concatenate_videos, transcode_video_for_browser
 from evaluator.core.paths import resolve_profile
 from evaluator.core.runtime import OUTPUT_DIR, PROJECT_ROOT
-from evaluator.backends.subst import cleanup_project_subst_mappings
+from backends.subst import cleanup_project_subst_mappings
 from evaluator.core.video_metrics import is_video_path, probe_video
 from evaluator.forensics import analyze_forensics
 from evaluator.wangxing.wangxing_specialization import (

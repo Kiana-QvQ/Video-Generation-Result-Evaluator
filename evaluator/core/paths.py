@@ -80,6 +80,7 @@ PROFILE_FILES = {
     "wangxing_identity_profile": "wangxing_identity_profile.json",
     "wangxing_source_profile": "wangxing_source_profile.json",
     "wangxing_au_profile": "wangxing_au_profile.json",
+    "original_emotion_au_profile": "original_emotion_au_profile.json",
     "forensics_profiles": "forensics_profiles.json",
     "forensics_authenticity_calibrator": (
         "forensics_authenticity_calibrator.json"
@@ -97,9 +98,20 @@ def profile_path(key: str, *, required: bool = False) -> Path | None:
     return resolve_profile(filename, required=required)
 
 
-def verify_bundled_profiles() -> dict[str, bool]:
-    """Return existence map for all packaged profile assets."""
+def verify_bundled_profiles(
+    package_root: str | Path | None = None,
+) -> dict[str, bool]:
+    """Return an existence map for profile assets in a package layout.
+
+    ``package_root`` is useful when validating a staged bundle before it is
+    archived. The default keeps the historical behavior for the live package.
+    """
+    profiles_dir = (
+        Path(package_root).expanduser() / "assets" / "profiles"
+        if package_root is not None
+        else PROFILES_DIR
+    )
     return {
-        key: (PROFILES_DIR / filename).is_file()
+        key: (profiles_dir / filename).is_file()
         for key, filename in PROFILE_FILES.items()
     }

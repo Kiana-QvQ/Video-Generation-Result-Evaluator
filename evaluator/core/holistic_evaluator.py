@@ -33,18 +33,57 @@ from .video_metrics import (
 from .runtime import MODEL_CACHE_DIR, OUTPUT_DIR, prepare_pyiqa_checkpoint
 from .face_detection import FaceDetector
 from .model_profile import get_recommended_model
-from ..backends.etva_judge import evaluate_etva_judge, etva_service_available
 from .evaluation_lock import serialized_evaluation
 from .hardware_policy import resolve_policy
 from .gpu_memory import release_cuda_memory
-from ..backends.vbench_runner import run_vbench
-from ..backends.viclip_backend import (
-    VICLIP_CHECKPOINT,
-    clear_viclip_cache,
-    text_similarity as viclip_text_similarity,
-    video_similarity as viclip_video_similarity,
-    viclip_enabled,
-)
+
+try:
+    from backends.etva_judge import evaluate_etva_judge, etva_service_available
+    from backends.vbench_runner import run_vbench
+    from backends.viclip_backend import (
+        VICLIP_CHECKPOINT,
+        clear_viclip_cache,
+        text_similarity as viclip_text_similarity,
+        video_similarity as viclip_video_similarity,
+        viclip_enabled,
+    )
+except ImportError:  # Collaborator package may omit optional runners.
+    VICLIP_CHECKPOINT = Path("__missing_viclip_checkpoint__")
+
+    def etva_service_available(*_args: Any, **_kwargs: Any) -> bool:
+        return False
+
+    def evaluate_etva_judge(**_kwargs: Any) -> dict[str, Any]:
+        return {
+            "status": "unavailable",
+            "score_0_1": None,
+            "backend": None,
+            "warnings": [
+                "Optional package `backends` is not installed."
+            ],
+            "metrics": {},
+        }
+
+    def run_vbench(**_kwargs: Any) -> dict[str, Any]:
+        return {
+            "status": "unavailable",
+            "records": [],
+            "backend": None,
+            "output_dir": None,
+            "installation": "Optional package `backends` is not installed.",
+        }
+
+    def clear_viclip_cache() -> None:
+        return None
+
+    def viclip_enabled(_device: str) -> bool:
+        return False
+
+    def viclip_text_similarity(**_kwargs: Any) -> dict[str, Any]:
+        raise RuntimeError("Optional package `backends` is not installed.")
+
+    def viclip_video_similarity(**_kwargs: Any) -> dict[str, Any]:
+        raise RuntimeError("Optional package `backends` is not installed.")
 
 
 WEIGHTS = {
@@ -145,7 +184,7 @@ def get_model_inventory() -> list[dict[str, Any]]:
     except Exception as exc:
         mediapipe_note = f"MediaPipe 加载失败，将回退到人脸框代理：{exc}"
     try:
-        from ..backends.vbench_runner import discover_vbench
+        from backends.vbench_runner import discover_vbench
 
         discovered_vbench = discover_vbench()
         vbench_ready = bool(

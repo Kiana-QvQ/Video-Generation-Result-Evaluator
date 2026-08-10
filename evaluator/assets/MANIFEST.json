@@ -1,46 +1,60 @@
 {
   "schema_version": "evaluator_assets_manifest_v1",
-  "generated_at": "2026-08-10T19:09:57",
+  "generated_at": "2026-08-10T19:52:49",
   "profiles": {
     "wangxing_expression_profile": {
       "filename": "wangxing_expression_profile.json",
       "source": "data/au/wangxing_expression_profile.json",
-      "bytes": 299260
+      "bytes": 299260,
+      "sha256": "154073e129c2945309ad1bdc8ebae3de9f522e98645f70f87ef752e36335abde"
     },
     "wangxing_identity_profile": {
       "filename": "wangxing_identity_profile.json",
       "source": "data/au/wangxing_identity_profile.json",
-      "bytes": 9636477
+      "bytes": 9636477,
+      "sha256": "8238f8cc2d8e6f3f302c28de37962aadaafaa5b7d837f9fa59e416ce2e7f5d6e"
     },
     "wangxing_source_profile": {
       "filename": "wangxing_source_profile.json",
       "source": "data/au/wangxing_source_profile.json",
-      "bytes": 221516
+      "bytes": 221516,
+      "sha256": "c770f2a66d2992d9a2e0be7d9574d065cd2fc603d5c8d4c1a7592ecbfbd191e4"
     },
     "wangxing_au_profile": {
       "filename": "wangxing_au_profile.json",
       "source": "data/au/wangxing_au_profile.json",
-      "bytes": 1748773
+      "bytes": 1748773,
+      "sha256": "01a73b910572e233670fa8d332f36ee59b9c9bc573c940a09907aca72f232c79"
+    },
+    "original_emotion_au_profile": {
+      "filename": "original_emotion_au_profile.json",
+      "source": "data/au/original_emotion_au_profile.json",
+      "bytes": 1801921,
+      "sha256": "856e5fe0bb31a4d1fff3301b9898aa40700515888caf3fbaad082cb09e68056c"
     },
     "forensics_profiles": {
       "filename": "forensics_profiles.json",
       "source": "outputs/forensics/forensics_profiles.json",
-      "bytes": 200288
+      "bytes": 200288,
+      "sha256": "c66690570ce9855d26652e297f2608799c0a0ef723ea7585da022df98b62a262"
     },
     "forensics_authenticity_calibrator": {
       "filename": "forensics_authenticity_calibrator.json",
       "source": "extracted runtime calibrator",
-      "bytes": 443
+      "bytes": 443,
+      "sha256": "bfdddf5c18d73c0b20a3bc4fde80987eec7cb3d83f5a4b5338bee15e5065c22f"
     },
     "holdout_split": {
       "filename": "holdout_split.json",
       "source": "data/forensics/holdout_split.json",
-      "bytes": 16295
+      "bytes": 16295,
+      "sha256": "3c18177232aea063f7760484a92e3dabd240a65339e56787f0c4f51c28dfee3f"
     },
     "model_profile": {
       "filename": "model_profile.json",
       "source": "config/model_profile.json",
-      "bytes": 2131
+      "bytes": 2131,
+      "sha256": "b04918b0b7b4fb4ce690084cb7d5c8f2c976bf96b6ed49df91134eee78a6545c"
     }
   },
   "calibrator_runtime_keys": [
@@ -58,6 +72,7 @@
     "wangxing_identity_profile": true,
     "wangxing_source_profile": true,
     "wangxing_au_profile": true,
+    "original_emotion_au_profile": true,
     "forensics_profiles": true,
     "forensics_authenticity_calibrator": true,
     "holdout_split": true,

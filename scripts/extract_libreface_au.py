@@ -18,7 +18,7 @@ from evaluator.wangxing.au_dataset import (  # noqa: E402
     DEFAULT_MIN_FRAME_COVERAGE,
     validate_au_csv,
 )
-from evaluator.backends.subst import (  # noqa: E402
+from backends.subst import (  # noqa: E402
     cleanup_project_subst_mappings,
     list_subst_mappings,
     remove_subst_drive,

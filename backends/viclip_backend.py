@@ -7,7 +7,7 @@ from typing import Any
 
 import numpy as np
 
-from ..core.runtime import MODEL_CACHE_DIR
+from evaluator.core.runtime import MODEL_CACHE_DIR
 
 
 VICLIP_CHECKPOINT = MODEL_CACHE_DIR / "viclip" / "ViClip-InternVid-10M-FLT.pth"

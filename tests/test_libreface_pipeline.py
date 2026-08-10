@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 from scripts.extract_libreface_au import _utf8_environment
 from scripts.evaluate_generated_video import _utf8_environment as evaluator_environment
-from evaluator.backends import subst
+from backends import subst
 
 
 class LibrefacePipelineTests(unittest.TestCase):

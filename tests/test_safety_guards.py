@@ -10,9 +10,9 @@ import cv2
 import numpy as np
 
 import web_app
-from evaluator.backends.etva_judge import _parse_result
+from backends.etva_judge import _parse_result
 from evaluator.core.model_profile import get_recommended_model
-from evaluator.backends.vbench_runner import _matching_score
+from backends.vbench_runner import _matching_score
 from evaluator.core.video_metrics import _read_frames
 
 

@@ -11,7 +11,7 @@ from typing import Any
 import cv2
 import numpy as np
 
-from ..core.video_metrics import (
+from evaluator.core.video_metrics import (
     SEMANTIC_WINDOW_FRAMES,
     _read_frames,
     _sample_indices,

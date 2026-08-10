@@ -12,7 +12,7 @@ import cv2
 import numpy as np
 
 import evaluator.core.runtime as runtime
-from evaluator.backends.etva_judge import (
+from backends.etva_judge import (
     _request,
     etva_service_available,
     evaluate_etva_judge,
@@ -230,9 +230,9 @@ class HolisticEvaluatorTests(unittest.TestCase):
             },
         ]
         with (
-            patch("evaluator.etva_judge.sample_video_windows", return_value=({}, windows)),
+            patch("backends.etva_judge.sample_video_windows", return_value=({}, windows)),
             patch(
-                "evaluator.etva_judge._request",
+                "backends.etva_judge._request",
                 side_effect=[
                     '{"scores":[1],"overall":1}',
                     '{"scores":[0],"overall":0}',
@@ -280,9 +280,9 @@ class HolisticEvaluatorTests(unittest.TestCase):
             }
         ]
         with (
-            patch("evaluator.etva_judge.sample_video_windows", return_value=({}, windows)),
+            patch("backends.etva_judge.sample_video_windows", return_value=({}, windows)),
             patch(
-                "evaluator.etva_judge._request",
+                "backends.etva_judge._request",
                 side_effect=ValueError("invalid judge output"),
             ),
         ):
@@ -301,7 +301,7 @@ class HolisticEvaluatorTests(unittest.TestCase):
         self.assertIn("service is connected", result["reason"])
 
     def test_etva_service_requires_a_model_from_models_endpoint(self) -> None:
-        with patch("evaluator.etva_judge.urllib.request.urlopen") as urlopen:
+        with patch("backends.etva_judge.urllib.request.urlopen") as urlopen:
             response = urlopen.return_value.__enter__.return_value
             response.status = 200
             response.read.return_value = b'{"object":"list","data":[]}'
@@ -313,7 +313,7 @@ class HolisticEvaluatorTests(unittest.TestCase):
             self.assertTrue(etva_service_available())
 
     def test_etva_rejects_a_success_response_without_message_content(self) -> None:
-        with patch("evaluator.etva_judge.urllib.request.urlopen") as urlopen:
+        with patch("backends.etva_judge.urllib.request.urlopen") as urlopen:
             response = urlopen.return_value.__enter__.return_value
             response.read.return_value = b"{}"
             with self.assertRaisesRegex(ValueError, "message content"):
@@ -531,7 +531,7 @@ class HolisticEvaluatorTests(unittest.TestCase):
             result_path = Path(directory) / "result.mp4"
             _write_video(result_path)
             with patch(
-                "evaluator.holistic_evaluator.run_vbench",
+                "evaluator.core.holistic_evaluator.run_vbench",
                 return_value={
                     "status": "completed",
                     "backend": "docker",
@@ -577,7 +577,7 @@ class HolisticEvaluatorTests(unittest.TestCase):
         with ExitStack() as stack:
             stack.enter_context(
                 patch(
-                    "evaluator.holistic_evaluator._sample_video",
+                    "evaluator.core.holistic_evaluator._sample_video",
                     return_value=(
                         {"fps": 24.0},
                         np.asarray([0, 1]),
@@ -587,25 +587,25 @@ class HolisticEvaluatorTests(unittest.TestCase):
             )
             stack.enter_context(
                 patch(
-                    "evaluator.holistic_evaluator._reference_frames",
+                    "evaluator.core.holistic_evaluator._reference_frames",
                     return_value=(frames[:1], "reference_image"),
                 )
             )
             stack.enter_context(
                 patch(
-                    "evaluator.holistic_evaluator._FaceDetector",
+                    "evaluator.core.holistic_evaluator._FaceDetector",
                     return_value=Detector(),
                 )
             )
             stack.enter_context(
                 patch(
-                    "evaluator.holistic_evaluator._high_frequency_energy",
+                    "evaluator.core.holistic_evaluator._high_frequency_energy",
                     side_effect=[1.0, 1.0, 2.0],
                 )
             )
             stack.enter_context(
                 patch(
-                    "evaluator.holistic_evaluator._optional_iqa",
+                    "evaluator.core.holistic_evaluator._optional_iqa",
                     side_effect=[
                         (0.8, "maniqa"),
                         (0.4, "musiq"),
@@ -635,7 +635,7 @@ class HolisticEvaluatorTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             result_path = Path(directory) / "result.mp4"
             _write_video(result_path)
-            with patch("evaluator.holistic_evaluator.run_vbench") as run_vbench:
+            with patch("evaluator.core.holistic_evaluator.run_vbench") as run_vbench:
                 result = evaluate_aesthetics(
                     result_path,
                     None,
@@ -653,7 +653,7 @@ class HolisticEvaluatorTests(unittest.TestCase):
             result_path = Path(directory) / "result.mp4"
             _write_video(result_path)
             with patch(
-                "evaluator.holistic_evaluator.run_vbench",
+                "evaluator.core.holistic_evaluator.run_vbench",
                 return_value={
                     "status": "failed",
                     "backend": "package",
@@ -814,19 +814,19 @@ class HolisticEvaluatorTests(unittest.TestCase):
         }
         with (
             patch(
-                "evaluator.holistic_evaluator.evaluate_identity",
+                "evaluator.core.holistic_evaluator.evaluate_identity",
                 return_value=categories["identity"],
             ),
             patch(
-                "evaluator.holistic_evaluator.evaluate_texture",
+                "evaluator.core.holistic_evaluator.evaluate_texture",
                 return_value=categories["texture"],
             ),
             patch(
-                "evaluator.holistic_evaluator.evaluate_expression",
+                "evaluator.core.holistic_evaluator.evaluate_expression",
                 return_value=categories["expression"],
             ),
             patch(
-                "evaluator.holistic_evaluator.evaluate_text_alignment",
+                "evaluator.core.holistic_evaluator.evaluate_text_alignment",
                 return_value={
                     "status": "available",
                     "backend": "viclip_internvid_10m_flt",
@@ -835,21 +835,21 @@ class HolisticEvaluatorTests(unittest.TestCase):
                 },
             ),
             patch(
-                "evaluator.holistic_evaluator.evaluate_etva_judge",
+                "evaluator.core.holistic_evaluator.evaluate_etva_judge",
                 return_value={
                     "status": "unavailable",
                     "score_0_1": None,
                     "warnings": [],
                 },
             ),
-            patch("evaluator.holistic_evaluator.etva_service_available", return_value=False),
-            patch("evaluator.holistic_evaluator.clear_viclip_cache"),
+            patch("evaluator.core.holistic_evaluator.etva_service_available", return_value=False),
+            patch("evaluator.core.holistic_evaluator.clear_viclip_cache"),
             patch(
-                "evaluator.holistic_evaluator.evaluate_temporal",
+                "evaluator.core.holistic_evaluator.evaluate_temporal",
                 return_value=categories["temporal"],
             ),
             patch(
-                "evaluator.holistic_evaluator.evaluate_aesthetics",
+                "evaluator.core.holistic_evaluator.evaluate_aesthetics",
                 return_value=categories["aesthetics"],
             ),
         ):
@@ -915,19 +915,19 @@ class HolisticEvaluatorTests(unittest.TestCase):
         }
         patches = [
             patch(
-                "evaluator.holistic_evaluator.evaluate_identity",
+                "evaluator.core.holistic_evaluator.evaluate_identity",
                 return_value=categories["identity"],
             ),
             patch(
-                "evaluator.holistic_evaluator.evaluate_texture",
+                "evaluator.core.holistic_evaluator.evaluate_texture",
                 return_value=categories["texture"],
             ),
             patch(
-                "evaluator.holistic_evaluator.evaluate_expression",
+                "evaluator.core.holistic_evaluator.evaluate_expression",
                 return_value=categories["expression"],
             ),
             patch(
-                "evaluator.holistic_evaluator.evaluate_text_alignment",
+                "evaluator.core.holistic_evaluator.evaluate_text_alignment",
                 return_value={
                     "status": "available",
                     "backend": "viclip_internvid_10m_flt",
@@ -936,7 +936,7 @@ class HolisticEvaluatorTests(unittest.TestCase):
                 },
             ),
             patch(
-                "evaluator.holistic_evaluator.evaluate_etva_judge",
+                "evaluator.core.holistic_evaluator.evaluate_etva_judge",
                 return_value={
                     "status": "available",
                     "backend": "qwen2_vl_2b_awq_http",
@@ -944,14 +944,14 @@ class HolisticEvaluatorTests(unittest.TestCase):
                     "warnings": [],
                 },
             ),
-            patch("evaluator.holistic_evaluator.etva_service_available", return_value=True),
-            patch("evaluator.holistic_evaluator.clear_viclip_cache"),
+            patch("evaluator.core.holistic_evaluator.etva_service_available", return_value=True),
+            patch("evaluator.core.holistic_evaluator.clear_viclip_cache"),
             patch(
-                "evaluator.holistic_evaluator.evaluate_temporal",
+                "evaluator.core.holistic_evaluator.evaluate_temporal",
                 return_value=categories["temporal"],
             ),
             patch(
-                "evaluator.holistic_evaluator.evaluate_aesthetics",
+                "evaluator.core.holistic_evaluator.evaluate_aesthetics",
                 return_value=categories["aesthetics"],
             ),
         ]

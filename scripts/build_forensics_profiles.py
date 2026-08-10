@@ -16,7 +16,7 @@ from evaluator.forensics import (
     extract_texture_detail_features,
 )
 from evaluator.forensics.holdout import holdout_paths
-from evaluator.paths import project_path
+from evaluator.core.paths import project_path
 
 VIDEO_SUFFIXES = {
     ".avi",
