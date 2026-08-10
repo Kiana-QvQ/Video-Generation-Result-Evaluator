@@ -7,6 +7,7 @@ import argparse
 import hashlib
 import json
 import math
+import ntpath
 import shutil
 import sys
 import tempfile
@@ -64,6 +65,40 @@ def _read_json(path: Path) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise ValueError(f"Expected JSON object: {path}")
     return payload
+
+
+def _portable_profile_value(value: Any) -> Any:
+    """Remove machine-specific absolute paths from profile provenance."""
+    if isinstance(value, dict):
+        return {
+            key: _portable_profile_value(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [_portable_profile_value(item) for item in value]
+    if not isinstance(value, str) or not ntpath.isabs(value):
+        return value
+
+    root = str(PROJECT_ROOT.resolve())
+    try:
+        relative = ntpath.relpath(value, root)
+    except ValueError:
+        return ntpath.basename(value)
+    if relative == ".." or relative.startswith(".." + ntpath.sep):
+        return ntpath.basename(value)
+    return relative.replace("\\", "/")
+
+
+def _write_portable_json(path: Path, payload: dict[str, Any]) -> None:
+    path.write_text(
+        json.dumps(
+            _portable_profile_value(payload),
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
 
 
 def _is_runtime_calibrator(payload: dict[str, Any]) -> bool:
@@ -309,7 +344,7 @@ def sync_profiles() -> dict[str, str]:
     copied: dict[str, str] = {}
     for filename, source in source_paths.items():
         target = PROFILES_DIR / filename
-        shutil.copy2(source, target)
+        _write_portable_json(target, _read_json(source))
         copied[filename] = SOURCE_PROFILES[filename]
 
     calibrator_target = PROFILES_DIR / CALIBRATOR_ASSET

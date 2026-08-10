@@ -10401,9 +10401,9 @@
         "valid_frame_ratio": 1.0
       },
       {
-        "source_id": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\WangXing_Seedance\\video_B1lV9raLb2VdLIR3ahzOECHC8kvmSIet.mp4",
+        "source_id": "data/WangXing_Seedance/video_B1lV9raLb2VdLIR3ahzOECHC8kvmSIet.mp4",
         "expression_class": "sadness",
-        "path": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\WangXing_Seedance\\video_B1lV9raLb2VdLIR3ahzOECHC8kvmSIet.csv",
+        "path": "data/au/WangXing_Seedance/video_B1lV9raLb2VdLIR3ahzOECHC8kvmSIet.csv",
         "source_type": "generated_wangxing",
         "label_source": "seedance_content_pseudo_label",
         "label_status": "high_confidence",
@@ -10412,9 +10412,9 @@
         "valid_frame_ratio": 0.8264462809917356
       },
       {
-        "source_id": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\WangXing_Seedance\\video_kgJrzJTL5B_StS8qLDDy7tPmvzNgOloz.mp4",
+        "source_id": "data/WangXing_Seedance/video_kgJrzJTL5B_StS8qLDDy7tPmvzNgOloz.mp4",
         "expression_class": "surprise",
-        "path": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\WangXing_Seedance\\video_kgJrzJTL5B_StS8qLDDy7tPmvzNgOloz.csv",
+        "path": "data/au/WangXing_Seedance/video_kgJrzJTL5B_StS8qLDDy7tPmvzNgOloz.csv",
         "source_type": "generated_wangxing",
         "label_source": "seedance_content_pseudo_label",
         "label_status": "high_confidence",
@@ -10423,9 +10423,9 @@
         "valid_frame_ratio": 1.0
       },
       {
-        "source_id": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\WangXing_Seedance\\video_MhDLdDBH2mt3wTtImsj5TIdGr89thurT.mp4",
+        "source_id": "data/WangXing_Seedance/video_MhDLdDBH2mt3wTtImsj5TIdGr89thurT.mp4",
         "expression_class": "smile",
-        "path": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\WangXing_Seedance\\video_MhDLdDBH2mt3wTtImsj5TIdGr89thurT.csv",
+        "path": "data/au/WangXing_Seedance/video_MhDLdDBH2mt3wTtImsj5TIdGr89thurT.csv",
         "source_type": "generated_wangxing",
         "label_source": "seedance_content_pseudo_label",
         "label_status": "high_confidence",

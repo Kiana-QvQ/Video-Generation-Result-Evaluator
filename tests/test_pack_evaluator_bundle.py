@@ -13,6 +13,24 @@ import scripts.pack_evaluator_bundle as pack
 
 
 class EvaluatorBundleTests(unittest.TestCase):
+    def test_profile_provenance_paths_are_portable(self) -> None:
+        project_file = str(
+            pack.PROJECT_ROOT / "data" / "au" / "sample.csv"
+        )
+        external_file = r"C:\outside\sample.csv"
+
+        portable = pack._portable_profile_value(
+            {
+                "project": project_file,
+                "external": external_file,
+                "nested": [project_file],
+            }
+        )
+
+        self.assertEqual(portable["project"], "data/au/sample.csv")
+        self.assertEqual(portable["external"], "sample.csv")
+        self.assertEqual(portable["nested"], ["data/au/sample.csv"])
+
     def test_all_runtime_profile_assets_are_present(self) -> None:
         status = paths.verify_bundled_profiles()
         self.assertTrue(all(status.values()), status)
@@ -80,10 +98,17 @@ class EvaluatorBundleTests(unittest.TestCase):
                 manifest = json.loads(
                     handle.read("evaluator/assets/MANIFEST.json")
                 )
+                source_profile = handle.read(
+                    "evaluator/assets/profiles/wangxing_source_profile.json"
+                )
             self.assertIn("original_emotion_au_profile", manifest["profiles"])
             self.assertEqual(
                 set(manifest["profiles"]),
                 set(paths.PROFILE_FILES),
+            )
+            self.assertNotIn(
+                str(real_root).replace("\\", "\\\\").encode("utf-8"),
+                source_profile,
             )
 
     def test_bundle_output_cannot_overwrite_evaluator_source(self) -> None:

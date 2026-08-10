@@ -58,16 +58,37 @@ def _as_path(value: Any) -> Path | None:
     return None
 
 
+def _existing_path(
+    raw: Any,
+    *,
+    relative_to: Path | None = None,
+) -> Path | None:
+    if not raw:
+        return None
+    path = Path(str(raw)).expanduser()
+    candidates = [path]
+    if not path.is_absolute() and relative_to is not None:
+        candidates.insert(0, relative_to / path)
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate.resolve()
+    return None
+
+
 def _as_au_csv(value: Any, video_path: Path | None) -> str | None:
+    base_dir = video_path.parent if video_path is not None else None
     if isinstance(value, dict):
         for key in ("au_csv", "au_path", "csv"):
-            raw = value.get(key)
-            if raw and Path(str(raw)).is_file():
-                return str(Path(str(raw)).resolve())
+            path = _existing_path(value.get(key), relative_to=base_dir)
+            if path is not None:
+                return str(path)
     for attribute in ("au_csv", "au_path"):
-        raw = getattr(value, attribute, None)
-        if raw and Path(str(raw)).is_file():
-            return str(Path(str(raw)).resolve())
+        path = _existing_path(
+            getattr(value, attribute, None),
+            relative_to=base_dir,
+        )
+        if path is not None:
+            return str(path)
     if video_path is None:
         return None
     for candidate in (
@@ -131,11 +152,14 @@ def prepare_video_input(
         indices_attr = getattr(video, "indices", None)
         if indices_attr is None and isinstance(video, dict):
             indices_attr = video.get("indices")
-        indices = (
-            [int(value) for value in indices_attr]
-            if indices_attr is not None
-            else list(range(len(frames)))
-        )
+        if indices_attr is None:
+            indices = list(range(len(frames)))
+        else:
+            indices = [int(value) for value in indices_attr]
+            if len(indices) < len(frames):
+                indices.extend(range(len(indices), len(frames)))
+            else:
+                indices = indices[: len(frames)]
         if len(frames) > limit:
             selected = [
                 int(round(index * (len(frames) - 1) / (limit - 1)))
@@ -229,6 +253,10 @@ def _first_score(*values: Any) -> float | None:
         if math.isfinite(numeric):
             return _clamp(numeric)
     return None
+
+
+def _mapping(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
 
 
 def _composite_details(
@@ -332,14 +360,12 @@ def score_detail_quality(
         profiles,
         max_frames=limit,
     )
-    branches = forensics.get("branches", {})
-    texture_result = branches.get("texture_detail") or {}
-    texture_metrics = texture_result.get("metrics", {})
-    if not isinstance(texture_metrics, dict):
-        texture_metrics = {}
-    fusion = forensics.get("fusion", {})
-    if not isinstance(fusion, dict):
-        fusion = {}
+    branches = _mapping(forensics.get("branches"))
+    texture_result = _mapping(branches.get("texture_detail"))
+    texture_metrics = _mapping(texture_result.get("metrics"))
+    fusion = _mapping(forensics.get("fusion"))
+    forensic_scores = _mapping(forensics.get("scores"))
+    flicker = _first_score(texture_metrics.get("texture_flicker_0_1"))
 
     dimensions = {
         "texture_evidence_0_1": _first_score(
@@ -351,28 +377,31 @@ def score_detail_quality(
         ),
         "detail_clarity_0_1": _first_score(
             texture_metrics.get("optical_flow_homogeneity_0_1"),
-            (
-                1.0 - float(texture_metrics["texture_flicker_0_1"])
-                if texture_metrics.get("texture_flicker_0_1") is not None
-                else None
-            ),
+            1.0 - flicker if flicker is not None else None,
         ),
         "real_domain_fit_0_1": _first_score(
             texture_metrics.get("real_domain_fit_0_1"),
         ),
         "fusion_evidence_0_1": _first_score(
-            forensics.get("scores", {}).get(
-                "raw_real_domain_evidence_0_1",
-            ),
+            forensic_scores.get("raw_real_domain_evidence_0_1"),
             fusion.get("raw_real_domain_evidence_0_1"),
         ),
     }
     score, dimension_details = _composite_details(dimensions)
     image_count = _reference_image_count(reference_images)
     has_input = bool(_forensics_input(generated))
+    status = (
+        "unavailable"
+        if score is None
+        else (
+            "available"
+            if all(value is not None for value in dimensions.values())
+            else "partial"
+        )
+    )
     return {
         "score": score,
-        "status": "available" if score is not None else "unavailable",
+        "status": status,
         "details": {
             "scope": "wangxing_specialization_texture",
             "placeholder": False,
@@ -414,6 +443,11 @@ def score_detail_quality(
             ),
             "input_available": has_input,
             "forensics": forensics,
+            "reference_used": False,
+            "reference_note": (
+                "Reference video/images are accepted for API compatibility; "
+                "the web-equivalent texture radar scores the generated input."
+            ),
         },
     }
 
@@ -438,11 +472,10 @@ def score_face_expression(
         profiles,
         max_frames=limit,
     )
-    facial_result = forensics.get("branches", {}).get("facial_motion") or {}
-    facial_metrics = facial_result.get("metrics", {})
-    if not isinstance(facial_metrics, dict):
-        facial_metrics = {}
-    event_statistics = expression_result.get("event_statistics") or {}
+    branches = _mapping(forensics.get("branches"))
+    facial_result = _mapping(branches.get("facial_motion"))
+    facial_metrics = _mapping(facial_result.get("metrics"))
+    event_statistics = _mapping(expression_result.get("event_statistics"))
 
     dimensions = {
         "profile_compatibility_0_1": _first_score(
@@ -468,15 +501,40 @@ def score_face_expression(
     }
     score, dimension_details = _composite_details(dimensions)
     image_count = _reference_image_count(reference_images)
-    warning = (
-        "AU CSV is required for the complete Wang Xing expression and "
-        "facial-motion dimensions."
-        if generated.au_csv is None
-        else None
+    missing_dimensions = [
+        key for key, value in dimensions.items() if value is None
+    ]
+    warning: str | None = None
+    if generated.au_csv is None:
+        warning = (
+            "AU CSV is required for the complete Wang Xing expression and "
+            "facial-motion dimensions."
+        )
+    elif expression_profile is None:
+        warning = "Wang Xing expression profile is unavailable."
+    elif not expression_result:
+        warning = "AU CSV could not be scored by the expression profile."
+    elif missing_dimensions:
+        warning = (
+            "Some expression dimensions are unavailable: "
+            + ", ".join(missing_dimensions)
+        )
+    status = (
+        "partial"
+        if score is None and generated.au_csv is None
+        else (
+            "unavailable"
+            if score is None
+            else (
+                "available"
+                if not missing_dimensions
+                else "partial"
+            )
+        )
     )
     return {
         "score": score,
-        "status": "available" if score is not None else "partial",
+        "status": status,
         "details": {
             "scope": "wangxing_specialization_expression",
             "placeholder": False,
@@ -508,7 +566,14 @@ def score_face_expression(
             ),
             "profile_result": expression_result,
             "reference_count": image_count,
-            "valid_face_frames": generated.frame_count,
+            "valid_face_frames": (
+                round(
+                    float(facial_metrics["landmark_valid_frame_ratio"])
+                    * generated.frame_count
+                )
+                if facial_metrics.get("landmark_valid_frame_ratio") is not None
+                else 0
+            ),
             "total_sampled_frames": generated.frame_count,
             "face_coverage": _first_score(
                 facial_metrics.get("landmark_valid_frame_ratio"),
@@ -525,6 +590,12 @@ def score_face_expression(
             "profile_schema_version": _profile_version(expression_profile),
             "forensics": forensics,
             "warning": warning,
+            "reference_used": False,
+            "reference_note": (
+                "Reference video/images are accepted for API compatibility; "
+                "the web-equivalent expression radar uses generated AU and "
+                "forensics evidence."
+            ),
         },
     }
 
