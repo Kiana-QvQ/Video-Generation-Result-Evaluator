@@ -2015,49 +2015,84 @@ input[type="text"]::placeholder {
 
 .specialization-radar-heading {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: 12px;
+  min-height: 44px;
+  padding-bottom: 6px;
 }
 
-.specialization-radar-heading > div {
+.specialization-radar-copy {
   display: grid;
-  gap: 4px;
+  gap: 3px;
   min-width: 0;
 }
 
-.specialization-radar-heading span {
+.specialization-radar-title {
   color: #718c1d;
-  font: 11px var(--sans);
-  letter-spacing: 0.07em;
+  font: 600 13px/1.2 var(--sans);
+  letter-spacing: 0.04em;
 }
 
-.specialization-radar-block.expression .specialization-radar-heading span {
+.specialization-radar-block.expression .specialization-radar-title {
   color: #a85d4d;
 }
 
-.specialization-radar-block.forensics .specialization-radar-heading span {
+.specialization-radar-block.forensics .specialization-radar-title {
   color: #4f8894;
 }
 
-.specialization-radar-heading small {
+.specialization-radar-subtitle {
   overflow: hidden;
   color: #8c8b92;
-  font: 11px var(--sans);
+  font: 11px/1.25 var(--sans);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.specialization-radar-scale {
+.specialization-radar-meta {
+  display: grid;
   flex: 0 0 auto;
-  color: #a0a0a2 !important;
-  font-size: 10px !important;
+  gap: 0;
+  justify-items: end;
+  line-height: 1;
+  text-align: right;
+}
+
+.specialization-radar-score-label {
+  margin-bottom: 2px;
+  color: #9a9a9c;
+  font: 10px/1 var(--sans);
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+}
+
+.specialization-radar-score {
+  color: #2f3430;
+  font: 700 22px/1 var(--sans);
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+.specialization-radar-block.expression .specialization-radar-score {
+  color: #8a4638;
+}
+
+.specialization-radar-block.forensics .specialization-radar-score {
+  color: #3d6f79;
+}
+
+.specialization-radar-scale {
+  margin-top: 3px;
+  color: #b0b0b2;
+  font: 9px/1 var(--sans);
+  letter-spacing: 0.05em;
 }
 
 .specialization-radar-chart {
   width: 100%;
   height: 170px;
-  margin-top: 0;
+  margin-top: 2px;
 }
 
 .specialization-radar-chart svg {

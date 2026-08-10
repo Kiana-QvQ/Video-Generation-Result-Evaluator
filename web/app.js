@@ -179,6 +179,16 @@ function specializationRadarMarkup(
   const radius = 70;
   const levels = [0.25, 0.5, 0.75, 1];
   const normalizedValues = values.map((value) => normalizeScore(value) ?? 0);
+  const availableScores = values
+    .map((value) => normalizeScore(value))
+    .filter((value) => value !== null);
+  const compositeScore =
+    availableScores.length === 0
+      ? null
+      : availableScores.reduce((sum, value) => sum + value, 0) /
+        availableScores.length;
+  const compositeLabel =
+    compositeScore === null ? "--" : (compositeScore * 100).toFixed(1);
   const valueLabels = values.map((value) => {
     const normalized = normalizeScore(value);
     return normalized === null ? "--" : `${(normalized * 100).toFixed(1)}%`;
@@ -230,11 +240,15 @@ function specializationRadarMarkup(
   return `
     <section class="specialization-radar-block ${escapeHtml(variant)}">
       <div class="specialization-radar-heading">
-        <div>
-          <span>${escapeHtml(title)}</span>
-          <small>${escapeHtml(subtitle)}</small>
+        <div class="specialization-radar-copy">
+          <span class="specialization-radar-title">${escapeHtml(title)}</span>
+          <small class="specialization-radar-subtitle">${escapeHtml(subtitle)}</small>
         </div>
-        <span class="specialization-radar-scale">0-100</span>
+        <div class="specialization-radar-meta">
+          <small class="specialization-radar-score-label">综合得分</small>
+          <strong class="specialization-radar-score">${escapeHtml(compositeLabel)}</strong>
+          <span class="specialization-radar-scale">0-100</span>
+        </div>
       </div>
       <div class="specialization-radar-chart">
         <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(title)}">
