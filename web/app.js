@@ -1171,7 +1171,7 @@ function renderWangxingSpecializationDashboard(payload) {
     calibratedAuthenticity === null
       ? "当前只有未校准真实性证据，不能直接判定来源"
       : forensicDecision === "uncertain"
-        ? `校准后真人拍摄概率 ${percent(calibratedAuthenticity)}，但原始证据仍偏中间，暂不下结论`
+        ? `校准后真人拍摄概率 ${percent(calibratedAuthenticity)}，证据尚不足以给出明确结论`
         : `校准后的真人拍摄概率 ${percent(calibratedAuthenticity)}`;
   const hasForensics = [
     forensicRaw,

@@ -9,6 +9,9 @@ branches:
      acceleration, and jerk.
    - New profiles use `frame_time_in_ms` when available, so derivatives are
      measured in real seconds rather than CSV row units.
+   - Older LibreFace exports that label the column as milliseconds but write
+     seconds are auto-detected (same heuristic as `au_compliance`) so web AU
+     caches and `data/au/MD_CL` share one physical timescale.
    - If Face Mesh coverage is insufficient, scoring falls back to AU-only
      features instead of treating missing landmarks as zero measurements.
    - Builds real-domain or real-versus-Seedance profiles.

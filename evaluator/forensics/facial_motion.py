@@ -306,11 +306,21 @@ def _timestamp_axis(
         if not np.all(np.isfinite(values)):
             continue
         if unit == "milliseconds":
-            values /= 1000.0
+            # Older LibreFace exports label the column as milliseconds but
+            # actually write seconds (e.g. 0.033 for the second frame).
+            # Match au_compliance: treat tiny maxima as already-seconds.
+            max_value = float(np.max(values))
+            if max_value < max(100.0, len(values) * 2.0):
+                timebase = f"{field_name}_seconds_legacy"
+            else:
+                values /= 1000.0
+                timebase = f"{field_name}_seconds"
+        else:
+            timebase = f"{field_name}_seconds"
         values -= values[0]
         if len(values) < 2 or np.any(np.diff(values) <= 0.0):
             continue
-        return values.astype(np.float32), f"{field_name}_seconds"
+        return values.astype(np.float32), timebase
     return None, "row_index"
 
 

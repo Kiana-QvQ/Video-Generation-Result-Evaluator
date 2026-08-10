@@ -203,15 +203,20 @@ def fuse_authenticity_evidence(
         if raw_fused <= 0.40
         else "mixed"
     )
-    # Steep Platt calibration can map mid-range raw evidence to near-0/1
-    # probabilities. Keep hard source decisions only when the raw fused
-    # evidence and the calibrated probability agree on direction.
+    # After timestamp-aware recalibration, trust the held-out probability as
+    # the primary decision signal. Only fall back to uncertain when the raw
+    # fused evidence strongly conflicts with that probability (the failure
+    # mode seen with the pre-fix steep calibrator).
     decision = "uncertain"
     if calibrated is not None:
-        if calibrated >= 0.60 and raw_fused >= 0.60:
-            decision = "real_capture"
-        elif calibrated <= 0.40 and raw_fused <= 0.40:
-            decision = "seedance_like"
+        if calibrated >= 0.60:
+            decision = (
+                "real_capture" if raw_fused >= 0.45 else "uncertain"
+            )
+        elif calibrated <= 0.40:
+            decision = (
+                "seedance_like" if raw_fused <= 0.55 else "uncertain"
+            )
         else:
             decision = "uncertain"
     uncertainty_reasons: list[str] = []
@@ -222,8 +227,14 @@ def fuse_authenticity_evidence(
             )
         else:
             uncertainty_reasons.append("probability_calibrator_not_ready")
-    elif decision == "uncertain" and raw_direction == "mixed":
-        uncertainty_reasons.append("raw_evidence_mixed_after_calibration")
+    elif decision == "uncertain" and calibrated >= 0.60 and raw_fused < 0.45:
+        uncertainty_reasons.append("calibrated_real_but_raw_evidence_low")
+    elif decision == "uncertain" and calibrated <= 0.40 and raw_fused > 0.55:
+        uncertainty_reasons.append(
+            "calibrated_seedance_but_raw_evidence_high"
+        )
+    elif decision == "uncertain" and 0.40 < calibrated < 0.60:
+        uncertainty_reasons.append("calibrated_probability_in_uncertain_band")
     return {
         "status": "calibrated" if calibrated is not None else "uncalibrated",
         "decision": decision,
