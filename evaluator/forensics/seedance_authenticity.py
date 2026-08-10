@@ -203,15 +203,17 @@ def fuse_authenticity_evidence(
         if raw_fused <= 0.40
         else "mixed"
     )
+    # Steep Platt calibration can map mid-range raw evidence to near-0/1
+    # probabilities. Keep hard source decisions only when the raw fused
+    # evidence and the calibrated probability agree on direction.
     decision = "uncertain"
     if calibrated is not None:
-        decision = (
-            "real_capture"
-            if calibrated >= 0.60
-            else "seedance_like"
-            if calibrated <= 0.40
-            else "uncertain"
-        )
+        if calibrated >= 0.60 and raw_fused >= 0.60:
+            decision = "real_capture"
+        elif calibrated <= 0.40 and raw_fused <= 0.40:
+            decision = "seedance_like"
+        else:
+            decision = "uncertain"
     uncertainty_reasons: list[str] = []
     if calibrated is None:
         if calibrator is None:
@@ -220,6 +222,8 @@ def fuse_authenticity_evidence(
             )
         else:
             uncertainty_reasons.append("probability_calibrator_not_ready")
+    elif decision == "uncertain" and raw_direction == "mixed":
+        uncertainty_reasons.append("raw_evidence_mixed_after_calibration")
     return {
         "status": "calibrated" if calibrated is not None else "uncalibrated",
         "decision": decision,

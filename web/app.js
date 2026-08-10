@@ -1107,8 +1107,6 @@ function renderWangxingSpecializationDashboard(payload) {
   const events = expression.event_statistics ?? {};
   const activeRatio = normalizeScore(events.active_ratio);
   const longestEventRatio = normalizeScore(events.longest_event_ratio);
-  const peakIntensity = normalizeScore(events.peak_intensity);
-  const margin = normalizeScore(expression.margin_0_1);
   const identityStatus =
     identityDecision === "wangxing"
       ? "allow"
@@ -1153,8 +1151,8 @@ function renderWangxingSpecializationDashboard(payload) {
     forensicBranches.texture_detail?.metrics?.raw_real_domain_evidence_0_1,
   );
   const forensicDecision = String(
-    forensicFusion.decision ??
-      forensics.authenticity?.decision ??
+    forensics.authenticity?.decision ??
+      forensicFusion.decision ??
       "uncertain",
   );
   const calibratedAuthenticity = normalizeScore(
@@ -1164,34 +1162,37 @@ function renderWangxingSpecializationDashboard(payload) {
   const authenticityConclusionLabels = {
     real_capture: "更接近真人拍摄",
     seedance_like: "更接近 AI 生成",
-    uncertain: "AI 生成判断未校准",
+    uncertain: "真实性证据不足，暂不确定",
   };
   const authenticityConclusion =
     authenticityConclusionLabels[forensicDecision] ??
-    "AI 生成判断未校准";
+    "真实性证据不足，暂不确定";
   const authenticityDetail =
     calibratedAuthenticity === null
-      ? "当前只有未校准真实性证据，不能直接判定 AI 生成"
-      : `校准后的真人拍摄概率 ${percent(calibratedAuthenticity)}`;
+      ? "当前只有未校准真实性证据，不能直接判定来源"
+      : forensicDecision === "uncertain"
+        ? `校准后真人拍摄概率 ${percent(calibratedAuthenticity)}，但原始证据仍偏中间，暂不下结论`
+        : `校准后的真人拍摄概率 ${percent(calibratedAuthenticity)}`;
   const hasForensics = [
     forensicRaw,
     forensicProbability,
     forensicFacial,
     forensicTexture,
   ].some((value) => value !== null);
-  const reasonLabels = {
-    expression_margin_small: "前二表情画像分差较小",
-    identity_uncertain: "身份判断不确定",
-    evidence_quality_low: "证据质量不足",
-  };
-  const decisionReasons = [
-    payload.reason,
-    ...(identity.uncertainty_reasons ?? []),
-    ...(expression.uncertainty_reasons ?? []),
-  ]
-    .filter(Boolean)
-    .map((reason) => reasonLabels[reason] ?? reason)
-    .slice(0, 2);
+  const facialMotionCoherence = normalizeScore(
+    forensicBranches.facial_motion?.metrics?.motion_coherence_0_1,
+  );
+  const facialLandmarkCoverage = normalizeScore(
+    forensicBranches.facial_motion?.metrics?.landmark_valid_frame_ratio,
+  );
+  const textureStability = normalizeScore(
+    forensicBranches.texture_detail?.metrics?.temporal_stability_proxy_0_1,
+  );
+  const textureFlicker = normalizeScore(
+    forensicBranches.texture_detail?.metrics?.texture_flicker_0_1,
+  );
+  const textureClarity =
+    textureFlicker === null ? null : Math.max(0, Math.min(1, 1 - textureFlicker));
 
   wangxingResult.classList.remove("is-hidden");
   wangxingResult.innerHTML = `
@@ -1231,37 +1232,47 @@ function renderWangxingSpecializationDashboard(payload) {
         "identity",
       )}
       ${specializationRadarMarkup(
-        [compatibility, activeRatio, longestEventRatio, peakIntensity, margin],
-        ["画像符合度", "活跃比例", "最长事件", "峰值强度", "前二画像分差"],
-        "表情画像",
+        [
+          compatibility,
+          forensicFacial ?? facialMotionCoherence,
+          facialMotionCoherence,
+          activeRatio,
+          facialLandmarkCoverage ?? longestEventRatio,
+        ],
+        ["画像符合度", "肌肉动作证据", "动作连贯", "活跃比例", "关键点覆盖"],
+        "表情与肌肉动态",
         String(expression.selected_profile_display_name ?? "--"),
         "expression",
       )}
       ${
         hasForensics
           ? specializationRadarMarkup(
-              [forensicRaw, forensicProbability, forensicFacial, forensicTexture],
-              ["原始证据", "校准概率", "面部动作", "质感细节"],
-              "真实性对比",
-              "面部动作 + 质感细节",
+              [
+                forensicTexture,
+                textureStability,
+                textureClarity,
+                normalizeScore(
+                  forensicBranches.texture_detail?.metrics?.real_domain_fit_0_1,
+                ),
+                forensicRaw,
+              ],
+              ["质感证据", "时序稳定", "细节清晰", "真人域拟合", "融合证据"],
+              "质感与细节",
+              "纹理 / 频域 / 时序残差",
               "forensics",
             )
           : ""
       }
     </div>
-    <div class="wangxing-specialization-metrics">
-      <span><strong>${escapeHtml(percent(score))}</strong><small>王兴身份概率</small></span>
-      <span><strong>${escapeHtml(percent(negativeProbability))}</strong><small>负样本分类概率</small></span>
-      <span><strong>${escapeHtml(percent(consistency))}</strong><small>人脸帧一致性</small></span>
-      <span><strong>${escapeHtml(percent(validRatio))}</strong><small>有效人脸帧</small></span>
-      <span><strong>${escapeHtml(percent(qualityWeight))}</strong><small>平均帧质量</small></span>
-      <span><strong>${escapeHtml(String(identity.valid_frame_count ?? "--"))}</strong><small>有效帧数</small></span>
-    </div>
     <div class="wangxing-specialization-expression-meta">
-      <span><strong>${escapeHtml(percent(compatibility))}</strong>画像符合度</span>
       <span><strong>${escapeHtml(expression.selected_profile_display_name ?? "--")}</strong>最接近画像</span>
-      <span><strong>${escapeHtml(percent(margin))}</strong>前二画像分差</span>
       <span><strong>${expression.severe_deviation ? "是" : "否"}</strong>严重偏离</span>
+      <span><strong>${escapeHtml(String(events.event_count ?? "--"))} 次</strong>表情事件</span>
+      <span><strong>${escapeHtml(
+        calibratedAuthenticity === null
+          ? "未校准"
+          : percent(calibratedAuthenticity),
+      )}</strong>校准后真人概率</span>
     </div>
     ${
       topProfiles.length
@@ -1276,48 +1287,6 @@ function renderWangxingSpecializationDashboard(payload) {
               )
               .join(" / ")}
           </p>`
-        : ""
-    }
-    <div class="wangxing-result-quality">
-      <div class="wangxing-result-quality-head">
-        <span>当前视频表情事件</span>
-        <strong>${escapeHtml(String(events.event_count ?? "--"))} 次</strong>
-      </div>
-      <div class="wangxing-result-quality-track">
-        <span style="width: ${Math.max(
-          0,
-          Math.min(100, Number(events.active_ratio ?? 0) * 100),
-        )}%"></span>
-      </div>
-      <p>
-        活动比例 ${escapeHtml(percent(activeRatio))} /
-        最长事件 ${escapeHtml(percent(longestEventRatio))} /
-        峰值 ${escapeHtml(String(events.peak_intensity ?? "--"))}
-      </p>
-    </div>
-    ${
-      hasForensics
-        ? `
-          <div class="wangxing-specialization-forensics">
-            <div class="wangxing-specialization-metrics compact">
-              <span><strong>${escapeHtml(percent(forensicRaw))}</strong><small>原始真实性证据</small></span>
-              <span><strong>${escapeHtml(
-                forensicProbability === null
-                  ? "未校准"
-                  : percent(forensicProbability),
-              )}</strong><small>校准后真实概率</small></span>
-              <span><strong>${escapeHtml(percent(forensicFacial))}</strong><small>人脸表情与肌肉运动</small></span>
-              <span><strong>${escapeHtml(percent(forensicTexture))}</strong><small>质感与细节真实性证据</small></span>
-            </div>
-          </div>
-        `
-        : ""
-    }
-    ${
-      decisionReasons.length
-        ? `<p class="wangxing-result-note">${escapeHtml(
-            decisionReasons.join(" / "),
-          )}</p>`
         : ""
     }
   `;
@@ -1445,7 +1414,6 @@ function renderWangxingSpecializationResult(payload) {
         <div class="wangxing-result-evidence-grid">
           <span class="is-primary"><strong>${escapeHtml(percent(compatibility))}</strong>画像符合度</span>
           <span><strong>${escapeHtml(expression.selected_profile_display_name ?? "--")}</strong>最接近画像</span>
-          <span><strong>${escapeHtml(percent(expression.margin_0_1))}</strong>前二画像分差</span>
           <span><strong>${expression.severe_deviation ? "是" : "否"}</strong>严重偏离</span>
         </div>
       </div>
