@@ -14,8 +14,10 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from evaluator.forensics import (
     analyze_forensics,
+    apply_probability_calibrator,
     fit_probability_calibrator,
 )
+from evaluator.forensics.holdout import holdout_paths
 from evaluator.paths import project_path
 
 VIDEO_SUFFIXES = {
@@ -132,6 +134,66 @@ def _roc_auc(labels: list[int], scores: list[float]) -> float | None:
     )
 
 
+def _brier_score(
+    labels: list[int],
+    probabilities: list[float],
+) -> float | None:
+    if not labels or len(labels) != len(probabilities):
+        return None
+    values = np.asarray(probabilities, dtype=np.float64)
+    targets = np.asarray(labels, dtype=np.float64)
+    return float(np.mean((values - targets) ** 2))
+
+
+def _expected_calibration_error(
+    labels: list[int],
+    probabilities: list[float],
+    *,
+    bins: int = 10,
+) -> float | None:
+    if not labels or len(labels) != len(probabilities):
+        return None
+    values = np.asarray(probabilities, dtype=np.float64)
+    targets = np.asarray(labels, dtype=np.float64)
+    edges = np.linspace(0.0, 1.0, max(2, int(bins)) + 1)
+    error = 0.0
+    for index in range(len(edges) - 1):
+        lower = edges[index]
+        upper = edges[index + 1]
+        selected = (
+            (values >= lower)
+            & (
+                (values < upper)
+                if index < len(edges) - 2
+                else (values <= upper)
+            )
+        )
+        if not np.any(selected):
+            continue
+        weight = float(np.mean(selected))
+        error += weight * abs(
+            float(np.mean(values[selected]))
+            - float(np.mean(targets[selected]))
+        )
+    return float(error)
+
+
+def _manifest_paths(
+    manifest_path: Path,
+    *,
+    domain: str,
+    kind: str,
+) -> list[Path]:
+    return sorted(
+        Path(value)
+        for value in holdout_paths(
+            manifest_path,
+            domain=domain,
+            kind=kind,
+        )
+    )
+
+
 def _domain_samples(
     *,
     domain: str,
@@ -241,11 +303,19 @@ def main() -> int:
         default="data/forensics/forensics_manifest.json",
     )
     parser.add_argument(
+        "--holdout-manifest",
+        default="data/forensics/holdout_split.json",
+        help=(
+            "Explicit source-video holdout manifest. If present, only "
+            "these paired AU/video files are used for calibration."
+        ),
+    )
+    parser.add_argument(
         "--allow-unknown-seedance-metadata",
         action="store_true",
         help=(
-            "Diagnostic-only override. The result is forced provisional and "
-            "cannot be used as a production probability calibrator."
+            "Deprecated compatibility flag. Metadata is not required for "
+            "the dataset-specific held-out calibrator."
         ),
     )
     parser.add_argument(
@@ -269,9 +339,6 @@ def main() -> int:
     seedance_au_root = project_path(args.seedance_au_root)
     real_video_root = project_path(args.real_video_root)
     seedance_video_root = project_path(args.seedance_video_root)
-    complete_generated_videos, complete_generated_aus = (
-        _complete_generated_sources(project_path(args.manifest))
-    )
 
     facial_real = facial_profile.get("real", {}) if isinstance(
         facial_profile, dict
@@ -286,37 +353,49 @@ def main() -> int:
         texture_profile, dict
     ) else {}
 
-    real_au_paths = _holdout(
-        _files(real_au_root, AU_SUFFIXES),
-        _resolved_sources(facial_real.get("source_records")),
-        args.max_samples_per_domain,
-    )
-    seedance_au_paths = _holdout(
-        _files(seedance_au_root, AU_SUFFIXES),
-        _resolved_sources(facial_seedance.get("source_records")),
-        args.max_samples_per_domain,
-    )
-    real_video_paths = _holdout(
-        _files(real_video_root, VIDEO_SUFFIXES),
-        _resolved_sources(texture_real.get("source_records")),
-        args.max_samples_per_domain,
-    )
-    seedance_video_paths = _holdout(
-        _files(seedance_video_root, VIDEO_SUFFIXES),
-        _resolved_sources(texture_seedance.get("source_records")),
-        args.max_samples_per_domain,
-    )
-    if not args.allow_unknown_seedance_metadata:
-        seedance_au_paths = [
-            path
-            for path in seedance_au_paths
-            if str(path.resolve()) in complete_generated_aus
-        ]
-        seedance_video_paths = [
-            path
-            for path in seedance_video_paths
-            if str(path.resolve()) in complete_generated_videos
-        ]
+    holdout_manifest_path = project_path(args.holdout_manifest)
+    if holdout_manifest_path.is_file():
+        real_au_paths = _manifest_paths(
+            holdout_manifest_path,
+            domain="real",
+            kind="au",
+        )
+        seedance_au_paths = _manifest_paths(
+            holdout_manifest_path,
+            domain="seedance",
+            kind="au",
+        )
+        real_video_paths = _manifest_paths(
+            holdout_manifest_path,
+            domain="real",
+            kind="video",
+        )
+        seedance_video_paths = _manifest_paths(
+            holdout_manifest_path,
+            domain="seedance",
+            kind="video",
+        )
+    else:
+        real_au_paths = _holdout(
+            _files(real_au_root, AU_SUFFIXES),
+            _resolved_sources(facial_real.get("source_records")),
+            args.max_samples_per_domain,
+        )
+        seedance_au_paths = _holdout(
+            _files(seedance_au_root, AU_SUFFIXES),
+            _resolved_sources(facial_seedance.get("source_records")),
+            args.max_samples_per_domain,
+        )
+        real_video_paths = _holdout(
+            _files(real_video_root, VIDEO_SUFFIXES),
+            _resolved_sources(texture_real.get("source_records")),
+            args.max_samples_per_domain,
+        )
+        seedance_video_paths = _holdout(
+            _files(seedance_video_root, VIDEO_SUFFIXES),
+            _resolved_sources(texture_seedance.get("source_records")),
+            args.max_samples_per_domain,
+        )
 
     real_samples = _domain_samples(
         domain="real",
@@ -361,39 +440,53 @@ def main() -> int:
     calibrator = fit_probability_calibrator(real_scores, seedance_scores)
     minimum = max(2, int(args.min_samples_per_domain))
     ready = (
-        not args.allow_unknown_seedance_metadata
-        and len(real_scores) >= minimum
+        len(real_scores) >= minimum
         and len(seedance_scores) >= minimum
     )
     calibrator["status"] = "ready" if ready else "provisional"
     if not ready:
         calibrator["warning"] = (
-            (
-                "Unknown Seedance metadata was allowed for a diagnostic run; "
-                "this calibrator cannot produce production probabilities."
-            )
-            if args.allow_unknown_seedance_metadata
-            else (
-                f"Need at least {minimum} scored held-out samples per domain "
-                "with complete Seedance metadata before this calibrator can "
-                "produce probabilities."
-            )
+            f"Need at least {minimum} scored held-out samples per domain "
+            "before this calibrator can produce probabilities."
         )
     labels = [1] * len(real_scores) + [0] * len(seedance_scores)
     scores = real_scores + seedance_scores
+    calibrated_scores = [
+        value
+        for score in scores
+        if (
+            value := apply_probability_calibrator(
+                score,
+                {**calibrator, "status": "ready"},
+            )
+        )
+        is not None
+    ]
+    brier_score = (
+        _brier_score(labels, calibrated_scores)
+        if len(calibrated_scores) == len(labels)
+        else None
+    )
+    expected_calibration_error = (
+        _expected_calibration_error(labels, calibrated_scores)
+        if len(calibrated_scores) == len(labels)
+        else None
+    )
     payload = {
         "schema_version": "forensics_authenticity_calibration_v1",
         "status": calibrator["status"],
         "calibrator": calibrator,
         "profile": str(profile_path),
-        "data_split": "held_out_excluding_profile_sources",
+        "data_split": (
+            "explicit_source_video_holdout"
+            if holdout_manifest_path.is_file()
+            else "held_out_excluding_profile_sources"
+        ),
         "protocol": {
             "split_unit": "source video or generation batch",
             "profile_sources_excluded": True,
-            "unknown_seedance_metadata_is_not_inferred": True,
-            "unknown_seedance_metadata_allowed": bool(
-                args.allow_unknown_seedance_metadata
-            ),
+            "metadata_required_for_calibration": False,
+            "metadata_used": False,
             "minimum_scored_samples_per_domain": minimum,
         },
         "validation": {
@@ -402,6 +495,8 @@ def main() -> int:
             "real_mean_raw_evidence": float(np.mean(real_scores)),
             "seedance_mean_raw_evidence": float(np.mean(seedance_scores)),
             "roc_auc_real_vs_seedance": _roc_auc(labels, scores),
+            "brier_score": brier_score,
+            "expected_calibration_error_10": expected_calibration_error,
             "warning": (
                 "These scores describe the calibration split and are not "
                 "an independent final generalization estimate."
@@ -418,6 +513,7 @@ def main() -> int:
             "seedance_video_candidates": len(
                 _files(seedance_video_root, VIDEO_SUFFIXES)
             ),
+            "holdout_manifest": str(holdout_manifest_path),
             "real_selected_samples": len(real_samples),
             "seedance_selected_samples": len(seedance_samples),
             "max_samples_per_domain": args.max_samples_per_domain,

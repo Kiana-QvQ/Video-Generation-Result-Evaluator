@@ -15,6 +15,7 @@ from evaluator.forensics import (
     build_two_domain_facial_motion_profile,
     extract_texture_detail_features,
 )
+from evaluator.forensics.holdout import holdout_paths
 from evaluator.paths import project_path
 
 VIDEO_SUFFIXES = {
@@ -116,6 +117,13 @@ def main() -> int:
         default="outputs/forensics/forensics_profiles.json",
     )
     parser.add_argument(
+        "--holdout-manifest",
+        help=(
+            "Optional source-video holdout manifest. Listed AU/video files "
+            "are excluded from profile training."
+        ),
+    )
+    parser.add_argument(
         "--max-videos",
         type=int,
         default=0,
@@ -159,6 +167,31 @@ def main() -> int:
             existing_payload = {}
     real_au_paths: list[Path] = []
     seedance_au_paths: list[Path] = []
+    excluded_real_au: set[str] = set()
+    excluded_seedance_au: set[str] = set()
+    excluded_real_videos: set[str] = set()
+    excluded_seedance_videos: set[str] = set()
+    if args.holdout_manifest:
+        excluded_real_au = holdout_paths(
+            args.holdout_manifest,
+            domain="real",
+            kind="au",
+        )
+        excluded_seedance_au = holdout_paths(
+            args.holdout_manifest,
+            domain="seedance",
+            kind="au",
+        )
+        excluded_real_videos = holdout_paths(
+            args.holdout_manifest,
+            domain="real",
+            kind="video",
+        )
+        excluded_seedance_videos = holdout_paths(
+            args.holdout_manifest,
+            domain="seedance",
+            kind="video",
+        )
     if args.skip_motion:
         if not output.is_file():
             print(f"ERROR: --skip-motion requires an existing output: {output}")
@@ -176,6 +209,17 @@ def main() -> int:
         seedance_au_root = project_path(args.seedance_au_root)
         real_au_paths = _files(real_au_root, {".csv", ".tsv"})
         seedance_au_paths = _files(seedance_au_root, {".csv", ".tsv"})
+        if args.holdout_manifest:
+            real_au_paths = [
+                path
+                for path in real_au_paths
+                if str(path.resolve()) not in excluded_real_au
+            ]
+            seedance_au_paths = [
+                path
+                for path in seedance_au_paths
+                if str(path.resolve()) not in excluded_seedance_au
+            ]
         if not real_au_paths:
             print(f"ERROR: no AU files found under {real_au_root}")
             return 1
@@ -196,6 +240,15 @@ def main() -> int:
             "seedance_au_root": str(seedance_au_root),
             "real_au_count": len(real_au_paths),
             "seedance_au_count": len(seedance_au_paths),
+            "holdout_manifest": (
+                str(project_path(args.holdout_manifest))
+                if args.holdout_manifest
+                else None
+            ),
+            "holdout_excluded_real_au_count": len(excluded_real_au),
+            "holdout_excluded_seedance_au_count": len(
+                excluded_seedance_au
+            ),
             "real_au_sources": _relative_sources(real_au_paths, real_au_root),
             "seedance_au_sources": _relative_sources(
                 seedance_au_paths,
@@ -260,12 +313,28 @@ def main() -> int:
     elif args.real_video_root and args.seedance_video_root:
         real_video_root = project_path(args.real_video_root)
         seedance_video_root = project_path(args.seedance_video_root)
+        real_video_candidates = _files(real_video_root, VIDEO_SUFFIXES)
+        seedance_video_candidates = _files(
+            seedance_video_root,
+            VIDEO_SUFFIXES,
+        )
+        if args.holdout_manifest:
+            real_video_candidates = [
+                path
+                for path in real_video_candidates
+                if str(path.resolve()) not in excluded_real_videos
+            ]
+            seedance_video_candidates = [
+                path
+                for path in seedance_video_candidates
+                if str(path.resolve()) not in excluded_seedance_videos
+            ]
         real_video_paths = _limit(
-            _files(real_video_root, VIDEO_SUFFIXES),
+            real_video_candidates,
             args.max_videos,
         )
         seedance_video_paths = _limit(
-            _files(seedance_video_root, VIDEO_SUFFIXES),
+            seedance_video_candidates,
             args.max_videos,
         )
         real_texture, real_report = _build_texture_domain(
@@ -312,6 +381,21 @@ def main() -> int:
             "max_videos_per_domain": args.max_videos,
             "max_frames_per_video": args.max_frames,
             "sample_fps": args.sample_fps,
+            "holdout_manifest": (
+                str(project_path(args.holdout_manifest))
+                if args.holdout_manifest
+                else None
+            ),
+            "holdout_excluded_real_video_count": len(
+                excluded_real_videos
+            )
+            if args.holdout_manifest
+            else 0,
+            "holdout_excluded_seedance_video_count": len(
+                excluded_seedance_videos
+            )
+            if args.holdout_manifest
+            else 0,
             "real_report": real_report,
             "seedance_report": seedance_report,
         }
