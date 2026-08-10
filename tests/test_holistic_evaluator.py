@@ -11,13 +11,13 @@ from unittest.mock import patch
 import cv2
 import numpy as np
 
-import evaluator.runtime as runtime
-from evaluator.etva_judge import (
+import evaluator.core.runtime as runtime
+from evaluator.backends.etva_judge import (
     _request,
     etva_service_available,
     evaluate_etva_judge,
 )
-from evaluator.holistic_evaluator import (
+from evaluator.core.holistic_evaluator import (
     TEMPORAL_LANDMARK_INDICES,
     WEIGHTS,
     _create_offline_maniqa_metric,
@@ -32,7 +32,7 @@ from evaluator.holistic_evaluator import (
     evaluate_full_reference,
     evaluate_texture,
 )
-from evaluator.video_metrics import (
+from evaluator.core.video_metrics import (
     VideoInfo,
     _aligned_sample_indices,
     _align_ground_truth_frame,

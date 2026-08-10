@@ -29,20 +29,21 @@ from fastapi.staticfiles import StaticFiles
 from fastapi import FastAPI
 from pydantic import BaseModel, Field
 
-from evaluator.holistic_evaluator import (
+from evaluator.core.holistic_evaluator import (
     WEIGHTS,
     evaluate_all,
     get_model_inventory,
     get_model_recommendation,
 )
-from evaluator.evaluation_lock import serialized_evaluation
-from evaluator.hardware_policy import resolve_policy
-from evaluator.media import concatenate_videos, transcode_video_for_browser
-from evaluator.runtime import OUTPUT_DIR, PROJECT_ROOT
-from evaluator.subst import cleanup_project_subst_mappings
-from evaluator.video_metrics import is_video_path, probe_video
+from evaluator.core.evaluation_lock import serialized_evaluation
+from evaluator.core.hardware_policy import resolve_policy
+from evaluator.core.media import concatenate_videos, transcode_video_for_browser
+from evaluator.core.paths import resolve_profile
+from evaluator.core.runtime import OUTPUT_DIR, PROJECT_ROOT
+from evaluator.backends.subst import cleanup_project_subst_mappings
+from evaluator.core.video_metrics import is_video_path, probe_video
 from evaluator.forensics import analyze_forensics
-from evaluator.wangxing_specialization import (
+from evaluator.wangxing.wangxing_specialization import (
     EXPRESSION_DISPLAY_NAMES,
     SPECIALIZATION_EVALUATOR_VERSION,
 )
@@ -100,22 +101,31 @@ WANGXING_AU_CLASSES = {
     "sadness",
     "disgust",
 }
-WANGXING_AU_PROFILE_PATH = PROJECT_ROOT / "data/au/wangxing_au_profile.json"
+WANGXING_AU_PROFILE_PATH = resolve_profile(
+    "wangxing_au_profile.json",
+    "data/au/wangxing_au_profile.json",
+) or (PROJECT_ROOT / "data/au/wangxing_au_profile.json")
 WANGXING_AU_CLASSIFIER_PATH = PROJECT_ROOT / "data/au/au_leakage_classifier.json"
 ORIGINAL_EMOTION_AU_PROFILE_PATH = (
     PROJECT_ROOT / "data/au/original_emotion_au_profile.json"
 )
-WANGXING_IDENTITY_PROFILE_PATH = (
-    PROJECT_ROOT / "data/au/wangxing_identity_profile.json"
-)
-WANGXING_EXPRESSION_PROFILE_PATH = (
-    PROJECT_ROOT / "data/au/wangxing_expression_profile.json"
-)
-WANGXING_SOURCE_PROFILE_PATH = (
-    PROJECT_ROOT / "data/au/wangxing_source_profile.json"
-)
+WANGXING_IDENTITY_PROFILE_PATH = resolve_profile(
+    "wangxing_identity_profile.json",
+    "data/au/wangxing_identity_profile.json",
+) or (PROJECT_ROOT / "data/au/wangxing_identity_profile.json")
+WANGXING_EXPRESSION_PROFILE_PATH = resolve_profile(
+    "wangxing_expression_profile.json",
+    "data/au/wangxing_expression_profile.json",
+) or (PROJECT_ROOT / "data/au/wangxing_expression_profile.json")
+WANGXING_SOURCE_PROFILE_PATH = resolve_profile(
+    "wangxing_source_profile.json",
+    "data/au/wangxing_source_profile.json",
+) or (PROJECT_ROOT / "data/au/wangxing_source_profile.json")
 WANGXING_AU_CACHE_ROOT = OUTPUT_DIR / "au_cache"
-FORENSICS_PROFILE_PATH = PROJECT_ROOT / "outputs/forensics/forensics_profiles.json"
+FORENSICS_PROFILE_PATH = resolve_profile(
+    "forensics_profiles.json",
+    "outputs/forensics/forensics_profiles.json",
+) or (PROJECT_ROOT / "outputs/forensics/forensics_profiles.json")
 GENERATED_REPORT_FILES = {
     "summary.csv",
     "frame_metrics.csv",

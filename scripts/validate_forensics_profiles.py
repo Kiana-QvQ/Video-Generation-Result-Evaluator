@@ -14,7 +14,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from evaluator.forensics import score_facial_motion
-from evaluator.paths import project_path
+from evaluator.core.paths import project_path
 
 
 def _files(root: Path) -> list[Path]:

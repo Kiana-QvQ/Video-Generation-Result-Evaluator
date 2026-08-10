@@ -8,7 +8,7 @@ from unittest.mock import patch
 import cv2
 import numpy as np
 
-from evaluator.wangxing_specialization import (
+from evaluator.wangxing.wangxing_specialization import (
     _fit_logistic_calibrator,
     _identity_calibration_metrics,
     _weighted_prototype,

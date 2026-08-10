@@ -701,20 +701,31 @@ def build_two_domain_facial_motion_profile(
     real_csv_paths: Iterable[str | Path],
     seedance_csv_paths: Iterable[str | Path],
 ) -> dict[str, Any]:
-    real_records = [
-        extract_facial_motion_features(
-            path,
-            time_aware_derivatives=True,
-        )
-        for path in real_csv_paths
-    ]
-    seedance_records = [
-        extract_facial_motion_features(
-            path,
-            time_aware_derivatives=True,
-        )
-        for path in seedance_csv_paths
-    ]
+    def _extract_all(
+        paths: Sequence[str | Path],
+        *,
+        label: str,
+    ) -> list[dict[str, Any]]:
+        records: list[dict[str, Any]] = []
+        total = len(paths)
+        for index, path in enumerate(paths, start=1):
+            records.append(
+                extract_facial_motion_features(
+                    path,
+                    time_aware_derivatives=True,
+                )
+            )
+            if index == 1 or index == total or index % 25 == 0:
+                print(
+                    f"  [{label}] {index}/{total} {Path(path).name}",
+                    flush=True,
+                )
+        return records
+
+    real_path_list = list(real_csv_paths)
+    seedance_path_list = list(seedance_csv_paths)
+    real_records = _extract_all(real_path_list, label="real")
+    seedance_records = _extract_all(seedance_path_list, label="seedance")
     if not real_records or not seedance_records:
         raise ValueError("Both real and Seedance records are required.")
     feature_names = sorted(

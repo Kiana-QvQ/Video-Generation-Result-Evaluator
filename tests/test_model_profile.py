@@ -6,8 +6,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from evaluator.model_profile import get_recommended_model
-from evaluator.vbench_runner import _ensure_dino_compat_source, discover_vbench
+from evaluator.core.model_profile import get_recommended_model
+from evaluator.backends.vbench_runner import _ensure_dino_compat_source, discover_vbench
 
 
 class ModelProfileTests(unittest.TestCase):
@@ -45,14 +45,26 @@ class ModelProfileTests(unittest.TestCase):
                 return real_find_spec(name)
 
             with (
-                patch("evaluator.vbench_runner._dino_available", return_value=True),
-                patch("evaluator.vbench_runner.importlib.util.find_spec", side_effect=find_spec),
                 patch(
-                    "evaluator.vbench_runner._launch_script",
+                    "evaluator.backends.vbench_runner._dino_available",
+                    return_value=True,
+                ),
+                patch(
+                    "evaluator.backends.vbench_runner.importlib.util.find_spec",
+                    side_effect=find_spec,
+                ),
+                patch(
+                    "evaluator.backends.vbench_runner._launch_script",
                     return_value=Path(directory) / "launch" / "evaluate.py",
                 ),
-                patch("evaluator.vbench_runner.shutil.which", return_value="docker"),
-                patch("evaluator.vbench_runner._docker_image_available", return_value=True),
+                patch(
+                    "evaluator.backends.vbench_runner.shutil.which",
+                    return_value="docker",
+                ),
+                patch(
+                    "evaluator.backends.vbench_runner._docker_image_available",
+                    return_value=True,
+                ),
             ):
                 result = discover_vbench()
 

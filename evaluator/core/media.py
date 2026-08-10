@@ -5,10 +5,10 @@ import shutil
 import subprocess
 from pathlib import Path
 
+from .runtime import MODEL_CACHE_DIR, OUTPUT_DIR, PROJECT_ROOT
 from .video_metrics import probe_video
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
 try:
     FFMPEG_TIMEOUT_SECONDS = max(
         1.0,

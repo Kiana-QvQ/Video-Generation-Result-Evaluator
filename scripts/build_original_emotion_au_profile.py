@@ -13,7 +13,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from evaluator.au_compliance import (  # noqa: E402
+from evaluator.wangxing.au_compliance import (  # noqa: E402
     DEFAULT_AU_IDS,
     DEFAULT_PRESENCE_AU_IDS,
     DEFAULT_FACE_QUALITY_THRESHOLD,
@@ -23,12 +23,12 @@ from evaluator.au_compliance import (  # noqa: E402
     load_au_profile_tables,
     sha256_file,
 )
-from evaluator.au_dataset import (  # noqa: E402
+from evaluator.wangxing.au_dataset import (  # noqa: E402
     DEFAULT_MIN_AU_ROWS,
     DEFAULT_MIN_FRAME_COVERAGE,
     validate_au_csv,
 )
-from evaluator.paths import project_path  # noqa: E402
+from evaluator.core.paths import project_path  # noqa: E402
 
 
 ORIGINAL_CLASS_PREFIXES = {

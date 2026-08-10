@@ -9,8 +9,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from evaluator.paths import project_path
-from evaluator.wangxing_redesign_check import inspect_wangxing_redesign
+from evaluator.core.paths import project_path
+from evaluator.wangxing.wangxing_redesign_check import inspect_wangxing_redesign
 
 
 def main() -> int:

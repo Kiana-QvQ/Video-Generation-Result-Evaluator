@@ -8,7 +8,7 @@ from pathlib import Path
 
 import numpy as np
 
-from evaluator.au_compliance import (
+from evaluator.wangxing.au_compliance import (
     AU_PROFILE_SCHEMA,
     _add_auto_selection_scores,
     _combine_personal_au_scores,

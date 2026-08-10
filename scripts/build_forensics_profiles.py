@@ -227,6 +227,11 @@ def main() -> int:
             print(f"ERROR: no AU files found under {seedance_au_root}")
             return 1
 
+        print(
+            f"Building facial-motion profile from "
+            f"{len(real_au_paths)} real + {len(seedance_au_paths)} seedance AU files...",
+            flush=True,
+        )
         try:
             facial_motion_profile = build_two_domain_facial_motion_profile(
                 real_au_paths,

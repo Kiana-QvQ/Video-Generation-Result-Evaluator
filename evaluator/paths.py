@@ -1,12 +1,27 @@
-from __future__ import annotations
+"""Backward-compatible import path for scripts that still use evaluator.paths."""
 
-from pathlib import Path
+from .core.paths import (
+    ASSETS_DIR,
+    PACKAGE_ROOT,
+    PROFILE_FILES,
+    PROJECT_ROOT,
+    PROFILES_DIR,
+    package_path,
+    profile_path,
+    project_path,
+    resolve_profile,
+    verify_bundled_profiles,
+)
 
-
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-
-
-def project_path(value: str | Path) -> Path:
-    """Resolve project-relative values without depending on the shell cwd."""
-    path = Path(value).expanduser()
-    return path if path.is_absolute() else PROJECT_ROOT / path
+__all__ = [
+    "ASSETS_DIR",
+    "PACKAGE_ROOT",
+    "PROFILE_FILES",
+    "PROJECT_ROOT",
+    "PROFILES_DIR",
+    "package_path",
+    "profile_path",
+    "project_path",
+    "resolve_profile",
+    "verify_bundled_profiles",
+]

@@ -4,7 +4,7 @@ import threading
 import time
 import unittest
 
-from evaluator.evaluation_lock import serialized_evaluation
+from evaluator.core.evaluation_lock import serialized_evaluation
 
 
 class EvaluationLockTests(unittest.TestCase):

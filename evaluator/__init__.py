@@ -1,6 +1,20 @@
-"""Video evaluation core package."""
+"""Video evaluation core package.
 
-from .holistic_evaluator import WEIGHTS, evaluate_all
-from .video_metrics import evaluate_full_reference, probe_video
+Public layout for collaborators:
 
-__all__ = ["WEIGHTS", "evaluate_all", "evaluate_full_reference", "probe_video"]
+- ``detail_expression_metrics``: yellow-box texture + facial muscle API (collaborator-owned)
+- ``core``: holistic five-category evaluation and video IO
+- ``wangxing``: identity / expression specialization (AU / profiles)
+- ``forensics``: real-capture vs Seedance authenticity branches
+- ``backends``: optional external model runners
+"""
+
+from .core.holistic_evaluator import WEIGHTS, evaluate_all
+from .core.video_metrics import evaluate_full_reference, probe_video
+
+__all__ = [
+    "WEIGHTS",
+    "evaluate_all",
+    "evaluate_full_reference",
+    "probe_video",
+]

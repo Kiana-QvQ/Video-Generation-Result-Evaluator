@@ -9,8 +9,8 @@ from typing import Any
 import cv2
 import numpy as np
 
-from ..face_detection import FaceDetector
-from ..video_metrics import sample_video_frames
+from ..core.face_detection import FaceDetector
+from ..core.video_metrics import sample_video_frames
 
 TEXTURE_DETAIL_SCHEMA = "texture_detail_forensics_v1"
 DEFAULT_CROP_SIZE = (192, 192)

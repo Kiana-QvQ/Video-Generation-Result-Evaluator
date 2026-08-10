@@ -23,7 +23,7 @@ from evaluator.forensics.joint_model import (
     load_feature_npz,
     multitask_loss,
 )
-from evaluator.paths import project_path
+from evaluator.core.paths import project_path
 
 
 def _device(value: str) -> torch.device:

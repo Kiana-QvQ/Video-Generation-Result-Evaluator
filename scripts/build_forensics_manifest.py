@@ -11,9 +11,9 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from evaluator.paths import project_path
-from evaluator.video_metrics import probe_video
-from evaluator.wangxing_specialization import _expression_class_from_path
+from evaluator.core.paths import project_path
+from evaluator.core.video_metrics import probe_video
+from evaluator.wangxing.wangxing_specialization import _expression_class_from_path
 
 VIDEO_SUFFIXES = {".avi", ".m4v", ".mkv", ".mov", ".mp4", ".webm", ".wmv"}
 

@@ -1,0 +1,66 @@
+{
+  "schema_version": "evaluator_assets_manifest_v1",
+  "generated_at": "2026-08-10T19:09:57",
+  "profiles": {
+    "wangxing_expression_profile": {
+      "filename": "wangxing_expression_profile.json",
+      "source": "data/au/wangxing_expression_profile.json",
+      "bytes": 299260
+    },
+    "wangxing_identity_profile": {
+      "filename": "wangxing_identity_profile.json",
+      "source": "data/au/wangxing_identity_profile.json",
+      "bytes": 9636477
+    },
+    "wangxing_source_profile": {
+      "filename": "wangxing_source_profile.json",
+      "source": "data/au/wangxing_source_profile.json",
+      "bytes": 221516
+    },
+    "wangxing_au_profile": {
+      "filename": "wangxing_au_profile.json",
+      "source": "data/au/wangxing_au_profile.json",
+      "bytes": 1748773
+    },
+    "forensics_profiles": {
+      "filename": "forensics_profiles.json",
+      "source": "outputs/forensics/forensics_profiles.json",
+      "bytes": 200288
+    },
+    "forensics_authenticity_calibrator": {
+      "filename": "forensics_authenticity_calibrator.json",
+      "source": "extracted runtime calibrator",
+      "bytes": 443
+    },
+    "holdout_split": {
+      "filename": "holdout_split.json",
+      "source": "data/forensics/holdout_split.json",
+      "bytes": 16295
+    },
+    "model_profile": {
+      "filename": "model_profile.json",
+      "source": "config/model_profile.json",
+      "bytes": 2131
+    }
+  },
+  "calibrator_runtime_keys": [
+    "schema_version",
+    "status",
+    "feature",
+    "calibration_method",
+    "mean",
+    "scale",
+    "slope",
+    "intercept"
+  ],
+  "verify": {
+    "wangxing_expression_profile": true,
+    "wangxing_identity_profile": true,
+    "wangxing_source_profile": true,
+    "wangxing_au_profile": true,
+    "forensics_profiles": true,
+    "forensics_authenticity_calibrator": true,
+    "holdout_split": true,
+    "model_profile": true
+  }
+}

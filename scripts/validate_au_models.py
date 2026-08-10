@@ -15,7 +15,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from evaluator.au_compliance import (  # noqa: E402
+from evaluator.wangxing.au_compliance import (  # noqa: E402
     AU_CLASSIFIER_SCHEMA,
     DEFAULT_AU_IDS,
     DEFAULT_PRESENCE_AU_IDS,

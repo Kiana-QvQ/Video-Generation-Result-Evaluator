@@ -17,7 +17,7 @@ from evaluator.forensics.joint_model import (  # noqa: E402
     JointForensicsModel,
     load_feature_npz,
 )
-from evaluator.paths import project_path  # noqa: E402
+from evaluator.core.paths import project_path  # noqa: E402
 
 
 def _device(value: str) -> torch.device:

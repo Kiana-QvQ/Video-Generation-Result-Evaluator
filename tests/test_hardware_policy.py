@@ -4,7 +4,7 @@ import os
 import unittest
 from unittest.mock import patch
 
-from evaluator.hardware_policy import resolve_policy
+from evaluator.core.hardware_policy import resolve_policy
 
 
 class HardwarePolicyTests(unittest.TestCase):

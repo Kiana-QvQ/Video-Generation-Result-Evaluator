@@ -4,14 +4,22 @@ import json
 from pathlib import Path
 from typing import Any
 
-
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+from ..core.paths import PROJECT_ROOT, resolve_profile
 
 
 def load_holdout_manifest(path: str | Path) -> dict[str, Any]:
-    manifest_path = Path(path)
-    if not manifest_path.is_absolute():
-        manifest_path = PROJECT_ROOT / manifest_path
+    manifest_path = resolve_profile(
+        path,
+        "holdout_split.json",
+        required=False,
+    )
+    if manifest_path is None:
+        candidate = Path(path)
+        manifest_path = (
+            candidate
+            if candidate.is_absolute()
+            else PROJECT_ROOT / candidate
+        )
     payload = json.loads(manifest_path.read_text(encoding="utf-8-sig"))
     if not isinstance(payload, dict):
         raise ValueError(f"Holdout manifest must be an object: {manifest_path}")
