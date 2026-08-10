@@ -101,17 +101,21 @@ Build a calibrator after the profile has been trained:
 ```powershell
 .\.venv\Scripts\python.exe scripts\calibrate_forensics.py `
   --profile outputs\forensics\forensics_profiles.json `
+  --holdout-manifest data\forensics\holdout_split.json `
   --output outputs\forensics\forensics_authenticity_calibrator.json `
   --update-profile outputs\forensics\forensics_profiles.json
 ```
 
-The script excludes the profile's source records. It writes `provisional`
-when fewer than the configured minimum number of held-out samples exists;
-provisional calibrators are ignored at runtime.
-Generated samples must also be marked metadata-complete in
-`data/forensics/forensics_manifest.json`. The
-`--allow-unknown-seedance-metadata` option is diagnostic-only and always
-forces a provisional result.
+The holdout manifest keeps source videos out of profile training and uses the
+same paired AU/video samples for calibration. The current dataset-specific
+calibrator uses only real/generated domain labels and does not require
+Seedance version, generation mode, input type, or codec metadata. It writes
+`provisional` when fewer than the configured minimum number of held-out
+samples exists; provisional calibrators are ignored at runtime.
+
+The calibration report includes ROC AUC, Brier score, and expected calibration
+error. These metrics describe the declared holdout split, not universal
+cross-engine performance.
 
 The scoring fields are:
 

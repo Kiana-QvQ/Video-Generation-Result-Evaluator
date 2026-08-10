@@ -19,6 +19,10 @@ from evaluator.forensics import (
     score_texture_detail,
     summarize_window_evidence,
 )
+from scripts.calibrate_forensics import (
+    _brier_score,
+    _expected_calibration_error,
+)
 
 
 def _write_motion_csv(path: Path, amplitude: float) -> None:
@@ -241,4 +245,15 @@ class ForensicsInitialTests(unittest.TestCase):
         self.assertEqual(calibrator["status"], "ready")
         self.assertIsNotNone(
             apply_probability_calibrator(0.8, calibrator)
+        )
+
+    def test_calibration_metrics_are_computed_from_probabilities(self) -> None:
+        labels = [1, 1, 0, 0]
+        probabilities = [0.9, 0.8, 0.2, 0.1]
+        self.assertAlmostEqual(
+            _brier_score(labels, probabilities),
+            0.025,
+        )
+        self.assertIsNotNone(
+            _expected_calibration_error(labels, probabilities)
         )

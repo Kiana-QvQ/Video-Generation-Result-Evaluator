@@ -172,11 +172,11 @@ function specializationRadarMarkup(
   subtitle,
   variant = "acid",
 ) {
-  const width = 330;
-  const height = 208;
-  const centerX = 165;
+  const width = 250;
+  const height = 210;
+  const centerX = 125;
   const centerY = 100;
-  const radius = 62;
+  const radius = 70;
   const levels = [0.25, 0.5, 0.75, 1];
   const normalizedValues = values.map((value) => normalizeScore(value) ?? 0);
   const grid = levels
@@ -1084,13 +1084,6 @@ function renderWangxingSpecializationDashboard(payload) {
     not_wangxing: "不是王兴",
     uncertain: "身份不确定",
   };
-  const finalLabels = {
-    wangxing_expression_compatible: "表情符合画像",
-    wangxing_expression_incompatible: "表情偏离画像",
-    uncertain_identity: "身份证据不足",
-    uncertain_expression: "表情证据不足",
-    not_wangxing: "不是王兴",
-  };
   const percent = (value) => {
     const score = normalizeScore(value);
     return score === null ? "--" : `${(score * 100).toFixed(1)}%`;
@@ -1117,10 +1110,25 @@ function renderWangxingSpecializationDashboard(payload) {
       : identityDecision === "not_wangxing"
         ? "block"
         : "review";
-  const expressionText =
-    identityDecision === "wangxing"
-      ? finalLabels[finalDecision] ?? finalDecision
-      : finalLabels[finalDecision] ?? identityLabels[identityDecision];
+  const profileConclusionLabels = {
+    wangxing_expression_compatible: "符合画像",
+    wangxing_expression_incompatible: "表情偏离",
+    uncertain_identity: "身份待确认",
+    uncertain_expression: "表情待确认",
+    not_wangxing: "不是王兴",
+  };
+  const profileConclusion =
+    profileConclusionLabels[finalDecision] ??
+    (identityDecision === "wangxing" ? "身份符合" : "身份待确认");
+  const profileDetailLabels = {
+    wangxing_expression_compatible: "身份与表情画像均通过",
+    wangxing_expression_incompatible: "身份符合，但表情画像偏离",
+    uncertain_identity: "无法确认是否为王兴",
+    uncertain_expression: "身份为王兴，表情画像未确认",
+    not_wangxing: "身份与王兴画像不一致",
+  };
+  const profileDetail =
+    profileDetailLabels[finalDecision] ?? "专项画像判断待确认";
   const forensics = payload.forensics ?? {};
   const forensicFusion = forensics.fusion ?? {};
   const forensicScores = forensics.scores ?? {};
@@ -1139,6 +1147,27 @@ function renderWangxingSpecializationDashboard(payload) {
   const forensicTexture = normalizeScore(
     forensicBranches.texture_detail?.metrics?.raw_real_domain_evidence_0_1,
   );
+  const forensicDecision = String(
+    forensicFusion.decision ??
+      forensics.authenticity?.decision ??
+      "uncertain",
+  );
+  const calibratedAuthenticity = normalizeScore(
+    forensicScores.calibrated_real_probability_0_1 ??
+      forensicFusion.real_capture_likelihood_0_1,
+  );
+  const authenticityConclusionLabels = {
+    real_capture: "更接近真人拍摄",
+    seedance_like: "更接近 AI 生成",
+    uncertain: "AI 生成判断未校准",
+  };
+  const authenticityConclusion =
+    authenticityConclusionLabels[forensicDecision] ??
+    "AI 生成判断未校准";
+  const authenticityDetail =
+    calibratedAuthenticity === null
+      ? "当前只有未校准真实性证据，不能直接判定 AI 生成"
+      : `校准后的真人拍摄概率 ${percent(calibratedAuthenticity)}`;
   const hasForensics = [
     forensicRaw,
     forensicProbability,
@@ -1170,11 +1199,17 @@ function renderWangxingSpecializationDashboard(payload) {
         ${escapeHtml(identityLabels[identityDecision] ?? "身份不确定")}
       </span>
     </div>
-    <div class="wangxing-result-score ${
-      identityDecision === "uncertain" ? "is-uncertain" : ""
-    }">
-      <strong>${escapeHtml(expressionText)}</strong>
-      <span>串联判断 / 身份 → 表情</span>
+    <div class="wangxing-specialization-conclusions">
+      <div class="wangxing-specialization-conclusion authenticity">
+        <span>AI 生成判断</span>
+        <strong>${escapeHtml(authenticityConclusion)}</strong>
+        <small>${escapeHtml(authenticityDetail)}</small>
+      </div>
+      <div class="wangxing-specialization-conclusion profile">
+        <span>王兴身份与面部表情画像</span>
+        <strong>${escapeHtml(profileConclusion)}</strong>
+        <small>${escapeHtml(profileDetail)}</small>
+      </div>
     </div>
     <div class="wangxing-specialization-radar-grid">
       ${specializationRadarMarkup(
@@ -1197,6 +1232,17 @@ function renderWangxingSpecializationDashboard(payload) {
         String(expression.selected_profile_display_name ?? "--"),
         "expression",
       )}
+      ${
+        hasForensics
+          ? specializationRadarMarkup(
+              [forensicRaw, forensicProbability, forensicFacial, forensicTexture],
+              ["原始证据", "校准概率", "面部动作", "质感细节"],
+              "真实性对比",
+              "面部动作 + 质感细节",
+              "forensics",
+            )
+          : ""
+      }
     </div>
     <div class="wangxing-specialization-metrics">
       <span><strong>${escapeHtml(percent(score))}</strong><small>王兴身份概率</small></span>
@@ -1248,13 +1294,6 @@ function renderWangxingSpecializationDashboard(payload) {
       hasForensics
         ? `
           <div class="wangxing-specialization-forensics">
-            ${specializationRadarMarkup(
-              [forensicRaw, forensicProbability, forensicFacial, forensicTexture],
-              ["原始证据", "校准概率", "面部动作", "质感细节"],
-              "真实性对比",
-              "面部动作 + 质感细节",
-              "forensics",
-            )}
             <div class="wangxing-specialization-metrics compact">
               <span><strong>${escapeHtml(percent(forensicRaw))}</strong><small>原始真实性证据</small></span>
               <span><strong>${escapeHtml(
