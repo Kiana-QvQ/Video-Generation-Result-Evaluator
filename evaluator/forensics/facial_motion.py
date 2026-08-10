@@ -332,7 +332,75 @@ def _correlation(left: np.ndarray, right: np.ndarray) -> float:
     left = left - float(np.mean(left))
     right = right - float(np.mean(right))
     denominator = float(np.linalg.norm(left) * np.linalg.norm(right))
-    return float(np.dot(left, right) / denominator) if denominator > 1e-8 else 0.0
+    if denominator <= 1e-8:
+        return 0.0
+    return float(np.dot(left, right) / denominator)
+
+
+def _training_free_motion_prior(
+    features: dict[str, Any],
+    au_matrix: np.ndarray,
+) -> dict[str, float]:
+    """Heuristic realness prior from AU relations / rhythm (no profile needed)."""
+    pair_scores: list[float] = []
+    for key, value in features.items():
+        if not str(key).startswith("au_pair_corr_"):
+            continue
+        # Expected co-activation pairs should lean non-negative for natural faces.
+        pair_scores.append(_clamp((float(value) + 1.0) / 2.0))
+    coactivation = (
+        float(np.mean(pair_scores)) if pair_scores else 0.50
+    )
+    motion = _clamp(_finite(features.get("motion_coherence_0_1"), 0.5))
+    phase = _clamp(_finite(features.get("landmark_phase_coherence_0_1"), 0.5))
+    active = _clamp(_finite(features.get("au_event_active_ratio"), 0.0))
+    # Talking-head clips are rarely fully idle or fully saturated.
+    activity = _clamp(1.0 - abs(active - 0.55) / 0.55)
+
+    dynamics_scores: list[float] = []
+    velocities: list[float] = []
+    for au_id in DEFAULT_AU_IDS:
+        velocity = abs(
+            _finite(features.get(f"au_{au_id:02d}_velocity_p95"), 0.0)
+        )
+        acceleration = abs(
+            _finite(features.get(f"au_{au_id:02d}_acceleration_p95"), 0.0)
+        )
+        if velocity <= 1e-8 and acceleration <= 1e-8:
+            continue
+        velocities.append(velocity)
+        # Use acceleration/velocity on a wide log scale; time-aware
+        # derivatives make raw jerk ratios too extreme to be useful.
+        log_ratio = math.log1p(acceleration) - math.log1p(max(velocity, 1e-8))
+        dynamics_scores.append(_clamp(1.0 - abs(log_ratio - 2.5) / 6.0))
+    if dynamics_scores:
+        dynamics = float(np.mean(dynamics_scores))
+    elif velocities:
+        dynamics = 0.55
+    else:
+        dynamics = 0.50
+
+    richness = 0.50
+    if au_matrix.size:
+        active_channels = float(
+            np.mean(np.max(au_matrix, axis=0) > 0.08)
+        )
+        richness = _clamp(0.25 + 0.75 * active_channels)
+
+    prior = _clamp(
+        0.28 * coactivation
+        + 0.24 * motion
+        + 0.18 * phase
+        + 0.15 * dynamics
+        + 0.10 * activity
+        + 0.05 * richness
+    )
+    return {
+        "au_relation_consistency_0_1": coactivation,
+        "au_dynamics_naturalness_0_1": dynamics,
+        "au_activation_richness_0_1": richness,
+        "training_free_motion_prior_0_1": prior,
+    }
 
 
 def _max_lag_correlation(
@@ -531,6 +599,7 @@ def extract_facial_motion_features(
         0.7 * float(features["landmark_phase_coherence_0_1"])
         + 0.3 * (1.0 - float(features["landmark_mean_phase_lag_0_1"])),
     ) if landmark_available else 0.0
+    features.update(_training_free_motion_prior(features, au_matrix))
     window_records: list[dict[str, Any]] = []
     window_size = 32
     for window_index, start in enumerate(range(0, len(event_signal), window_size)):
@@ -756,6 +825,19 @@ def score_facial_motion(
         features.get("features", {}).get("motion_coherence_0_1"),
         0.0,
     )
+    feature_map = features.get("features", {})
+    training_free_prior = _clamp(
+        _finite(
+            feature_map.get("training_free_motion_prior_0_1"),
+            motion_coherence,
+        )
+    )
+    profile_evidence = authenticity
+    enriched_evidence = authenticity
+    if authenticity is not None:
+        enriched_evidence = _clamp(
+            0.82 * float(authenticity) + 0.18 * training_free_prior
+        )
     return {
         "status": "calibrated" if authenticity is not None else "features_only",
         "probability_calibrated": False,
@@ -764,19 +846,25 @@ def score_facial_motion(
         "metrics": {
             "real_domain_fit_0_1": real_fit,
             "seedance_domain_fit_0_1": seedance_fit,
-            "raw_real_domain_evidence_0_1": authenticity,
+            "profile_raw_real_domain_evidence_0_1": profile_evidence,
+            "raw_real_domain_evidence_0_1": enriched_evidence,
             # Kept for clients using the initial forensic schema. This field
             # is a profile-distance ratio, not a calibrated probability.
-            "real_capture_likelihood_0_1": authenticity,
+            "real_capture_likelihood_0_1": enriched_evidence,
             "calibrated_real_probability_0_1": None,
             "motion_coherence_0_1": _clamp(motion_coherence),
+            "au_relation_consistency_0_1": _clamp(
+                _finite(feature_map.get("au_relation_consistency_0_1"), 0.0)
+            ),
+            "au_dynamics_naturalness_0_1": _clamp(
+                _finite(feature_map.get("au_dynamics_naturalness_0_1"), 0.0)
+            ),
+            "training_free_motion_prior_0_1": training_free_prior,
             "feature_mode": feature_mode,
             "scored_feature_count": len(names),
             "landmark_valid_frame_ratio": _clamp(
                 _finite(
-                    features.get("features", {}).get(
-                        "landmark_valid_frame_ratio"
-                    )
+                    feature_map.get("landmark_valid_frame_ratio")
                 )
             ),
         },

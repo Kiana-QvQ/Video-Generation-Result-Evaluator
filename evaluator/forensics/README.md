@@ -12,6 +12,8 @@ branches:
    - Older LibreFace exports that label the column as milliseconds but write
      seconds are auto-detected (same heuristic as `au_compliance`) so web AU
      caches and `data/au/MD_CL` share one physical timescale.
+   - Training-free priors (AU co-activation / dynamics rhythm) lightly enrich
+     branch evidence without requiring a profile rebuild.
    - If Face Mesh coverage is insufficient, scoring falls back to AU-only
      features instead of treating missing landmarks as zero measurements.
    - Builds real-domain or real-versus-Seedance profiles.
@@ -20,6 +22,9 @@ branches:
    - Reads RGB video frames or a video path.
    - Measures local high-frequency detail, Laplacian detail, gradient
      statistics, DCT high-frequency energy, and temporal warp residuals.
+   - Training-free optical-flow residual cues (homogeneity / second-order
+     micro-temporal naturalness) lightly enrich texture evidence without a
+     profile rebuild.
    - Builds real-domain or real-versus-Seedance profiles.
 
 `report.py` keeps both branches separate and only fuses calibrated

@@ -123,7 +123,7 @@ def _frame_texture_features(crop: np.ndarray) -> dict[str, float]:
     return features
 
 
-def _warp_previous(previous: np.ndarray, current: np.ndarray) -> np.ndarray:
+def _warp_previous(previous: np.ndarray, current: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     previous_gray = cv2.cvtColor(previous, cv2.COLOR_RGB2GRAY)
     current_gray = cv2.cvtColor(current, cv2.COLOR_RGB2GRAY)
     flow = cv2.calcOpticalFlowFarneback(
@@ -145,13 +145,46 @@ def _warp_previous(previous: np.ndarray, current: np.ndarray) -> np.ndarray:
     )
     map_x = grid_x - flow[:, :, 0]
     map_y = grid_y - flow[:, :, 1]
-    return cv2.remap(
+    warped = cv2.remap(
         previous,
         map_x,
         map_y,
         interpolation=cv2.INTER_LINEAR,
         borderMode=cv2.BORDER_REFLECT,
     )
+    return warped, flow
+
+
+def _training_free_texture_prior(features: dict[str, float]) -> dict[str, float]:
+    """Heuristic realness prior from optical-flow residuals (no profile needed)."""
+    residual_mean = float(features.get("temporal_warp_residual_mean", 0.0))
+    residual_std = float(features.get("temporal_warp_residual_std", 0.0))
+    residual_cv = residual_std / max(residual_mean, 1e-6)
+    # AI residuals are often overly homogeneous (very low CV).
+    homogeneity = _clamp(residual_cv / 0.35)
+    # Extremely large residuals look unstable; mid-low residuals look natural.
+    stability = _clamp(1.0 - residual_mean * 4.0)
+    second_order = float(features.get("optical_flow_second_order_mean", 0.0))
+    second_order_score = _clamp(1.0 - second_order * 10.0)
+    flow_mean = float(features.get("optical_flow_magnitude_mean", 0.0))
+    # Still faces are valid; only penalize near-zero flow with high residual.
+    flow_support = 0.55 if flow_mean < 0.15 else _clamp(0.55 + flow_mean / 8.0)
+    flicker = _clamp(float(features.get("texture_flicker_mean", 0.0)) * 10.0)
+    clarity = _clamp(1.0 - flicker)
+    prior = _clamp(
+        0.30 * homogeneity
+        + 0.25 * stability
+        + 0.20 * second_order_score
+        + 0.15 * clarity
+        + 0.10 * flow_support
+    )
+    return {
+        "optical_flow_residual_cv": float(residual_cv),
+        "optical_flow_homogeneity_0_1": homogeneity,
+        "optical_flow_second_order_score_0_1": second_order_score,
+        "micro_temporal_naturalness_0_1": prior,
+        "training_free_texture_prior_0_1": prior,
+    }
 
 
 def extract_texture_detail_features(
@@ -212,14 +245,18 @@ def extract_texture_detail_features(
     residuals: list[float] = []
     raw_differences: list[float] = []
     high_frequency_differences: list[float] = []
+    flow_magnitudes: list[float] = []
     region_flicker: dict[str, list[float]] = {
         region_name: [] for region_name in REGION_BOXES
     }
     for previous, current in pairwise(crops):
-        warped = _warp_previous(previous, current)
+        warped, flow = _warp_previous(previous, current)
         current_float = current.astype(np.float32) / 255.0
         warped_float = warped.astype(np.float32) / 255.0
         residuals.append(float(np.mean(np.abs(current_float - warped_float))))
+        flow_magnitudes.append(
+            float(np.mean(np.sqrt(flow[:, :, 0] ** 2 + flow[:, :, 1] ** 2)))
+        )
         raw_differences.append(
             float(
                 np.mean(
@@ -249,6 +286,19 @@ def extract_texture_detail_features(
     features["temporal_raw_difference_mean"] = _safe_mean(raw_differences)
     features["texture_flicker_mean"] = _safe_mean(high_frequency_differences)
     features["texture_flicker_std"] = _safe_std(high_frequency_differences)
+    features["optical_flow_magnitude_mean"] = _safe_mean(flow_magnitudes)
+    features["optical_flow_magnitude_std"] = _safe_std(flow_magnitudes)
+    if len(residuals) >= 2:
+        second_order = [
+            abs(current - previous)
+            for previous, current in pairwise(residuals)
+        ]
+        features["optical_flow_second_order_mean"] = _safe_mean(second_order)
+        features["optical_flow_second_order_std"] = _safe_std(second_order)
+    else:
+        features["optical_flow_second_order_mean"] = 0.0
+        features["optical_flow_second_order_std"] = 0.0
+    features.update(_training_free_texture_prior(features))
     for region_name, values in region_flicker.items():
         features[f"region_{region_name}_flicker_mean"] = _safe_mean(values)
         features[f"region_{region_name}_flicker_std"] = _safe_std(values)
@@ -371,6 +421,7 @@ def score_texture_detail(
             detect_faces=detect_faces,
         )
     if profile is None:
+        feature_map = features["features"]
         return {
             "status": "features_only",
             "probability_calibrated": False,
@@ -378,19 +429,30 @@ def score_texture_detail(
             "schema_version": TEXTURE_DETAIL_SCHEMA,
             "metrics": {
                 "detail_quality_proxy_0_1": _clamp(
-                    features["features"].get("high_frequency_ratio_mean", 0.0)
+                    feature_map.get("high_frequency_ratio_mean", 0.0)
                     * 8.0
                 ),
                 "temporal_stability_proxy_0_1": _clamp(
                     1.0
-                    - features["features"].get(
+                    - feature_map.get(
                         "temporal_warp_residual_mean",
                         1.0,
                     )
                 ),
                 "texture_flicker_0_1": _clamp(
-                    features["features"].get("texture_flicker_mean", 1.0)
+                    feature_map.get("texture_flicker_mean", 1.0)
                     * 10.0
+                ),
+                "optical_flow_homogeneity_0_1": _clamp(
+                    float(feature_map.get("optical_flow_homogeneity_0_1", 0.0))
+                ),
+                "micro_temporal_naturalness_0_1": _clamp(
+                    float(feature_map.get("micro_temporal_naturalness_0_1", 0.0))
+                ),
+                "training_free_texture_prior_0_1": _clamp(
+                    float(
+                        feature_map.get("training_free_texture_prior_0_1", 0.5)
+                    )
                 ),
                 "raw_real_domain_evidence_0_1": None,
                 "real_capture_likelihood_0_1": None,
@@ -427,6 +489,15 @@ def score_texture_detail(
     authenticity = None
     if real_fit is not None and seedance_fit is not None:
         authenticity = real_fit / max(real_fit + seedance_fit, 1e-6)
+    feature_map = features["features"]
+    training_free_prior = _clamp(
+        float(feature_map.get("training_free_texture_prior_0_1", 0.5))
+    )
+    enriched_evidence = authenticity
+    if authenticity is not None:
+        enriched_evidence = _clamp(
+            0.82 * float(authenticity) + 0.18 * training_free_prior
+        )
     return {
         "status": "calibrated" if authenticity is not None else "features_only",
         "probability_calibrated": False,
@@ -435,18 +506,26 @@ def score_texture_detail(
         "metrics": {
             "real_domain_fit_0_1": real_fit,
             "seedance_domain_fit_0_1": seedance_fit,
-            "raw_real_domain_evidence_0_1": authenticity,
+            "profile_raw_real_domain_evidence_0_1": authenticity,
+            "raw_real_domain_evidence_0_1": enriched_evidence,
             # Kept for clients using the initial forensic schema. This field
             # is a profile-distance ratio, not a calibrated probability.
-            "real_capture_likelihood_0_1": authenticity,
+            "real_capture_likelihood_0_1": enriched_evidence,
             "calibrated_real_probability_0_1": None,
             "temporal_stability_proxy_0_1": _clamp(
                 1.0
-                - features["features"].get("temporal_warp_residual_mean", 1.0)
+                - feature_map.get("temporal_warp_residual_mean", 1.0)
             ),
             "texture_flicker_0_1": _clamp(
-                features["features"].get("texture_flicker_mean", 1.0) * 10.0
+                feature_map.get("texture_flicker_mean", 1.0) * 10.0
             ),
+            "optical_flow_homogeneity_0_1": _clamp(
+                float(feature_map.get("optical_flow_homogeneity_0_1", 0.0))
+            ),
+            "micro_temporal_naturalness_0_1": _clamp(
+                float(feature_map.get("micro_temporal_naturalness_0_1", 0.0))
+            ),
+            "training_free_texture_prior_0_1": training_free_prior,
         },
         "feature_record": features,
         "warnings": (

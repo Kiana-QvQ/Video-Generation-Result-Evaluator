@@ -192,6 +192,26 @@ def fuse_authenticity_evidence(
         raw_score * max(confidence, 0.05)
         for _, _, raw_score, confidence in branches
     ) / total_weight
+    prior_terms: list[tuple[float, float]] = []
+    for name, result, _, confidence in branches:
+        metrics = result.get("metrics", {})
+        if not isinstance(metrics, dict):
+            continue
+        prior_key = (
+            "training_free_motion_prior_0_1"
+            if name == "facial_expression_muscle"
+            else "training_free_texture_prior_0_1"
+        )
+        prior = metrics.get(prior_key)
+        if prior is None:
+            continue
+        prior_terms.append((float(prior), max(confidence, 0.05)))
+    training_free_prior = None
+    if prior_terms:
+        prior_weight = sum(weight for _, weight in prior_terms)
+        training_free_prior = sum(
+            prior * weight for prior, weight in prior_terms
+        ) / prior_weight
     calibrated = apply_probability_calibrator(raw_fused, calibrator)
     confidence = _clamp(
         sum(confidence for _, _, _, confidence in branches) / len(branches)
@@ -257,6 +277,7 @@ def fuse_authenticity_evidence(
             name: float(raw_score)
             for name, _, raw_score, _ in branches
         },
+        "training_free_prior_0_1": training_free_prior,
         "uncertainty_reasons": uncertainty_reasons,
     }
 

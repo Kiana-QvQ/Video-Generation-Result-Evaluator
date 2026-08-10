@@ -1199,6 +1199,15 @@ function renderWangxingSpecializationDashboard(payload) {
   const facialLandmarkCoverage = normalizeScore(
     forensicBranches.facial_motion?.metrics?.landmark_valid_frame_ratio,
   );
+  const facialAuRelation = normalizeScore(
+    forensicBranches.facial_motion?.metrics?.au_relation_consistency_0_1,
+  );
+  const facialDynamicsNaturalness = normalizeScore(
+    forensicBranches.facial_motion?.metrics?.au_dynamics_naturalness_0_1,
+  );
+  const facialTrainingFree = normalizeScore(
+    forensicBranches.facial_motion?.metrics?.training_free_motion_prior_0_1,
+  );
   const textureStability = normalizeScore(
     forensicBranches.texture_detail?.metrics?.temporal_stability_proxy_0_1,
   );
@@ -1207,6 +1216,12 @@ function renderWangxingSpecializationDashboard(payload) {
   );
   const textureClarity =
     textureFlicker === null ? null : Math.max(0, Math.min(1, 1 - textureFlicker));
+  const textureHomogeneity = normalizeScore(
+    forensicBranches.texture_detail?.metrics?.optical_flow_homogeneity_0_1,
+  );
+  const textureMicroTemporal = normalizeScore(
+    forensicBranches.texture_detail?.metrics?.micro_temporal_naturalness_0_1,
+  );
 
   wangxingResult.classList.remove("is-hidden");
   wangxingResult.innerHTML = `
@@ -1248,12 +1263,12 @@ function renderWangxingSpecializationDashboard(payload) {
       ${specializationRadarMarkup(
         [
           compatibility,
-          forensicFacial ?? facialMotionCoherence,
-          facialMotionCoherence,
-          activeRatio,
+          forensicFacial ?? facialTrainingFree ?? facialMotionCoherence,
+          facialAuRelation ?? facialMotionCoherence,
+          facialDynamicsNaturalness ?? activeRatio,
           facialLandmarkCoverage ?? longestEventRatio,
         ],
-        ["画像符合度", "肌肉动作证据", "动作连贯", "活跃比例", "关键点覆盖"],
+        ["画像符合度", "肌肉动作证据", "AU关系一致", "动态自然度", "关键点覆盖"],
         "表情与肌肉动态",
         String(expression.selected_profile_display_name ?? "--"),
         "expression",
@@ -1263,16 +1278,16 @@ function renderWangxingSpecializationDashboard(payload) {
           ? specializationRadarMarkup(
               [
                 forensicTexture,
-                textureStability,
-                textureClarity,
+                textureMicroTemporal ?? textureStability,
+                textureHomogeneity ?? textureClarity,
                 normalizeScore(
                   forensicBranches.texture_detail?.metrics?.real_domain_fit_0_1,
                 ),
                 forensicRaw,
               ],
-              ["质感证据", "时序稳定", "细节清晰", "真人域拟合", "融合证据"],
+              ["质感证据", "微时序自然", "残差多样性", "真人域拟合", "融合证据"],
               "质感与细节",
-              "纹理 / 频域 / 时序残差",
+              "光流残差 / 频域 / 时序",
               "forensics",
             )
           : ""
