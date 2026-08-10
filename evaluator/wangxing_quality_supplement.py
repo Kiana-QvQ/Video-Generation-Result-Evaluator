@@ -45,11 +45,11 @@ WRINKLE_REGION_BOXES = {
     "cheek_right": (0.66, 0.36, 0.96, 0.74),
 }
 WRINKLE_REGION_WEIGHTS = {
-    "periocular": 0.34,
+    "periocular": 0.40,
     "glabella_forehead": 0.22,
-    "mouth": 0.24,
-    "cheek_left": 0.10,
-    "cheek_right": 0.10,
+    "mouth": 0.26,
+    "cheek_left": 0.06,
+    "cheek_right": 0.06,
 }
 
 
@@ -144,29 +144,6 @@ def _resample_series(
         left=float(series[0]),
         right=float(series[-1]),
     )
-
-
-def _lagged_abs_corr(
-    left: np.ndarray,
-    right: np.ndarray,
-    *,
-    max_lag: int = 8,
-) -> tuple[float, int]:
-    mask = np.isfinite(left) & np.isfinite(right)
-    if int(np.count_nonzero(mask)) < 12:
-        return 0.0, 0
-    a = np.asarray(left[mask], dtype=np.float64)
-    b = np.asarray(right[mask], dtype=np.float64)
-    best = abs(_corr(a, b))
-    best_lag = 0
-    limit = min(max_lag, max(1, len(a) // 8))
-    for lag in range(1, limit + 1):
-        best = max(best, abs(_corr(a[lag:], b[:-lag])), abs(_corr(a[:-lag], b[lag:])))
-        if abs(_corr(a[lag:], b[:-lag])) >= best - 1e-12:
-            best_lag = lag
-        if abs(_corr(a[:-lag], b[lag:])) >= best - 1e-12:
-            best_lag = -lag
-    return float(best), int(best_lag)
 
 
 def _gaze_series(
@@ -275,6 +252,8 @@ def _iris_gaze_signals(
     abs_pitch: list[float] = []
     left_yaw: list[float] = []
     right_yaw: list[float] = []
+    left_abs_x: list[float] = []
+    right_abs_x: list[float] = []
     valid = 0
     for row in rows:
         points = _frame_landmarks(row, landmark_columns)
@@ -285,6 +264,8 @@ def _iris_gaze_signals(
             abs_pitch.append(math.nan)
             left_yaw.append(math.nan)
             right_yaw.append(math.nan)
+            left_abs_x.append(math.nan)
+            right_abs_x.append(math.nan)
             continue
         left_width = float(
             np.linalg.norm(points[left_eye[1]] - points[left_eye[0]])
@@ -305,6 +286,8 @@ def _iris_gaze_signals(
             abs_pitch.append(math.nan)
             left_yaw.append(math.nan)
             right_yaw.append(math.nan)
+            left_abs_x.append(math.nan)
+            right_abs_x.append(math.nan)
             continue
         left_center = 0.5 * (points[left_eye[0]] + points[left_eye[1]])
         right_center = 0.5 * (points[right_eye[0]] + points[right_eye[1]])
@@ -325,11 +308,22 @@ def _iris_gaze_signals(
         abs_pitch.append(float(abs_offset[1]) * 45.0)
         left_yaw.append(float(left_rel[0]) * 30.0)
         right_yaw.append(float(right_rel[0]) * 30.0)
+        left_abs_x.append(
+            float((points[left_iris][0] - face_center[0]) / face_width)
+        )
+        right_abs_x.append(
+            float((points[right_iris][0] - face_center[0]) / face_width)
+        )
         valid += 1
 
     left_arr = np.asarray(left_yaw, dtype=np.float64)
     right_arr = np.asarray(right_yaw, dtype=np.float64)
-    binocular = abs(_corr(left_arr, right_arr))
+    left_abs = np.asarray(left_abs_x, dtype=np.float64)
+    right_abs = np.asarray(right_abs_x, dtype=np.float64)
+    binocular = max(
+        abs(_corr(_moving_average(left_arr), _moving_average(right_arr))),
+        abs(_corr(_moving_average(left_abs), _moving_average(right_abs))),
+    )
     return {
         "relative_yaw": np.asarray(rel_yaw, dtype=np.float64),
         "relative_pitch": np.asarray(rel_pitch, dtype=np.float64),
@@ -397,10 +391,10 @@ def _score_eye_gaze(
         couple = _clamp(0.65 * abs_couple + 0.35 * binocular)
 
     score = _clamp(
-        0.25 * coverage
-        + 0.30 * smooth
-        + 0.35 * couple
-        + 0.10 * binocular
+        0.20 * coverage
+        + 0.25 * smooth
+        + 0.40 * couple
+        + 0.15 * binocular
     )
     return {
         "score_0_1": score,
@@ -571,10 +565,10 @@ def _face_region_features(
 
 def _map_hf_to_score(hf_mean: float, lap_mean: float, edge_mean: float) -> float:
     # Local skin patches are softer than full-face crops; use gentler floors.
-    hf_score = _clamp((hf_mean - 0.015) / 0.09)
-    lap_score = _clamp((math.log1p(lap_mean) - 2.5) / 4.5)
-    edge_score = _clamp((edge_mean - 0.03) / 0.20)
-    return _clamp(0.45 * hf_score + 0.35 * lap_score + 0.20 * edge_score)
+    hf_score = _clamp((hf_mean - 0.008) / 0.055)
+    lap_score = _clamp((math.log1p(lap_mean) - 2.0) / 4.0)
+    edge_score = _clamp((edge_mean - 0.02) / 0.16)
+    return _clamp(0.40 * hf_score + 0.35 * lap_score + 0.25 * edge_score)
 
 
 def _sample_face_texture(
@@ -726,10 +720,10 @@ def _muscle_wrinkle_sync(
     )
     regional = 0.5 * (peri_corr + mouth_corr)
     sync_strength = _clamp(
-        0.35 * corr_level + 0.35 * corr_delta + 0.30 * regional
+        0.20 * corr_level + 0.35 * corr_delta + 0.45 * regional
     )
     stability = float(texture.get("temporal_stability_0_1") or 0.0)
-    score = _clamp(0.75 * sync_strength + 0.25 * stability)
+    score = _clamp(0.85 * sync_strength + 0.15 * stability)
     return {
         "score_0_1": score,
         "status": "ready",
@@ -848,7 +842,6 @@ def evaluate_quality_supplement(
         au_csv,
         time_aware_derivatives=True,
     )
-    au_intensity = _au_intensity_series(rows, fieldnames)
 
     if expression_profile is None and expression_profile_path is not None:
         expression_profile = _load_json(expression_profile_path)
@@ -886,7 +879,12 @@ def evaluate_quality_supplement(
         if texture.get("status") == "ready"
         else None
     )
-    sync = _muscle_wrinkle_sync(au_intensity, texture, timestamps)
+    sync = _muscle_wrinkle_sync(
+        fieldnames=fieldnames,
+        rows=rows,
+        au_timestamps=timestamps,
+        texture=texture,
+    )
 
     facial_metrics = {
         "motion_prototype_match_0_1": prototype.get("score_0_1"),
@@ -971,6 +969,15 @@ def evaluate_quality_supplement(
                 "motion_prototype": prototype,
                 "muscle_geometry": muscle,
                 "eye_gaze": gaze,
+                "wrinkle_regions": (
+                    {
+                        "region_score_means": texture.get("region_score_means"),
+                        "backend": texture.get("backend"),
+                        "score_0_1": wrinkle_score,
+                    }
+                    if texture.get("status") == "ready"
+                    else {"status": texture.get("status")}
+                ),
                 "muscle_wrinkle_sync": sync,
             },
             "findings": _findings_facial(facial_metrics),
@@ -985,7 +992,7 @@ def evaluate_quality_supplement(
             "details": {
                 key: value
                 for key, value in texture.items()
-                if key != "per_frame_high_frequency"
+                if not str(key).startswith("per_frame_")
             },
             "findings": _findings_texture(texture_metrics),
         },
