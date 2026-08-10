@@ -2116,6 +2116,12 @@ input[type="text"]::placeholder {
   text-anchor: middle;
 }
 
+.specialization-radar-value-label {
+  fill: #d84b86;
+  font: 700 9px var(--sans);
+  text-anchor: middle;
+}
+
 .wangxing-specialization-metrics {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

@@ -179,6 +179,10 @@ function specializationRadarMarkup(
   const radius = 70;
   const levels = [0.25, 0.5, 0.75, 1];
   const normalizedValues = values.map((value) => normalizeScore(value) ?? 0);
+  const valueLabels = values.map((value) => {
+    const normalized = normalizeScore(value);
+    return normalized === null ? "--" : `${(normalized * 100).toFixed(1)}%`;
+  });
   const grid = levels
     .map(
       (level) =>
@@ -200,6 +204,7 @@ function specializationRadarMarkup(
       return `
         <line class="specialization-radar-axis" x1="${centerX}" y1="${centerY}" x2="${endX.toFixed(2)}" y2="${endY.toFixed(2)}" />
         <text class="specialization-radar-label" x="${labelX.toFixed(2)}" y="${labelY.toFixed(2)}">${escapeHtml(label)}</text>
+        <text class="specialization-radar-value-label" x="${labelX.toFixed(2)}" y="${(labelY + 13).toFixed(2)}">${escapeHtml(valueLabels[index])}</text>
       `;
     })
     .join("");
@@ -1175,7 +1180,7 @@ function renderWangxingSpecializationDashboard(payload) {
     forensicTexture,
   ].some((value) => value !== null);
   const reasonLabels = {
-    expression_margin_small: "前二表情画像间隔较小",
+    expression_margin_small: "前二表情画像分差较小",
     identity_uncertain: "身份判断不确定",
     evidence_quality_low: "证据质量不足",
   };
@@ -1227,7 +1232,7 @@ function renderWangxingSpecializationDashboard(payload) {
       )}
       ${specializationRadarMarkup(
         [compatibility, activeRatio, longestEventRatio, peakIntensity, margin],
-        ["画像符合度", "活跃比例", "最长事件", "峰值强度", "画像间隔"],
+        ["画像符合度", "活跃比例", "最长事件", "峰值强度", "前二画像分差"],
         "表情画像",
         String(expression.selected_profile_display_name ?? "--"),
         "expression",
@@ -1255,7 +1260,7 @@ function renderWangxingSpecializationDashboard(payload) {
     <div class="wangxing-specialization-expression-meta">
       <span><strong>${escapeHtml(percent(compatibility))}</strong>画像符合度</span>
       <span><strong>${escapeHtml(expression.selected_profile_display_name ?? "--")}</strong>最接近画像</span>
-      <span><strong>${escapeHtml(percent(margin))}</strong>前二画像间隔</span>
+      <span><strong>${escapeHtml(percent(margin))}</strong>前二画像分差</span>
       <span><strong>${expression.severe_deviation ? "是" : "否"}</strong>严重偏离</span>
     </div>
     ${
@@ -1440,7 +1445,7 @@ function renderWangxingSpecializationResult(payload) {
         <div class="wangxing-result-evidence-grid">
           <span class="is-primary"><strong>${escapeHtml(percent(compatibility))}</strong>画像符合度</span>
           <span><strong>${escapeHtml(expression.selected_profile_display_name ?? "--")}</strong>最接近画像</span>
-          <span><strong>${escapeHtml(percent(expression.margin_0_1))}</strong>前二画像间隔</span>
+          <span><strong>${escapeHtml(percent(expression.margin_0_1))}</strong>前二画像分差</span>
           <span><strong>${expression.severe_deviation ? "是" : "否"}</strong>严重偏离</span>
         </div>
       </div>
