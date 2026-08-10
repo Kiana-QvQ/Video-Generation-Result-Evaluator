@@ -85,7 +85,9 @@ class WebAppTests(unittest.TestCase):
             response.text,
         )
         self.assertIn("raw_real_domain_evidence_0_1", response.text)
-        self.assertIn("NOT CALIBRATED", response.text)
+        self.assertIn("未校准", response.text)
+        self.assertIn("人脸表情与肌肉运动", response.text)
+        self.assertIn("质感与细节真实性证据", response.text)
 
     def test_model_inventory_exposes_readiness(self) -> None:
         response = self.client.get("/api/models")

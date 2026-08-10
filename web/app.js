@@ -1076,22 +1076,22 @@ function renderWangxingSpecializationResult(payload) {
       ? `
         <div class="wangxing-result-evidence">
           <div class="wangxing-result-evidence-group">
-            <span class="wangxing-result-evidence-label">FORENSICS / REAL VS SEEDANCE</span>
+            <span class="wangxing-result-evidence-label">真实性证据 / REAL VS SEEDANCE</span>
             <div class="wangxing-result-evidence-grid">
               <span class="is-primary"><strong>${escapeHtml(
                 percent(forensicRaw),
-              )}</strong>raw domain evidence</span>
+              )}</strong>原始真实性证据</span>
               <span><strong>${escapeHtml(
                 forensicProbability === null
-                  ? "NOT CALIBRATED"
+                  ? "未校准"
                   : percent(forensicProbability),
-              )}</strong>calibrated real probability</span>
+              )}</strong>校准后实拍概率</span>
               <span><strong>${escapeHtml(
                 percent(forensicFacial),
-              )}</strong>facial motion branch</span>
+              )}</strong>人脸表情与肌肉运动</span>
               <span><strong>${escapeHtml(
                 percent(forensicTexture),
-              )}</strong>texture branch</span>
+              )}</strong>质感与细节真实性证据</span>
             </div>
           </div>
           <p class="wangxing-result-note">
