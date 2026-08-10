@@ -1,8 +1,8 @@
-"""Runtime that powers collaborator yellow-box entrypoints.
+"""Runtime for the standalone Wang Xing specialization entrypoints.
 
-``detail_expression_metrics`` keeps a stable four-argument public API.
-This module turns those inputs into calls against the packaged Wangxing /
-forensics implementations and bundled profiles.
+The web UI renders two five-dimension Wang Xing radar composites. This module
+reproduces those composites without importing the web application or the
+ordinary five-category evaluator.
 """
 
 from __future__ import annotations
@@ -15,13 +15,15 @@ from typing import Any, Optional, Sequence
 
 import numpy as np
 
+from ..forensics import analyze_forensics
+from ..wangxing.wangxing_specialization import score_expression_profile
 from .paths import profile_path
 from .video_metrics import DEFAULT_SAMPLE_FPS, probe_video, sample_video_frames
 
 
 @dataclass
 class PreparedVideo:
-    """Normalized video input for yellow-box scoring."""
+    """Normalized video input for the standalone specialization API."""
 
     path: str | None = None
     frames: list[Any] = field(default_factory=list)
@@ -30,6 +32,7 @@ class PreparedVideo:
     sample_fps: float = DEFAULT_SAMPLE_FPS
     frame_count: int = 0
     au_csv: str | None = None
+    expected_class: str | None = None
     source: str = "unknown"
 
 
@@ -59,42 +62,49 @@ def _as_au_csv(value: Any, video_path: Path | None) -> str | None:
     if isinstance(value, dict):
         for key in ("au_csv", "au_path", "csv"):
             raw = value.get(key)
-            if raw:
-                path = Path(str(raw))
-                if path.is_file():
-                    return str(path.resolve())
+            if raw and Path(str(raw)).is_file():
+                return str(Path(str(raw)).resolve())
     for attribute in ("au_csv", "au_path"):
         raw = getattr(value, attribute, None)
-        if raw:
-            path = Path(str(raw))
-            if path.is_file():
-                return str(path.resolve())
+        if raw and Path(str(raw)).is_file():
+            return str(Path(str(raw)).resolve())
     if video_path is None:
         return None
-    stem = video_path.with_suffix(".csv")
-    if stem.is_file():
-        return str(stem.resolve())
-    sibling = video_path.parent / f"{video_path.stem}_au.csv"
-    if sibling.is_file():
-        return str(sibling.resolve())
+    for candidate in (
+        video_path.with_suffix(".csv"),
+        video_path.parent / f"{video_path.stem}_au.csv",
+    ):
+        if candidate.is_file():
+            return str(candidate.resolve())
+    return None
+
+
+def _as_expected_class(value: Any) -> str | None:
+    if isinstance(value, dict):
+        for key in ("expected_class", "wangxing_expected_class"):
+            if value.get(key):
+                return str(value[key])
+    for attribute in ("expected_class", "wangxing_expected_class"):
+        raw = getattr(value, attribute, None)
+        if raw:
+            return str(raw)
     return None
 
 
 def _sample_fps_of(value: Any, default: float = DEFAULT_SAMPLE_FPS) -> float:
-    if isinstance(value, dict):
-        for key in ("sample_fps", "fps", "processing_fps"):
-            if value.get(key) is not None:
-                try:
-                    return max(0.1, float(value[key]))
-                except (TypeError, ValueError):
-                    pass
-    for attribute in ("sample_fps", "fps", "processing_fps"):
-        raw = getattr(value, attribute, None)
-        if raw is not None:
-            try:
-                return max(0.1, float(raw))
-            except (TypeError, ValueError):
-                pass
+    keys = ("sample_fps", "fps", "processing_fps")
+    values = (
+        [value.get(key) for key in keys]
+        if isinstance(value, dict)
+        else [getattr(value, key, None) for key in keys]
+    )
+    for raw in values:
+        if raw is None:
+            continue
+        try:
+            return max(0.1, float(raw))
+        except (TypeError, ValueError):
+            continue
     return float(default)
 
 
@@ -104,19 +114,14 @@ def prepare_video_input(
     max_frames: Optional[int] = None,
     sample_fps: float | None = None,
 ) -> PreparedVideo:
-    """Normalize a path / samples object into frames + metadata.
-
-    Accepted ``video`` forms:
-    - video path string / ``Path``
-    - dict with ``path`` / ``video_path`` and optional ``au_csv`` / ``sample_fps``
-    - object with ``.path`` / ``.frames`` / ``.au_csv`` / ``.sample_fps``
-    """
+    """Normalize a path, mapping, or preloaded-frame object."""
     path = _as_path(video)
     fps = _sample_fps_of(video, sample_fps or DEFAULT_SAMPLE_FPS)
     if sample_fps is not None:
         fps = max(0.1, float(sample_fps))
-    limit = 24 if max_frames is None else max(2, int(max_frames))
+    limit = 16 if max_frames is None else max(2, int(max_frames))
     au_csv = _as_au_csv(video, path if path and path.suffix else None)
+    expected_class = _as_expected_class(video)
 
     frames_attr = getattr(video, "frames", None)
     if frames_attr is None and isinstance(video, dict):
@@ -132,12 +137,14 @@ def prepare_video_input(
             else list(range(len(frames)))
         )
         if len(frames) > limit:
-            chosen = [
+            selected = [
                 int(round(index * (len(frames) - 1) / (limit - 1)))
                 for index in range(limit)
             ]
-            frames = [frames[index] for index in chosen]
-            indices = [indices[index] for index in chosen if index < len(indices)]
+            frames = [frames[index] for index in selected]
+            indices = [
+                indices[index] for index in selected if index < len(indices)
+            ]
         return PreparedVideo(
             path=str(path.resolve()) if path and path.is_file() else None,
             frames=frames,
@@ -146,15 +153,17 @@ def prepare_video_input(
             sample_fps=fps,
             frame_count=len(frames),
             au_csv=au_csv,
+            expected_class=expected_class,
             source="preloaded_frames",
         )
 
     if path is None or not path.is_file():
         return PreparedVideo(
             path=str(path) if path is not None else None,
-            sample_fps=fps,
             fps=fps,
+            sample_fps=fps,
             au_csv=au_csv,
+            expected_class=expected_class,
             source="missing",
         )
 
@@ -171,16 +180,21 @@ def prepare_video_input(
         sample_fps=fps,
         frame_count=len(frames),
         au_csv=au_csv,
+        expected_class=expected_class,
         source="sampled_from_path",
     )
 
 
-def _load_forensics_profiles() -> dict[str, Any]:
-    path = profile_path("forensics_profiles")
+def _load_json_profile(key: str) -> dict[str, Any]:
+    path = profile_path(key)
     if path is None or not path.is_file():
         return {}
     payload = json.loads(path.read_text(encoding="utf-8-sig"))
     return payload if isinstance(payload, dict) else {}
+
+
+def _load_forensics_profiles() -> dict[str, Any]:
+    return _load_json_profile("forensics_profiles")
 
 
 def _load_expression_profile() -> tuple[dict[str, Any] | None, str | None]:
@@ -204,6 +218,105 @@ def _score_from_values(values: Sequence[float | None]) -> float | None:
     return _clamp(float(np.mean(usable)))
 
 
+def _first_score(*values: Any) -> float | None:
+    for value in values:
+        if value is None:
+            continue
+        try:
+            numeric = float(value)
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(numeric):
+            return _clamp(numeric)
+    return None
+
+
+def _composite_details(
+    dimensions: dict[str, float | None],
+) -> tuple[float | None, dict[str, dict[str, float | None]]]:
+    score = _score_from_values(list(dimensions.values()))
+    return score, {
+        key: {
+            "score_0_1": value,
+            "score_0_100": (
+                float(value) * 100.0 if value is not None else None
+            ),
+        }
+        for key, value in dimensions.items()
+    }
+
+
+def _forensics_input(video: PreparedVideo) -> Any | None:
+    if video.path and Path(video.path).is_file():
+        return video.path
+    if video.frames:
+        return video.frames
+    return None
+
+
+def _run_specialization_forensics(
+    generated: PreparedVideo,
+    profiles: dict[str, Any],
+    *,
+    max_frames: int,
+) -> dict[str, Any]:
+    facial_input = (
+        generated.au_csv
+        if generated.au_csv and Path(generated.au_csv).is_file()
+        else None
+    )
+    texture_input = _forensics_input(generated)
+    if facial_input is None and texture_input is None:
+        return {}
+    return analyze_forensics(
+        facial_motion=facial_input,
+        facial_motion_profile=profiles.get("facial_motion"),
+        texture_detail=texture_input,
+        texture_detail_profile=profiles.get("texture_detail"),
+        authenticity_calibrator=profiles.get("authenticity_calibrator"),
+        max_frames=max_frames,
+        sample_fps=float(generated.sample_fps or DEFAULT_SAMPLE_FPS),
+        detect_faces=True,
+    )
+
+
+def _load_expression_result(
+    generated: PreparedVideo,
+    profile: dict[str, Any] | None,
+) -> dict[str, Any]:
+    if (
+        not profile
+        or generated.au_csv is None
+        or not Path(generated.au_csv).is_file()
+    ):
+        return {}
+    return score_expression_profile(
+        generated.au_csv,
+        profile,
+        expected_class=generated.expected_class,
+    )
+
+
+def _profile_version(profile: dict[str, Any] | None) -> str | None:
+    if not isinstance(profile, dict):
+        return None
+    for key in ("schema_version", "profile_schema_version"):
+        if profile.get(key) is not None:
+            return str(profile[key])
+    return None
+
+
+def _reference_image_count(images: Optional[Sequence[Any]]) -> int:
+    if images is None:
+        return 0
+    if isinstance(images, (str, bytes, Path)):
+        return 1
+    try:
+        return len(images)
+    except TypeError:
+        return 1
+
+
 def score_detail_quality(
     *,
     generated: PreparedVideo,
@@ -211,115 +324,78 @@ def score_detail_quality(
     reference_images: Optional[Sequence[Any]],
     max_frames: Optional[int],
 ) -> dict[str, Any]:
-    """Run packaged texture / detail scoring."""
-    from ..forensics.texture_detail import score_texture_detail
-    from ..wangxing.wangxing_quality_supplement import _sample_face_texture
-
-    limit = 24 if max_frames is None else max(2, int(max_frames))
+    """Return the web-equivalent Wang Xing texture/detail composite."""
+    limit = 16 if max_frames is None else max(2, int(max_frames))
     profiles = _load_forensics_profiles()
-    texture_profile = profiles.get("texture_detail")
-
-    texture_input: Any
-    if generated.path and Path(generated.path).is_file():
-        texture_input = generated.path
-    elif generated.frames:
-        texture_input = generated.frames
-    else:
-        return {
-            "score": None,
-            "status": "unavailable",
-            "details": {
-                "warning": "未提供可用的生成视频路径或帧序列。",
-                "generated_frame_count": 0,
-                "max_frames": max_frames,
-            },
-        }
-
-    forensic = score_texture_detail(
-        texture_input,
-        texture_profile if isinstance(texture_profile, dict) else None,
+    forensics = _run_specialization_forensics(
+        generated,
+        profiles,
         max_frames=limit,
-        sample_fps=float(generated.sample_fps or DEFAULT_SAMPLE_FPS),
-        detect_faces=True,
     )
-    forensic_metrics = forensic.get("metrics") or {}
-    local_texture = None
-    if generated.path and Path(generated.path).is_file():
-        local_texture = _sample_face_texture(
-            generated.path,
-            max_frames=min(limit, 24),
-        )
+    branches = forensics.get("branches", {})
+    texture_result = branches.get("texture_detail") or {}
+    texture_metrics = texture_result.get("metrics", {})
+    if not isinstance(texture_metrics, dict):
+        texture_metrics = {}
+    fusion = forensics.get("fusion", {})
+    if not isinstance(fusion, dict):
+        fusion = {}
 
-    local_score = None
-    edge_clarity = None
-    if isinstance(local_texture, dict) and local_texture.get("status") == "ready":
-        local_score = local_texture.get("score_0_1")
-        edge_clarity = _clamp(
-            0.55
-            * _clamp(
-                (
-                    math.log1p(
-                        float(local_texture.get("laplacian_variance_mean", 0.0))
-                    )
-                    - 3.0
-                )
-                / 4.0
-            )
-            + 0.45
-            * _clamp(
-                (float(local_texture.get("edge_density_mean", 0.0)) - 0.04)
-                / 0.18
-            )
-        )
-
-    ref_score = None
-    if reference is not None and (
-        (reference.path and Path(reference.path).is_file()) or reference.frames
-    ):
-        ref_input: Any = (
-            reference.path
-            if reference.path and Path(reference.path).is_file()
-            else reference.frames
-        )
-        ref_result = score_texture_detail(
-            ref_input,
-            texture_profile if isinstance(texture_profile, dict) else None,
-            max_frames=limit,
-            sample_fps=float(reference.sample_fps or DEFAULT_SAMPLE_FPS),
-        )
-        ref_metrics = ref_result.get("metrics") or {}
-        ref_score = ref_metrics.get("real_capture_likelihood_0_1")
-        if ref_score is None:
-            ref_score = ref_metrics.get("temporal_stability_proxy_0_1")
-
-    score = _score_from_values(
-        [
-            forensic_metrics.get("real_capture_likelihood_0_1"),
-            forensic_metrics.get("temporal_stability_proxy_0_1"),
-            local_score,
-            edge_clarity,
-        ]
-    )
-    image_count = 0
-    if reference_images is not None:
-        if isinstance(reference_images, (str, bytes, Path)):
-            image_count = 1
-        else:
-            try:
-                image_count = len(reference_images)
-            except TypeError:
-                image_count = 1
-
+    dimensions = {
+        "texture_evidence_0_1": _first_score(
+            texture_metrics.get("raw_real_domain_evidence_0_1"),
+        ),
+        "temporal_stability_0_1": _first_score(
+            texture_metrics.get("micro_temporal_naturalness_0_1"),
+            texture_metrics.get("temporal_stability_proxy_0_1"),
+        ),
+        "detail_clarity_0_1": _first_score(
+            texture_metrics.get("optical_flow_homogeneity_0_1"),
+            (
+                1.0 - float(texture_metrics["texture_flicker_0_1"])
+                if texture_metrics.get("texture_flicker_0_1") is not None
+                else None
+            ),
+        ),
+        "real_domain_fit_0_1": _first_score(
+            texture_metrics.get("real_domain_fit_0_1"),
+        ),
+        "fusion_evidence_0_1": _first_score(
+            forensics.get("scores", {}).get(
+                "raw_real_domain_evidence_0_1",
+            ),
+            fusion.get("raw_real_domain_evidence_0_1"),
+        ),
+    }
+    score, dimension_details = _composite_details(dimensions)
+    image_count = _reference_image_count(reference_images)
+    has_input = bool(_forensics_input(generated))
     return {
         "score": score,
-        "status": "available" if score is not None else "partial",
+        "status": "available" if score is not None else "unavailable",
         "details": {
+            "scope": "wangxing_specialization_texture",
             "placeholder": False,
-            "method": "forensics.texture_detail + wangxing face-crop texture",
-            "generated_quality_score": score,
-            "sharpness_proxy_score": edge_clarity if edge_clarity is not None else score,
-            "high_frequency_proxy_score": local_score if local_score is not None else score,
-            "reference_quality_score": ref_score,
+            "method": "web_wangxing_texture_radar_composite",
+            "composite_score_0_1": score,
+            "composite_score_0_100": (
+                score * 100.0 if score is not None else None
+            ),
+            "dimensions": dimension_details,
+            "metric_labels": {
+                "texture_evidence_0_1": "质感证据",
+                "temporal_stability_0_1": "时序稳定",
+                "detail_clarity_0_1": "细节清晰",
+                "real_domain_fit_0_1": "真人域拟合",
+                "fusion_evidence_0_1": "融合证据",
+            },
+            "texture_evidence_0_1": dimensions["texture_evidence_0_1"],
+            "temporal_stability_0_1": dimensions[
+                "temporal_stability_0_1"
+            ],
+            "detail_clarity_0_1": dimensions["detail_clarity_0_1"],
+            "real_domain_fit_0_1": dimensions["real_domain_fit_0_1"],
+            "fusion_evidence_0_1": dimensions["fusion_evidence_0_1"],
             "paired_frames": (
                 min(generated.frame_count, reference.frame_count)
                 if reference is not None
@@ -333,19 +409,11 @@ def score_detail_quality(
             "max_frames": max_frames,
             "sample_fps": generated.sample_fps,
             "video_path": generated.path,
-            "forensics": {
-                "status": forensic.get("status"),
-                "metrics": forensic_metrics,
-            },
-            "local_face_texture": (
-                {
-                    key: value
-                    for key, value in local_texture.items()
-                    if not str(key).startswith("per_frame_")
-                }
-                if isinstance(local_texture, dict)
-                else None
+            "profile_schema_version": _profile_version(
+                profiles.get("texture_detail"),
             ),
+            "input_available": has_input,
+            "forensics": forensics,
         },
     }
 
@@ -357,173 +425,94 @@ def score_face_expression(
     reference_images: Optional[Sequence[Any]],
     max_frames: Optional[int],
 ) -> dict[str, Any]:
-    """Run packaged facial-expression / muscle scoring."""
-    from ..forensics.facial_motion import score_facial_motion
-    from ..wangxing.wangxing_quality_supplement import (
-        _sample_face_texture,
-        evaluate_quality_supplement,
-    )
-
-    limit = 24 if max_frames is None else max(2, int(max_frames))
+    """Return the web-equivalent Wang Xing expression composite."""
+    limit = 16 if max_frames is None else max(2, int(max_frames))
     profiles = _load_forensics_profiles()
-    facial_profile = profiles.get("facial_motion")
     expression_profile, expression_profile_path = _load_expression_profile()
-
-    supplement = None
-    facial_forensics = None
-    if generated.au_csv and Path(generated.au_csv).is_file():
-        supplement = evaluate_quality_supplement(
-            au_csv=generated.au_csv,
-            video_path=generated.path,
-            expression_profile=expression_profile,
-            expression_profile_path=expression_profile_path,
-            max_texture_frames=min(limit, 24),
-        )
-        facial_forensics = score_facial_motion(
-            generated.au_csv,
-            facial_profile if isinstance(facial_profile, dict) else {},
-        )
-
-    local_texture = None
-    if generated.path and Path(generated.path).is_file():
-        local_texture = _sample_face_texture(
-            generated.path,
-            max_frames=min(limit, 24),
-        )
-    elif generated.frames:
-        from ..forensics.texture_detail import score_texture_detail
-
-        frame_texture = score_texture_detail(
-            generated.frames,
-            None,
-            max_frames=min(limit, len(generated.frames)),
-            sample_fps=float(generated.sample_fps or 8.0),
-            detect_faces=True,
-        )
-        metrics = frame_texture.get("metrics") or {}
-        local_texture = {
-            "status": "ready",
-            "score_0_1": metrics.get("detail_quality_proxy_0_1")
-            or metrics.get("temporal_stability_proxy_0_1"),
-            "temporal_stability_0_1": metrics.get(
-                "temporal_stability_proxy_0_1"
-            ),
-            "backend": "preloaded_frames_texture_proxy",
-        }
-
-    facial_block = (supplement or {}).get("facial_expression_muscle") or {}
-    facial_metrics = facial_block.get("metrics") or {}
-    forensic_metrics = (facial_forensics or {}).get("metrics") or {}
-
-    score = _score_from_values(
-        [
-            facial_block.get("score_0_1"),
-            forensic_metrics.get("real_capture_likelihood_0_1"),
-            forensic_metrics.get("motion_coherence_0_1"),
-            (local_texture or {}).get("score_0_1")
-            if generated.au_csv is None
-            else None,
-            (local_texture or {}).get("temporal_stability_0_1")
-            if generated.au_csv is None
-            else None,
-        ]
+    expression_result = _load_expression_result(
+        generated,
+        expression_profile,
     )
+    forensics = _run_specialization_forensics(
+        generated,
+        profiles,
+        max_frames=limit,
+    )
+    facial_result = forensics.get("branches", {}).get("facial_motion") or {}
+    facial_metrics = facial_result.get("metrics", {})
+    if not isinstance(facial_metrics, dict):
+        facial_metrics = {}
+    event_statistics = expression_result.get("event_statistics") or {}
 
-    coverage = 1.0 if generated.frame_count > 0 else 0.0
-    if facial_metrics:
-        coverage = float(
-            facial_metrics.get("face_coverage")
-            or coverage
-        )
-
-    image_count = 0
-    if reference_images is not None:
-        if isinstance(reference_images, (str, bytes, Path)):
-            image_count = 1
-        else:
-            try:
-                image_count = len(reference_images)
-            except TypeError:
-                image_count = 1
-
-    warning = None
-    if generated.au_csv is None:
-        warning = (
-            "未提供 AU CSV（可传同名 .csv、video.au_csv，或 "
-            "{'path': video, 'au_csv': csv}）。当前使用视频人脸纹理/"
-            "时序稳定性作为表情肌肉代理分。"
-        )
-
-    evidence = []
-    for key, label in (
-        ("motion_prototype_match_0_1", "表情动作原型匹配"),
-        ("eye_gaze_match_0_1", "眼神/虹膜位置匹配"),
-        ("muscle_geometry_0_1", "肌肉几何"),
-        ("wrinkle_high_frequency_0_1", "肌肉几何与皱纹纹理匹配"),
-        ("muscle_wrinkle_sync_0_1", "连续帧肌肉-皱纹同步"),
-    ):
-        value = facial_metrics.get(key)
-        if value is None:
-            continue
-        evidence.append(
-            {"label": label, "value": f"{float(value) * 100.0:.1f}%"}
-        )
-    if not evidence and score is not None:
-        evidence = [
-            {
-                "label": "视频人脸纹理/动态代理",
-                "value": f"{float(score) * 100.0:.1f}%",
-            }
-        ]
-
+    dimensions = {
+        "profile_compatibility_0_1": _first_score(
+            expression_result.get("compatibility_0_1"),
+        ),
+        "muscle_action_evidence_0_1": _first_score(
+            facial_metrics.get("raw_real_domain_evidence_0_1"),
+            facial_metrics.get("training_free_motion_prior_0_1"),
+            facial_metrics.get("motion_coherence_0_1"),
+        ),
+        "action_coherence_0_1": _first_score(
+            facial_metrics.get("au_relation_consistency_0_1"),
+            facial_metrics.get("motion_coherence_0_1"),
+        ),
+        "active_ratio_0_1": _first_score(
+            facial_metrics.get("au_dynamics_naturalness_0_1"),
+            event_statistics.get("active_ratio"),
+        ),
+        "landmark_coverage_0_1": _first_score(
+            facial_metrics.get("landmark_valid_frame_ratio"),
+            event_statistics.get("longest_event_ratio"),
+        ),
+    }
+    score, dimension_details = _composite_details(dimensions)
+    image_count = _reference_image_count(reference_images)
+    warning = (
+        "AU CSV is required for the complete Wang Xing expression and "
+        "facial-motion dimensions."
+        if generated.au_csv is None
+        else None
+    )
     return {
         "score": score,
         "status": "available" if score is not None else "partial",
         "details": {
+            "scope": "wangxing_specialization_expression",
             "placeholder": False,
-            "score": score,
-            "method": (
-                "wangxing_quality_supplement + forensics.facial_motion"
-                if generated.au_csv
-                else "video-only face texture / temporal proxy"
+            "method": "web_wangxing_expression_radar_composite",
+            "composite_score_0_1": score,
+            "composite_score_0_100": (
+                score * 100.0 if score is not None else None
             ),
+            "dimensions": dimension_details,
+            "metric_labels": {
+                "profile_compatibility_0_1": "画像符合度",
+                "muscle_action_evidence_0_1": "肌肉动作证据",
+                "action_coherence_0_1": "动作连贯",
+                "active_ratio_0_1": "活跃比例",
+                "landmark_coverage_0_1": "关键点覆盖",
+            },
+            "profile_compatibility_0_1": dimensions[
+                "profile_compatibility_0_1"
+            ],
+            "muscle_action_evidence_0_1": dimensions[
+                "muscle_action_evidence_0_1"
+            ],
+            "action_coherence_0_1": dimensions["action_coherence_0_1"],
+            "active_ratio_0_1": dimensions["active_ratio_0_1"],
+            "landmark_coverage_0_1": dimensions["landmark_coverage_0_1"],
+            "selected_profile": expression_result.get("selected_profile"),
+            "selected_profile_display_name": expression_result.get(
+                "selected_profile_display_name",
+            ),
+            "profile_result": expression_result,
             "reference_count": image_count,
             "valid_face_frames": generated.frame_count,
             "total_sampled_frames": generated.frame_count,
-            "face_coverage": coverage,
-            "frame_match_score": facial_metrics.get(
-                "motion_prototype_match_0_1", score
+            "face_coverage": _first_score(
+                facial_metrics.get("landmark_valid_frame_ratio"),
             ),
-            "tail_20_percent_score": score,
-            "match_consistency_score": forensic_metrics.get(
-                "motion_coherence_0_1", score
-            ),
-            "geometry_score": facial_metrics.get("muscle_geometry_0_1", score),
-            "gaze_score": facial_metrics.get("eye_gaze_match_0_1", score),
-            "texture_score": facial_metrics.get(
-                "wrinkle_high_frequency_0_1",
-                (local_texture or {}).get("score_0_1", score),
-            ),
-            "wrinkle_score": facial_metrics.get(
-                "wrinkle_high_frequency_0_1",
-                (local_texture or {}).get("score_0_1", score),
-            ),
-            "motion_score": forensic_metrics.get(
-                "motion_coherence_0_1", score
-            ),
-            "motion_details": forensic_metrics,
-            "geometry_method": "AU + Face Mesh"
-            if generated.au_csv
-            else "video proxy",
-            "gaze_method": "AU gaze columns"
-            if generated.au_csv
-            else "unavailable",
-            "action_scores": [],
-            "low_reference_actions": [],
-            "group_scores": {},
-            "top_frame_matches": [],
-            "semantic_qa_suggestions": [],
-            "generated_frame_count": generated.frame_count,
             "reference_frame_count": (
                 reference.frame_count if reference is not None else 0
             ),
@@ -533,13 +522,9 @@ def score_face_expression(
             "video_path": generated.path,
             "au_csv": generated.au_csv,
             "expression_profile": expression_profile_path,
-            "supplement": facial_block or None,
-            "forensics": {
-                "status": (facial_forensics or {}).get("status"),
-                "metrics": forensic_metrics,
-            },
+            "profile_schema_version": _profile_version(expression_profile),
+            "forensics": forensics,
             "warning": warning,
-            "evidence": evidence,
         },
     }
 

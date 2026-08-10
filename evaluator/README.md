@@ -19,6 +19,9 @@ evaluator/
 
 > 仓库根目录的 `backends/`（ViCLIP / ETVA / VBench / subst）**不属于**本协作包；本仓网页与五项综合评估仍会使用它。
 
+`detail_expression_metrics.py` 依赖包内的
+`core/detail_expression_runtime.py`；发送整个 `evaluator/` 目录时必须保留该文件。
+
 ## 黄框两项
 
 以 `detail_expression_metrics.py` 为**对方可直接调用的公开入口**（不依赖网页评估流程）。内部已接到本包 `forensics` / `wangxing` 与 `assets/profiles`：
@@ -52,7 +55,24 @@ print(detail.name, detail.score, detail.status)
 print(expression.name, expression.score, expression.status)
 ```
 
-中间处理：按 `sample_fps` / `max_frames` 从视频均匀时间采样 → 人脸裁剪与纹理/高频特征（质感）→ 有 AU 时再走表情肌肉与 forensics 运动画像；返回 `MetricResult(name, score, weight, status, details)`。
+中间处理：按 `sample_fps` / `max_frames` 从视频均匀时间采样，使用王兴专项 profile 和 forensics 画像，按网页同样的五维雷达分项做简单平均。`MetricResult.score` 保持 0-1，`MetricResult.score_0_100` 与 `details["composite_score_0_100"]` 是网页使用的 0-100 综合分。
+
+表情与肌肉动态的完整五维结果需要调用方提供 AU CSV：
+
+```python
+result = compute_face_expression_metric(
+    {
+        "path": "candidate.mp4",
+        "au_csv": "candidate.csv",
+        "sample_fps": 8,
+    },
+    None,
+    None,
+    16,
+)
+print(result.score_0_100)
+print(result.details["dimensions"])
+```
 ## Profile 解析
 
 路径工具会按候选依次解析：已存在的绝对路径 → 已存在的仓库相对路径（如 `data/...`）→ `evaluator/assets/profiles/<文件名>` → 其它回退：

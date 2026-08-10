@@ -23,6 +23,13 @@ class EvaluatorBundleTests(unittest.TestCase):
             ).is_file()
         )
 
+    def test_public_entrypoint_runtime_file_is_present(self) -> None:
+        for relative in pack.REQUIRED_PACKAGE_FILES:
+            self.assertTrue(
+                (pack.PACKAGE_ROOT / relative).is_file(),
+                relative,
+            )
+
     def test_zip_contains_only_verified_profiles_and_is_self_contained(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

@@ -211,6 +211,11 @@ class MetricResult:
     status: str
     details: Dict[str, Any] = field(default_factory=dict)
 
+    @property
+    def score_0_100(self) -> float | None:
+        """Return the composite score in the web display scale."""
+        return self.score * 100.0 if self.score is not None else None
+
 
 def compute_detail_metric(
     generated_video: Any,

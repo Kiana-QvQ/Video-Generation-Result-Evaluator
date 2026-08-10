@@ -53,6 +53,10 @@ RUNTIME_CALIBRATOR_KEYS = (
     "intercept",
 )
 RUNTIME_CALIBRATOR_NUMERIC_KEYS = ("mean", "scale", "slope", "intercept")
+REQUIRED_PACKAGE_FILES = (
+    "detail_expression_metrics.py",
+    "core/detail_expression_runtime.py",
+)
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -106,6 +110,19 @@ def _profile_source(filename: str) -> str | None:
     )
 
 
+def _validate_package_layout(package_root: Path) -> None:
+    missing = [
+        relative
+        for relative in REQUIRED_PACKAGE_FILES
+        if not (package_root / relative).is_file()
+    ]
+    if missing:
+        raise SystemExit(
+            "Bundle is missing required public-entrypoint files:\n- "
+            + "\n- ".join(missing)
+        )
+
+
 def _validate_profile_assets(profiles_dir: Path) -> None:
     missing = [
         filename
@@ -150,6 +167,7 @@ def _validate_profile_assets(profiles_dir: Path) -> None:
 
 
 def _verify_manifest(package_root: Path) -> dict[str, bool]:
+    _validate_package_layout(package_root)
     profiles_dir = package_root / "assets" / "profiles"
     _validate_profile_assets(profiles_dir)
     manifest_path = package_root / "assets" / "MANIFEST.json"
@@ -245,6 +263,7 @@ def extract_runtime_calibrator() -> dict[str, Any]:
 
 
 def sync_profiles() -> dict[str, str]:
+    _validate_package_layout(PACKAGE_ROOT)
     expected_sources = set(PROFILE_FILES.values()) - {CALIBRATOR_ASSET}
     declared_sources = set(SOURCE_PROFILES)
     if declared_sources != expected_sources:
