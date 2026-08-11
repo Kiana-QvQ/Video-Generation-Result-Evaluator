@@ -1,0 +1,14 @@
+{
+  "schema_version": "seedance_authenticity_calibrator_v1",
+  "status": "ready",
+  "feature": "raw_real_capture_likelihood_0_1",
+  "calibration_method": "platt_logistic_1d",
+  "mean": 0.5565500519981552,
+  "scale": 0.05,
+  "slope": 3.087216602110208,
+  "intercept": -0.016865084021848477,
+  "real_count": 50,
+  "generated_count": 50,
+  "held_out_required": true,
+  "split_protocol": "source_video_or_generation_batch_holdout"
+}

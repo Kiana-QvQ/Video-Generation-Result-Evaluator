@@ -3,11 +3,36 @@ from __future__ import annotations
 from pathlib import Path
 
 
-# ``evaluator/modules/core/paths.py`` -> parents[1]=modules, parents[2]=evaluator
+# ``.../modules/core/paths.py`` -> parents[1]=modules, parents[2]=package root
 MODULES_ROOT = Path(__file__).resolve().parents[1]
 PACKAGE_ROOT = Path(__file__).resolve().parents[2]
-# Parent of the shipped ``evaluator/`` folder (full repo root, or unzip parent).
-WORKSPACE_ROOT = PACKAGE_ROOT.parent
+
+
+def _detect_workspace_root() -> Path:
+    """Resolve host project root for both nested and flat layouts.
+
+    - Nested package: ``<repo>/evaluator/modules/...`` → workspace is ``<repo>``
+    - Flat collaborator host: ``<host>/modules/...`` with
+      ``detail_expression_metrics.py`` beside ``modules/`` → workspace is ``<host>``
+    """
+
+    # A checked-out repository has ``<repo>/evaluator/`` and may also have a
+    # legacy root-level ``detail_expression_metrics.py``.  The package-local
+    # entrypoint must not make ``evaluator/`` look like the host project.
+    if PACKAGE_ROOT.name.casefold() == "evaluator":
+        return PACKAGE_ROOT.parent
+    if (
+        (PACKAGE_ROOT / "Expression").is_dir()
+        or (PACKAGE_ROOT / "BiaoQing").is_dir()
+        or (PACKAGE_ROOT / "main.py").is_file()
+        or (PACKAGE_ROOT / "detail_expression_metrics.py").is_file()
+    ):
+        return PACKAGE_ROOT
+    return PACKAGE_ROOT.parent
+
+
+# Parent of nested ``evaluator/``, or the flat host project itself.
+WORKSPACE_ROOT = _detect_workspace_root()
 PROJECT_ROOT = WORKSPACE_ROOT
 ASSETS_DIR = MODULES_ROOT / "assets"
 PROFILES_DIR = ASSETS_DIR / "profiles"

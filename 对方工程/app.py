@@ -1,0 +1,2676 @@
+# app.py
+# !/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+视频生成模型结果评估 - Web界面
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import uuid
+from pathlib import Path
+from typing import Any, Dict, List
+from flask import Flask, render_template, request, jsonify, send_file
+from werkzeug.utils import secure_filename
+import time
+
+from main import (
+    evaluate as evaluate_video,
+    LOGGER,
+)
+
+# 配置
+BASE_DIR = Path(__file__).resolve().parent
+UPLOAD_FOLDER = BASE_DIR / "uploads"
+RESULT_FOLDER = BASE_DIR / "results"
+ALLOWED_VIDEO_EXTENSIONS = {'.mp4', '.avi', '.mov', '.mkv', '.webm', '.flv'}
+ALLOWED_IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.bmp', '.webp'}
+
+# QA问题文件路径（与app.py同目录）
+QA_IMAGE_PATH = BASE_DIR / "image_qa.json"
+QA_VIDEO_PATH = BASE_DIR / "vedio_qa.json"
+
+# 创建上传目录
+UPLOAD_FOLDER.mkdir(exist_ok=True)
+RESULT_FOLDER.mkdir(exist_ok=True)
+
+app = Flask(__name__)
+app.config['UPLOAD_FOLDER'] = str(UPLOAD_FOLDER)
+app.config['MAX_CONTENT_LENGTH'] = 500 * 1024 * 1024  # 500MB
+app.secret_key = 'video_evaluation_secret_key_2024'
+
+# 日志配置
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+
+
+def allowed_file(filename: str, allowed_extensions: set) -> bool:
+    """检查文件扩展名是否允许"""
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in allowed_extensions
+
+
+def resolve_project_path(raw_path: str) -> Path:
+    """Resolve Web form paths relative to the evaluator project."""
+
+    if not raw_path:
+        raw_path = 'checkpoints/Qwen3-VL-4B-Instruct'
+    path = Path(raw_path).expanduser()
+    if not path.is_absolute():
+        path = BASE_DIR / path
+    return path.resolve()
+
+
+def parse_bool(value: Any, default: bool = False) -> bool:
+    """Parse HTML form and JSON boolean values consistently."""
+
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    return str(value).strip().lower() in {
+        '1',
+        'true',
+        'yes',
+        'on',
+        'y',
+        '是',
+        '启用',
+    }
+
+
+def select_qa_file(has_person_images: bool, has_ref_videos: bool) -> Path:
+    """
+    根据上传的文件类型选择QA文件
+
+    规则：
+    - 如果上传了参考视频（无论是否有参考图片）-> 使用 vedio_qa.json
+    - 如果只上传了参考图片，没有参考视频 -> 使用 image_qa.json
+    - 如果都没有上传 -> 使用 image_qa.json（默认）
+    """
+    if has_ref_videos:
+        return QA_VIDEO_PATH
+    else:
+        return QA_IMAGE_PATH
+
+
+def load_qa_preview(qa_path: Path) -> List[Dict[str, Any]]:
+    """加载QA文件预览"""
+    if not qa_path.exists():
+        return []
+    try:
+        with open(qa_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        return data.get('questions', [])
+    except Exception as e:
+        LOGGER.error("加载QA文件失败: %s", e)
+        return []
+
+
+def load_qa_config(qa_path: Path) -> Dict[str, Any]:
+    """读取完整 QA 配置，供页面编辑器和评估器共用。"""
+
+    if not qa_path.exists():
+        return {
+            'questions': [],
+            'scoring_instruction': (
+                '分数为 0、0.5 或 1，其中 0=不符合，0.5=部分符合，1=完全符合。'
+            ),
+        }
+    with qa_path.open('r', encoding='utf-8') as handle:
+        payload = json.load(handle)
+    return normalize_qa_config(payload)
+
+
+def normalize_qa_config(payload: Any) -> Dict[str, Any]:
+    """校验并规范化用户编辑后的 QA，避免空问题或非法权重进入模型。"""
+
+    if isinstance(payload, list):
+        questions = payload
+        scoring_instruction = (
+            '分数为 0、0.5 或 1，其中 0=不符合，0.5=部分符合，1=完全符合。'
+        )
+    elif isinstance(payload, dict):
+        questions = payload.get('questions', [])
+        scoring_instruction = str(
+            payload.get(
+                'scoring_instruction',
+                '分数为 0、0.5 或 1，其中 0=不符合，0.5=部分符合，1=完全符合。',
+            )
+        ).strip()
+    else:
+        raise ValueError('QA 配置必须是对象或问题数组')
+
+    if not scoring_instruction:
+        scoring_instruction = (
+            '分数为 0、0.5 或 1，其中 0=不符合，0.5=部分符合，1=完全符合。'
+        )
+
+    if not isinstance(questions, list):
+        raise ValueError('QA 配置中的 questions 必须是数组')
+
+    normalized_questions: List[Dict[str, Any]] = []
+    for index, item in enumerate(questions):
+        if not isinstance(item, dict):
+            raise ValueError(f'第 {index + 1} 个 QA 必须是对象')
+        question = str(item.get('question', '')).strip()
+        if not question:
+            raise ValueError(f'第 {index + 1} 个 QA 问题不能为空')
+        try:
+            weight = max(float(item.get('weight', 1.0)), 0.0)
+        except (TypeError, ValueError):
+            weight = 1.0
+        normalized_questions.append({
+            'id': str(item.get('id') or f'qa_{index + 1}'),
+            'category': str(item.get('category') or 'general'),
+            'question': question,
+            'weight': weight,
+            'score': item.get('score'),
+        })
+
+    if not normalized_questions:
+        raise ValueError('至少需要保留一个 QA 问题')
+
+    return {
+        'questions': normalized_questions,
+        'scoring_instruction': scoring_instruction,
+    }
+
+
+def save_custom_qa(payload: Any) -> Path:
+    """保存本次评估专属 QA，并返回评估器使用的绝对路径。"""
+
+    qa_config = normalize_qa_config(payload)
+    qa_path = UPLOAD_FOLDER / f'qa_{uuid.uuid4().hex[:8]}.json'
+    with qa_path.open('w', encoding='utf-8') as handle:
+        json.dump(qa_config, handle, ensure_ascii=False, indent=2)
+    return qa_path
+
+
+@app.route('/')
+def index():
+    """主页面"""
+    # 加载两种QA的预览
+    image_qa_questions = load_qa_preview(QA_IMAGE_PATH)
+    video_qa_questions = load_qa_preview(QA_VIDEO_PATH)
+
+    return render_template('index.html',
+                           image_qa_questions=image_qa_questions,
+                           video_qa_questions=video_qa_questions)
+
+
+@app.route('/upload', methods=['POST'])
+def upload_files():
+    """处理文件上传并启动评估"""
+    try:
+        # 检查必要参数
+        if 'gen_video' not in request.files:
+            return jsonify({'error': '必须上传生成视频'}), 400
+
+        gen_video_file = request.files['gen_video']
+        if gen_video_file.filename == '':
+            return jsonify({'error': '必须选择生成视频'}), 400
+
+        # 保存生成视频
+        gen_video_filename = f"gen_{uuid.uuid4().hex[:8]}_{secure_filename(gen_video_file.filename)}"
+        gen_video_path = UPLOAD_FOLDER / gen_video_filename
+        gen_video_file.save(gen_video_path)
+
+        # 保存参考图片（可选）
+        person_image_paths = []
+        has_person_images = False
+        if 'person_images' in request.files:
+            person_images = request.files.getlist('person_images')
+            for idx, img_file in enumerate(person_images):
+                if img_file and img_file.filename != '':
+                    img_filename = f"person_{uuid.uuid4().hex[:8]}_{secure_filename(img_file.filename)}"
+                    img_path = UPLOAD_FOLDER / img_filename
+                    img_file.save(img_path)
+                    person_image_paths.append(str(img_path))
+                    has_person_images = True
+
+        # 保存参考视频（可选）
+        ref_video_paths = []
+        has_ref_videos = False
+        if 'ref_videos' in request.files:
+            ref_videos = request.files.getlist('ref_videos')
+            for idx, vid_file in enumerate(ref_videos):
+                if vid_file and vid_file.filename != '':
+                    vid_filename = f"ref_{uuid.uuid4().hex[:8]}_{secure_filename(vid_file.filename)}"
+                    vid_path = UPLOAD_FOLDER / vid_filename
+                    vid_file.save(vid_path)
+                    ref_video_paths.append(str(vid_path))
+                    has_ref_videos = True
+
+        # 根据上传的文件类型选择默认 QA；如果页面提交了编辑后的 QA，
+        # 则保存本次评估专属副本，保证 Qwen 和评估器使用完全相同的问题。
+        qa_json_path = select_qa_file(has_person_images, has_ref_videos)
+        qa_type = 'video' if has_ref_videos else 'image'
+        custom_qa_raw = request.form.get('qa_questions', '').strip()
+        if custom_qa_raw:
+            custom_qa_payload = json.loads(custom_qa_raw)
+            custom_qa_path = save_custom_qa(custom_qa_payload)
+            qa_json_path = custom_qa_path
+            qa_source = 'custom'
+        else:
+            qa_source = 'default'
+
+        LOGGER.info("=" * 60)
+        LOGGER.info("上传文件信息:")
+        LOGGER.info("  参考图片: %d 张", len(person_image_paths))
+        LOGGER.info("  参考视频: %d 段", len(ref_video_paths))
+        LOGGER.info("  选择QA类型: %s", qa_type)
+        LOGGER.info("  QA文件: %s", qa_json_path)
+        LOGGER.info("=" * 60)
+
+        # 获取其他参数
+        prompt = request.form.get('prompt', '')
+        # An unchecked checkbox is omitted; a checked checkbox without an
+        # explicit HTML value is submitted as "on", not "true".
+        use_lpips = parse_bool(request.form.get('use_lpips'), default=False)
+        use_qwen = parse_bool(request.form.get('use_qwen'), default=True)
+        qwen_model_path = resolve_project_path(
+            request.form.get(
+                'qwen_model_path',
+                'checkpoints/Qwen3-VL-4B-Instruct',
+            )
+        )
+        max_frames = int(request.form.get('max_frames', 32))
+        device = request.form.get('device', 'cuda')
+
+        # 创建模拟的args对象
+        class Args:
+            pass
+
+        args = Args()
+        args.gen_video = str(gen_video_path)
+        args.person_image = person_image_paths if person_image_paths else []
+        args.ref_video = ref_video_paths[0] if ref_video_paths else None
+        args.prompt = prompt
+        args.qa_json = str(qa_json_path)  # 使用自动选择的QA文件
+        args.use_lpips = use_lpips
+        args.use_qwen = use_qwen
+        args.qwen_model_path = str(qwen_model_path)
+        args.max_frames = max_frames
+        args.device = device
+        args.face_model = 'buffalo_l'
+        args.face_sim_low = 0.25
+        args.face_sim_high = 0.65
+        args.no_renormalize_missing = False
+        args.log_level = 'INFO'
+        args.output = str(RESULT_FOLDER / f"result_{uuid.uuid4().hex[:8]}.json")
+        args.qwen_output = str(RESULT_FOLDER / f"qwen_{uuid.uuid4().hex[:8]}.json")
+
+        # 执行评估
+        LOGGER.info("开始评估视频: %s", gen_video_path)
+        report = evaluate_video(args)
+
+        # 提取评分部分
+        result_data = {
+            'status': 'success',
+            'total_score': report.get('总分'),
+            'coverage': report.get('有效评分覆盖率'),
+            'metrics': report.get('评分', []),
+            'analysis': report.get('总分析'),
+            'authenticity': report.get('视频真伪判断'),
+            'qwen_evaluation': report.get('Qwen评估结果'),
+            'qwen_status': report.get('运行信息', {}).get('Qwen模型'),
+            'qwen_error': report.get('运行信息', {}).get('Qwen错误'),
+            'qwen_output': report.get('运行信息', {}).get('Qwen结果文件'),
+            'qa_type': qa_type,
+            'qa_file': str(qa_json_path),
+            'qa_source': qa_source,
+            'qa_config': load_qa_config(qa_json_path),
+            'face_expression_evaluation': report.get(
+                'face_expression_evaluation'
+            ),
+            'full_report': report
+        }
+
+        return jsonify(result_data)
+
+    except Exception as e:
+        LOGGER.error("评估失败: %s", e)
+        import traceback
+        LOGGER.error(traceback.format_exc())
+        return jsonify({
+            'status': 'error',
+            'error': str(e),
+            'traceback': traceback.format_exc()
+        }), 500
+
+
+@app.route('/api/evaluate', methods=['POST'])
+def api_evaluate():
+    """API接口：JSON格式评估"""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': '需要JSON数据'}), 400
+
+        gen_video_path = data.get('gen_video')
+        if not gen_video_path:
+            return jsonify({'error': '必须提供生成视频路径'}), 400
+
+        if not Path(gen_video_path).exists():
+            return jsonify({'error': f'视频文件不存在: {gen_video_path}'}), 400
+
+        # 判断是否有参考视频
+        has_ref_videos = bool(data.get('ref_video'))
+        has_person_images = bool(data.get('person_images'))
+
+        # 选择默认 QA；API 也支持传入与网页相同的自定义 QA 配置。
+        qa_json_path = select_qa_file(has_person_images, has_ref_videos)
+        custom_qa_payload = data.get('qa')
+        if custom_qa_payload is None and data.get('qa_questions') is not None:
+            custom_qa_payload = {
+                'questions': data.get('qa_questions'),
+                'scoring_instruction': data.get('scoring_instruction', ''),
+            }
+        if custom_qa_payload is not None:
+            qa_json_path = save_custom_qa(custom_qa_payload)
+
+        # 创建args对象
+        class Args:
+            pass
+
+        args = Args()
+        args.gen_video = gen_video_path
+        args.person_image = data.get('person_images', [])
+        args.ref_video = data.get('ref_video')
+        args.prompt = data.get('prompt', '')
+        args.qa_json = str(qa_json_path)
+        args.use_lpips = parse_bool(data.get('use_lpips'), default=False)
+        args.use_qwen = parse_bool(data.get('use_qwen'), default=True)
+        args.qwen_model_path = str(
+            resolve_project_path(
+                data.get(
+                    'qwen_model_path',
+                    'checkpoints/Qwen3-VL-4B-Instruct',
+                )
+            )
+        )
+        args.max_frames = data.get('max_frames', 32)
+        args.device = data.get('device', 'cuda')
+        args.face_model = 'buffalo_l'
+        args.face_sim_low = 0.25
+        args.face_sim_high = 0.65
+        args.no_renormalize_missing = False
+        args.log_level = 'INFO'
+        args.output = str(RESULT_FOLDER / f"result_{uuid.uuid4().hex[:8]}.json")
+        args.qwen_output = str(RESULT_FOLDER / f"qwen_{uuid.uuid4().hex[:8]}.json")
+
+        # 执行评估
+        report = evaluate_video(args)
+
+        return jsonify({
+            'status': 'success',
+            'result': report,
+            'qa_type': 'video' if has_ref_videos else 'image',
+            'qa_file': str(qa_json_path),
+            'qa_config': load_qa_config(qa_json_path),
+            'qwen_evaluation': report.get('Qwen评估结果'),
+            'authenticity': report.get('视频真伪判断'),
+            'qwen_status': report.get('运行信息', {}).get('Qwen模型'),
+            'qwen_error': report.get('运行信息', {}).get('Qwen错误'),
+        })
+
+    except Exception as e:
+        LOGGER.error("API评估失败: %s", e)
+        return jsonify({
+            'status': 'error',
+            'error': str(e)
+        }), 500
+
+
+@app.route('/qa/preview')
+def qa_preview():
+    """获取QA文件预览"""
+    qa_type = request.args.get('type', 'image')
+
+    if qa_type == 'video':
+        qa_path = QA_VIDEO_PATH
+    else:
+        qa_path = QA_IMAGE_PATH
+
+    if not qa_path.exists():
+        return jsonify({'error': f'QA文件不存在: {qa_path}'}), 404
+
+    try:
+        data = load_qa_config(qa_path)
+        return jsonify({
+            'status': 'success',
+            'qa_type': qa_type,
+            'questions': data.get('questions', []),
+            'scoring_instruction': data.get('scoring_instruction', '')
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/download/<filename>')
+def download_result(filename):
+    """下载评估结果JSON"""
+    result_path = RESULT_FOLDER / filename
+    if result_path.exists():
+        return send_file(result_path, as_attachment=True)
+    return jsonify({'error': '文件不存在'}), 404
+
+
+@app.route('/health')
+def health():
+    """健康检查"""
+    return jsonify({'status': 'ok'})
+
+
+# 创建HTML模板目录
+TEMPLATE_DIR = Path(__file__).parent / 'templates'
+TEMPLATE_DIR.mkdir(exist_ok=True)
+
+# 创建HTML模板
+HTML_TEMPLATE = '''
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>视频生成模型评估系统</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: #f0f2f5;
+            color: #1a1a2e;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px 40px;
+            border-radius: 16px;
+            margin-bottom: 30px;
+            box-shadow: 0 10px 30px rgba(102, 126, 234, 0.3);
+        }
+        .header h1 {
+            font-size: 28px;
+            font-weight: 700;
+        }
+        .header p {
+            opacity: 0.9;
+            margin-top: 8px;
+            font-size: 14px;
+        }
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 24px 30px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.06);
+            border: 1px solid #e8ecf1;
+            transition: border-color 0.2s;
+        }
+        .card:hover {
+            border-color: #667eea;
+        }
+        .card-title {
+            font-size: 16px;
+            font-weight: 600;
+            color: #1a1a2e;
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .card-title .badge {
+            background: #667eea;
+            color: white;
+            font-size: 11px;
+            padding: 2px 10px;
+            border-radius: 20px;
+            font-weight: 500;
+        }
+        .card-title .badge.optional {
+            background: #94a3b8;
+        }
+        .card-title .badge.image-qa {
+            background: #22c55e;
+        }
+        .card-title .badge.video-qa {
+            background: #f59e0b;
+        }
+        .form-group {
+            margin-bottom: 16px;
+        }
+        .form-group label {
+            display: block;
+            font-size: 13px;
+            font-weight: 500;
+            color: #475569;
+            margin-bottom: 6px;
+        }
+        .form-group .hint {
+            font-size: 12px;
+            color: #94a3b8;
+            margin-top: 4px;
+        }
+        input[type="file"] {
+            display: none;
+        }
+        .file-upload-wrapper {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        .file-dropzone {
+            flex: 1 1 100%;
+            min-height: 118px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            padding: 16px;
+            border: 1.5px dashed var(--input-border, #cbd5e1);
+            border-radius: 12px;
+            background: var(--input-bg, #fbfcfe);
+            color: var(--muted, #64748b);
+            text-align: center;
+            transition: border-color 0.2s, background-color 0.2s, transform 0.2s;
+        }
+        .file-dropzone.dragover {
+            border-color: #818cf8;
+            background: rgba(99, 102, 241, 0.12);
+            transform: translateY(-1px);
+        }
+        .file-dropzone .drop-icon {
+            font-size: 28px;
+            line-height: 1;
+        }
+        .file-dropzone .drop-title {
+            color: var(--text, #1a1a2e);
+            font-size: 14px;
+            font-weight: 600;
+        }
+        .file-dropzone .drop-hint {
+            color: var(--subtle, #94a3b8);
+            font-size: 12px;
+        }
+        .file-upload-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 20px;
+            background: #f1f4f9;
+            border: 1px dashed #cbd5e1;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 13px;
+            color: #475569;
+            transition: all 0.2s;
+        }
+        .file-upload-btn:hover {
+            background: #e9edf4;
+            border-color: #667eea;
+            color: #667eea;
+        }
+        .file-upload-btn .icon {
+            font-size: 18px;
+        }
+        .file-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 8px;
+        }
+        .file-tag {
+            background: #eef2ff;
+            color: #4338ca;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .file-tag .remove {
+            border: 0;
+            padding: 0;
+            background: transparent;
+            color: inherit;
+            cursor: pointer;
+            opacity: 0.6;
+            font-weight: bold;
+            font-size: 14px;
+            line-height: 1;
+        }
+        .file-tag .remove:hover {
+            opacity: 1;
+        }
+        .file-tag .size {
+            color: #94a3b8;
+            font-size: 10px;
+        }
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+        }
+        .form-row.three {
+            grid-template-columns: 1fr 1fr 1fr;
+        }
+        select, input[type="text"], input[type="number"], textarea {
+            width: 100%;
+            padding: 10px 14px;
+            border: 1px solid #d1d5db;
+            border-radius: 8px;
+            font-size: 13px;
+            font-family: inherit;
+            transition: border-color 0.2s, box-shadow 0.2s;
+            background: #fafbfc;
+        }
+        select:focus, input:focus, textarea:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+        textarea {
+            resize: vertical;
+            min-height: 60px;
+        }
+        .checkbox-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 6px 0;
+        }
+        .checkbox-group input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            accent-color: #667eea;
+            cursor: pointer;
+        }
+        .checkbox-group label {
+            font-size: 13px;
+            color: #475569;
+            cursor: pointer;
+        }
+        .btn {
+            padding: 12px 36px;
+            border: none;
+            border-radius: 8px;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.35);
+        }
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 25px rgba(102, 126, 234, 0.45);
+        }
+        .btn-primary:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+        .btn-secondary {
+            background: #f1f4f9;
+            color: #475569;
+        }
+        .btn-secondary:hover {
+            background: #e9edf4;
+        }
+        .actions {
+            display: flex;
+            gap: 16px;
+            flex-wrap: wrap;
+            align-items: center;
+            margin-top: 8px;
+        }
+        .loader {
+            display: none;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 0;
+        }
+        .loader.active {
+            display: flex;
+        }
+        .spinner {
+            width: 28px;
+            height: 28px;
+            border: 3px solid #e2e8f0;
+            border-top-color: #667eea;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        .loader-text {
+            font-size: 14px;
+            color: #475569;
+        }
+        .results {
+            display: none;
+            margin-top: 24px;
+        }
+        .results.active {
+            display: block;
+        }
+        .score-overview {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+        .score-card {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            text-align: center;
+            border: 1px solid #e8ecf1;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+        }
+        .score-card .number {
+            font-size: 36px;
+            font-weight: 700;
+            color: #1a1a2e;
+        }
+        .score-card .number.good { color: #22c55e; }
+        .score-card .number.medium { color: #eab308; }
+        .score-card .number.poor { color: #ef4444; }
+        .score-card .label {
+            font-size: 13px;
+            color: #94a3b8;
+            margin-top: 4px;
+        }
+        .score-card .sub {
+            font-size: 12px;
+            color: #94a3b8;
+            margin-top: 2px;
+        }
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+        }
+        .metric-item {
+            background: #f8fafc;
+            border-radius: 10px;
+            padding: 16px 20px;
+            border-left: 4px solid #667eea;
+        }
+        .metric-item .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: transparent;
+            padding: 0;
+            box-shadow: none;
+            margin-bottom: 4px;
+        }
+        .metric-item .name {
+            color: #1a1a2e;
+            font-weight: 600;
+            font-size: 14px;
+        }
+        .metric-item .score {
+            font-weight: 700;
+            font-size: 18px;
+        }
+        .metric-item .score.good { color: #22c55e; }
+        .metric-item .score.medium { color: #eab308; }
+        .metric-item .score.poor { color: #ef4444; }
+        .metric-item .status {
+            font-size: 12px;
+            color: var(--subtle, #94a3b8);
+        }
+        .metric-item .analysis {
+            margin-top: 10px;
+            font-size: 13px;
+            color: var(--muted, #475569);
+            line-height: 1.6;
+        }
+        .metric-item .analysis .good-text { color: #22c55e; }
+        .metric-item .analysis .bad-text { color: #ef4444; }
+        .metric-evidence {
+            margin-top: 12px;
+            padding-top: 10px;
+            border-top: 1px solid var(--border, #e2e8f0);
+        }
+        .metric-evidence-title {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text, #334155);
+            margin-bottom: 4px;
+        }
+        .metric-evidence-row {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 3px 0;
+            color: var(--muted, #64748b);
+            font-size: 12px;
+        }
+        .metric-evidence-row strong {
+            color: var(--text, #1e293b);
+            font-weight: 600;
+        }
+        .authenticity-analysis {
+            margin: 16px 0;
+            padding: 18px 20px;
+            border-radius: 10px;
+            border-left: 4px solid #667eea;
+            border-top: 1px solid var(--border, #e2e8f0);
+            border-right: 1px solid var(--border, #e2e8f0);
+            border-bottom: 1px solid var(--border, #e2e8f0);
+            background: var(--surface-soft, #f8fafc);
+            color: var(--text, #1a1a2e);
+        }
+        .authenticity-analysis.real {
+            border-left-color: #22c55e;
+        }
+        .authenticity-analysis.generated {
+            border-left-color: #ef4444;
+        }
+        .authenticity-analysis.uncertain {
+            border-left-color: #eab308;
+        }
+        .authenticity-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 16px;
+        }
+        .authenticity-title {
+            color: var(--text);
+            font-size: 15px;
+            font-weight: 700;
+        }
+        .authenticity-conclusion {
+            margin-top: 6px;
+            color: var(--text);
+            font-size: 14px;
+            line-height: 1.6;
+        }
+        .authenticity-badge {
+            flex: 0 0 auto;
+            padding: 5px 12px;
+            border-radius: 999px;
+            background: #e2e8f0;
+            color: #475569;
+            font-size: 12px;
+            font-weight: 700;
+        }
+        .authenticity-badge.real {
+            background: #dcfce7;
+            color: #15803d;
+        }
+        .authenticity-badge.generated {
+            background: #fee2e2;
+            color: #b91c1c;
+        }
+        .authenticity-badge.uncertain {
+            background: #fef3c7;
+            color: #a16207;
+        }
+        .authenticity-probabilities {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            margin-top: 14px;
+        }
+        .authenticity-probability {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 12px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: var(--surface, #ffffff);
+            color: var(--muted);
+            font-size: 13px;
+        }
+        .authenticity-probability strong {
+            color: var(--text);
+            font-size: 18px;
+        }
+        .authenticity-bar {
+            display: flex;
+            height: 8px;
+            overflow: hidden;
+            margin-top: 12px;
+            border-radius: 999px;
+            background: #fee2e2;
+        }
+        .authenticity-bar .real {
+            background: #22c55e;
+        }
+        .authenticity-bar .generated {
+            background: #ef4444;
+        }
+        .authenticity-meta {
+            margin-top: 9px;
+            color: var(--muted);
+            font-size: 12px;
+            line-height: 1.6;
+        }
+        .authenticity-error {
+            margin-top: 8px;
+            padding: 8px 10px;
+            border-radius: 6px;
+            background: rgba(239, 68, 68, 0.12);
+            color: #fca5a5;
+            font-size: 12px;
+            line-height: 1.6;
+            word-break: break-word;
+        }
+        .authenticity-section {
+            margin-top: 14px;
+            padding-top: 13px;
+            border-top: 1px solid var(--border);
+        }
+        .authenticity-section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            color: var(--text);
+            font-size: 13px;
+            font-weight: 700;
+        }
+        .authenticity-section-score {
+            color: #22c55e;
+            font-size: 16px;
+        }
+        .authenticity-face-grid {
+            display: grid;
+            grid-template-columns: repeat(5, minmax(0, 1fr));
+            gap: 8px;
+            margin-top: 10px;
+        }
+        .authenticity-face-value {
+            padding: 8px 6px;
+            border-radius: 7px;
+            background: var(--surface, #ffffff);
+            color: var(--muted);
+            font-size: 11px;
+            text-align: center;
+        }
+        .authenticity-face-value strong {
+            display: block;
+            margin-top: 3px;
+            color: var(--text);
+            font-size: 14px;
+        }
+        .authenticity-evidence {
+            margin-top: 12px;
+        }
+        .authenticity-evidence .metric-evidence-row {
+            padding: 5px 0;
+        }
+        .authenticity-analysis .good-text {
+            color: #22c55e;
+        }
+        .authenticity-analysis .bad-text {
+            color: #ef4444;
+        }
+        .analysis-section {
+            background: #f8fafc;
+            border-radius: 10px;
+            padding: 20px;
+            margin-top: 16px;
+        }
+        .analysis-section h4 {
+            font-size: 14px;
+            color: #1a1a2e;
+            margin-bottom: 8px;
+        }
+        .analysis-section ul {
+            list-style: none;
+            padding: 0;
+        }
+        .analysis-section li {
+            padding: 4px 0 4px 20px;
+            position: relative;
+            font-size: 13px;
+            color: #475569;
+            line-height: 1.5;
+        }
+        .analysis-section li::before {
+            content: "•";
+            position: absolute;
+            left: 0;
+            color: #667eea;
+            font-weight: bold;
+        }
+        .analysis-section li.good::before { color: #22c55e; }
+        .analysis-section li.bad::before { color: #ef4444; }
+        .analysis-with-radar {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) minmax(300px, 380px);
+            gap: 24px;
+            align-items: center;
+        }
+        .analysis-copy {
+            min-width: 0;
+        }
+        .radar-panel {
+            min-height: 320px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 12px;
+            border-left: 1px solid var(--border, #e2e8f0);
+        }
+        .radar-panel-title {
+            color: var(--text, #1a1a2e);
+            font-size: 14px;
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+        .radar-panel-subtitle {
+            color: var(--subtle, #94a3b8);
+            font-size: 11px;
+            margin-bottom: 4px;
+        }
+        .radar-chart {
+            width: 100%;
+            max-width: 360px;
+            height: auto;
+            overflow: visible;
+        }
+        .radar-grid {
+            fill: none;
+            stroke: var(--border, #cbd5e1);
+            stroke-width: 1;
+            opacity: 0.9;
+        }
+        .radar-axis {
+            stroke: var(--border, #cbd5e1);
+            stroke-width: 1;
+        }
+        .radar-area {
+            fill: rgba(99, 102, 241, 0.24);
+            stroke: #818cf8;
+            stroke-width: 2.5;
+            stroke-linejoin: round;
+        }
+        .radar-dot {
+            fill: #a5b4fc;
+            stroke: var(--surface-soft, #f8fafc);
+            stroke-width: 2;
+        }
+        .radar-label {
+            fill: var(--text, #1a1a2e);
+            font-size: 11px;
+            font-weight: 500;
+        }
+        .radar-score {
+            fill: var(--muted, #64748b);
+            font-size: 10px;
+        }
+        .qwen-results {
+            background: #f8fafc;
+            border-radius: 10px;
+            padding: 16px 20px;
+            margin-top: 12px;
+        }
+        .qwen-results .header {
+            background: transparent;
+            padding: 0;
+            box-shadow: none;
+        }
+        .qwen-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 6px 0;
+            border-bottom: 1px solid #e8ecf1;
+            font-size: 13px;
+        }
+        .qwen-item:last-child { border-bottom: none; }
+        .qwen-item .q-score {
+            font-weight: 600;
+            padding: 2px 10px;
+            border-radius: 12px;
+            font-size: 12px;
+        }
+        .qwen-item .q-score.good { background: #dcfce7; color: #16a34a; }
+        .qwen-item .q-score.medium { background: #fef9c3; color: #ca8a04; }
+        .qwen-item .q-score.poor { background: #fee2e2; color: #dc2626; }
+        .hidden { display: none; }
+        .error-box {
+            background: #fee2e2;
+            border: 1px solid #fca5a5;
+            color: #991b1b;
+            padding: 16px 20px;
+            border-radius: 10px;
+            margin-top: 16px;
+        }
+        .error-box pre {
+            font-size: 12px;
+            white-space: pre-wrap;
+            word-break: break-all;
+            margin-top: 8px;
+            background: #fef2f2;
+            padding: 12px;
+            border-radius: 6px;
+        }
+        .progress-container {
+            width: 100%;
+            background: #e2e8f0;
+            border-radius: 20px;
+            height: 8px;
+            margin: 12px 0;
+            overflow: hidden;
+        }
+        .progress-bar {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea, #764ba2);
+            width: 0%;
+            border-radius: 20px;
+            transition: width 0.3s;
+        }
+        .qa-indicator {
+            display: inline-block;
+            padding: 4px 16px;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 600;
+            margin-top: 4px;
+        }
+        .qa-indicator.image {
+            background: #dcfce7;
+            color: #16a34a;
+        }
+        .qa-indicator.video {
+            background: #fef3c7;
+            color: #b45309;
+        }
+        @media (max-width: 768px) {
+            .form-row, .form-row.three {
+                grid-template-columns: 1fr;
+            }
+            .score-overview {
+                grid-template-columns: 1fr 1fr;
+            }
+            .metrics-grid {
+                grid-template-columns: 1fr;
+            }
+            .authenticity-face-grid {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+            .header {
+                padding: 20px;
+            }
+            .header h1 { font-size: 22px; }
+            .card { padding: 18px 20px; }
+            .analysis-with-radar {
+                grid-template-columns: 1fr;
+            }
+            .radar-panel {
+                border-left: 0;
+                border-top: 1px solid var(--border, #e2e8f0);
+                padding-top: 18px;
+            }
+        }
+        @media (max-width: 480px) {
+            .score-overview {
+                grid-template-columns: 1fr;
+            }
+            body { padding: 12px; }
+            .authenticity-probabilities {
+                grid-template-columns: 1fr;
+            }
+        }
+        :root {
+            color-scheme: light;
+            --app-bg: #eef2f6;
+            --surface: #ffffff;
+            --surface-soft: #f8fafc;
+            --input-bg: #fbfcfe;
+            --text: #1a1a2e;
+            --muted: #64748b;
+            --subtle: #94a3b8;
+            --border: #e2e8f0;
+            --input-border: #cbd5e1;
+            --shadow: 0 2px 10px rgba(15, 23, 42, 0.06);
+            --accent: #667eea;
+        }
+        body.dark-mode {
+            color-scheme: dark;
+            --app-bg: #0f172a;
+            --surface: #1e293b;
+            --surface-soft: #172033;
+            --input-bg: #111827;
+            --text: #f8fafc;
+            --muted: #cbd5e1;
+            --subtle: #cbd5e1;
+            --border: #334155;
+            --input-border: #475569;
+            --shadow: 0 12px 30px rgba(2, 6, 23, 0.28);
+            --accent: #60a5fa;
+        }
+        body {
+            background: var(--app-bg);
+            color: var(--text);
+            transition: background-color 0.2s ease, color 0.2s ease;
+        }
+        .container {
+            max-width: 1440px;
+            display: block;
+        }
+        .workspace-columns {
+            display: grid;
+            grid-template-columns: minmax(0, 0.92fr) minmax(0, 1.08fr);
+            gap: 18px;
+            align-items: start;
+        }
+        .workspace-column {
+            display: flex;
+            flex-direction: column;
+            gap: 18px;
+            min-width: 0;
+        }
+        .header {
+            position: relative;
+            margin-bottom: 18px;
+            padding: 24px 30px;
+        }
+        .theme-toggle {
+            position: absolute;
+            top: 22px;
+            right: 24px;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 9px 14px;
+            border: 1px solid rgba(255, 255, 255, 0.28);
+            border-radius: 999px;
+            background: rgba(15, 23, 42, 0.16);
+            color: #ffffff;
+            font: inherit;
+            font-size: 12px;
+            cursor: pointer;
+            transition: background-color 0.2s, transform 0.2s;
+        }
+        .theme-toggle:hover {
+            background: rgba(15, 23, 42, 0.3);
+            transform: translateY(-1px);
+        }
+        .theme-toggle .icon {
+            font-size: 15px;
+        }
+        .results {
+            margin-top: 18px;
+        }
+        .result-tabs {
+            display: flex;
+            gap: 8px;
+            padding: 4px;
+            margin-bottom: 16px;
+            border-radius: 10px;
+            background: var(--surface-soft);
+            border: 1px solid var(--border);
+        }
+        .result-tab {
+            flex: 1;
+            padding: 9px 14px;
+            border: 0;
+            border-radius: 7px;
+            background: transparent;
+            color: var(--muted);
+            font: inherit;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background-color 0.2s, color 0.2s;
+        }
+        .result-tab:hover {
+            color: var(--text);
+        }
+        .result-tab.active {
+            background: var(--surface);
+            color: var(--text);
+            box-shadow: 0 2px 6px rgba(15, 23, 42, 0.12);
+        }
+        .result-panel {
+            display: none;
+        }
+        .result-panel.active {
+            display: block;
+        }
+        .card {
+            background: var(--surface);
+            border-color: var(--border);
+            box-shadow: var(--shadow);
+            margin-bottom: 0;
+        }
+        .card-title,
+        .metric-item .name,
+        .analysis-section h4 {
+            color: var(--text);
+        }
+        .form-group label,
+        .checkbox-group label,
+        .metric-item .analysis,
+        .analysis-section li,
+        .loader-text {
+            color: var(--muted);
+        }
+        .form-group .hint,
+        .metric-item .status,
+        .score-card .label,
+        .score-card .sub {
+            color: var(--subtle);
+        }
+        .file-upload-btn,
+        .btn-secondary {
+            background: var(--surface-soft);
+            border-color: var(--input-border);
+            color: var(--muted);
+        }
+        .file-upload-btn:hover,
+        .btn-secondary:hover {
+            background: var(--border);
+        }
+        .file-tag {
+            background: rgba(99, 102, 241, 0.16);
+            color: #a5b4fc;
+        }
+        select,
+        input[type="text"],
+        input[type="number"],
+        textarea {
+            background: var(--input-bg);
+            border-color: var(--input-border);
+            color: var(--text);
+        }
+        select option {
+            background: var(--surface);
+            color: var(--text);
+        }
+        input::placeholder,
+        textarea::placeholder {
+            color: var(--subtle);
+        }
+        .spinner {
+            border-color: var(--border);
+            border-top-color: var(--accent);
+        }
+        .score-card,
+        .metric-item,
+        .analysis-section,
+        .qwen-results,
+        .authenticity-analysis {
+            background: var(--surface-soft);
+            border-color: var(--border);
+        }
+        .score-card .number {
+            color: var(--text);
+        }
+        .qwen-item {
+            border-bottom-color: var(--border);
+        }
+        .progress-container {
+            background: var(--border);
+        }
+        .qa-question-row {
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 10px;
+            margin-bottom: 8px;
+            background: var(--surface-soft);
+        }
+        .qa-question-top {
+            display: grid;
+            grid-template-columns: auto minmax(150px, 1fr) 82px auto;
+            gap: 8px;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+        .qa-question-number {
+            color: var(--muted);
+        }
+        .qa-category,
+        .qa-weight,
+        .qa-question-input {
+            padding: 6px;
+            border: 1px solid var(--input-border);
+            border-radius: 6px;
+            background: var(--input-bg);
+            color: var(--text);
+        }
+        .qa-category {
+            width: 100%;
+            min-width: 0;
+        }
+        .qa-weight {
+            width: 82px;
+        }
+        .qa-question-input {
+            width: 100%;
+            box-sizing: border-box;
+            padding: 8px;
+        }
+        .qa-remove {
+            padding: 6px 10px;
+            color: #fca5a5;
+        }
+        .header h1,
+        .header p {
+            padding-right: 130px;
+        }
+        body.dark-mode .error-box {
+            background: #451a1a;
+            border-color: #7f1d1d;
+            color: #fecaca;
+        }
+        body.dark-mode .error-box pre {
+            background: #2b1111;
+        }
+        @media (max-width: 980px) {
+            .workspace-columns {
+                display: block;
+            }
+            .header {
+                margin-bottom: 18px;
+            }
+            .card,
+            .results {
+                margin-bottom: 18px;
+            }
+        }
+        @media (max-width: 560px) {
+            .qa-question-top {
+                grid-template-columns: auto minmax(0, 1fr) 68px auto;
+                gap: 5px;
+            }
+            .qa-remove {
+                padding-left: 6px;
+                padding-right: 6px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <button type="button" class="theme-toggle" id="themeToggle"
+                    aria-pressed="false" title="切换深色模式">
+                <span class="icon" id="themeToggleIcon">◐</span>
+                <span id="themeToggleLabel">深色模式</span>
+            </button>
+            <h1>🎥 视频生成模型评估系统</h1>
+            <p>基于 Qwen3-VL + ArcFace + Discriminator + 多维度指标的视频质量评估</p>
+            </p>
+        </div>
+
+        <div class="workspace-columns">
+            <div class="workspace-column">
+        <!-- 表单 -->
+        <div class="card">
+            <div class="card-title">📤 上传文件</div>
+            <form id="evalForm" enctype="multipart/form-data">
+                <!-- 生成视频（必填） -->
+                <div class="form-group">
+                    <label>生成视频 <span style="color:#ef4444;">*</span></label>
+                    <div class="file-upload-wrapper">
+                        <div class="file-dropzone" data-drop-input="genVideo" tabindex="0">
+                            <span class="drop-icon">📹</span>
+                            <span class="drop-title">拖动生成视频到这里</span>
+                            <span class="drop-hint">也可以点击按钮选择文件</span>
+                            <label class="file-upload-btn" for="genVideo">
+                                <span class="icon">📁</span> 选择视频文件
+                            </label>
+                            <input type="file" id="genVideo" name="gen_video" accept="video/*" required>
+                        </div>
+                        <div class="file-list" id="genVideoList"></div>
+                    </div>
+                </div>
+
+                <!-- 参考图片（可选，多张） -->
+                <div class="form-group">
+                    <label>参考图片 <span style="color:#94a3b8;">(可选，支持多张)</span></label>
+                    <div class="file-upload-wrapper">
+                        <div class="file-dropzone" data-drop-input="personImages" tabindex="0">
+                            <span class="drop-icon">🖼️</span>
+                            <span class="drop-title">拖动参考图片到这里</span>
+                            <span class="drop-hint">支持多张图片，可直接拖入</span>
+                            <label class="file-upload-btn" for="personImages">
+                                <span class="icon">📁</span> 选择图片
+                            </label>
+                            <input type="file" id="personImages" name="person_images" accept="image/*" multiple>
+                        </div>
+                    </div>
+                    <div class="file-list" id="personImageList"></div>
+                </div>
+
+                <!-- 参考视频（可选，多段） -->
+                <div class="form-group">
+                    <label>参考视频 <span style="color:#94a3b8;">(可选，支持多段)</span></label>
+                    <div class="file-upload-wrapper">
+                        <div class="file-dropzone" data-drop-input="refVideos" tabindex="0">
+                            <span class="drop-icon">🎬</span>
+                            <span class="drop-title">拖动参考视频到这里</span>
+                            <span class="drop-hint">支持多段视频，可直接拖入</span>
+                            <label class="file-upload-btn" for="refVideos">
+                                <span class="icon">📁</span> 选择视频
+                            </label>
+                            <input type="file" id="refVideos" name="ref_videos" accept="video/*" multiple>
+                        </div>
+                    </div>
+                    <div class="file-list" id="refVideoList"></div>
+                    <div class="hint">
+                        建议上传真实参考表演视频，系统会按时间比较眉眼、眼睑、嘴角和嘴周的运动；
+                        仅有图片只能验证静态人物和局部纹理。
+                    </div>
+                </div>
+            </form>
+        </div>
+
+        <!-- 参数设置 -->
+        <div class="card">
+            <div class="card-title">⚙️ 参数设置</div>
+            <form id="paramsForm">
+                <div class="form-group">
+                    <label>提示词 (Prompt)</label>
+                    <textarea id="prompt" name="prompt" rows="6" placeholder="输入视频生成的提示词，用于文本准确性评估..."></textarea>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>最大采样帧数</label>
+                        <input type="number" id="maxFrames" name="max_frames" value="32" min="4" max="100">
+                        <div class="hint">视频中均匀采样的帧数，越大越准确但计算更慢</div>
+                    </div>
+                    <div class="form-group">
+                        <label>推理设备</label>
+                        <select id="device" name="device">
+                            <option value="cuda">CUDA (GPU)</option>
+                            <option value="auto">自动</option>
+                            <option value="cpu">CPU</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-row three">
+                    <div class="checkbox-group">
+                        <input type="checkbox" id="useQwen" name="use_qwen" checked>
+                        <label for="useQwen">启用 Qwen3-VL 评估</label>
+                    </div>
+                    <div class="checkbox-group">
+                        <input type="checkbox" id="useLpips" name="use_lpips">
+                        <label for="useLpips">启用 LPIPS (需参考视频)</label>
+                    </div>
+                </div>
+            </form>
+        </div>
+
+            </div>
+            <div class="workspace-column">
+        <!-- QA文件状态 -->
+        <div class="card" id="qaStatusCard">
+            <div class="card-title">
+                📋 当前QA配置
+                <span class="badge image-qa" id="qaTypeBadge">图片QA</span>
+            </div>
+            <div id="qaStatusContent">
+                <p style="font-size:13px;color:#475569;">
+                    <span id="qaTypeDesc">当前使用 image_qa.json（仅上传参考图片时使用）</span>
+                </p>
+                <div id="qaQuestionsPreview" style="margin-top:12px;">
+                    <div class="hint" style="margin-bottom:8px;">
+                        以下 QA 会在本次评估中实际使用。可修改问题、类别和权重，也可以添加或删除问题。
+                    </div>
+                    <div class="form-group">
+                        <label for="qaScoringInstruction">评分说明</label>
+                        <textarea id="qaScoringInstruction" rows="2"></textarea>
+                    </div>
+                    <div id="qaQuestionList"></div>
+                    <button type="button" class="btn btn-secondary" id="addQaQuestion"
+                            style="margin-top:10px;">＋ 添加 QA 问题</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 操作按钮 -->
+        <div class="card">
+            <div class="actions">
+                <button class="btn btn-primary" id="evalBtn" onclick="startEvaluation()">
+                    🚀 开始评估
+                </button>
+                <button class="btn btn-secondary" onclick="resetForm()">🔄 重置</button>
+            </div>
+            <div class="loader" id="loader">
+                <div class="spinner"></div>
+                <span class="loader-text" id="loaderText">正在评估，请稍候...</span>
+            </div>
+            <div class="progress-container">
+                <div class="progress-bar" id="progressBar"></div>
+            </div>
+        </div>
+
+            </div>
+        </div>
+
+        <!-- 结果 -->
+        <div class="results" id="results">
+            <div class="card">
+                <div class="card-title">📊 评估结果</div>
+                <div class="result-tabs" role="tablist" aria-label="评估结果页面">
+                    <button type="button" class="result-tab active" id="scoresTab"
+                            role="tab" aria-selected="true">各项得分</button>
+                    <button type="button" class="result-tab" id="summaryTab"
+                            role="tab" aria-selected="false">总结 + 语义 QA</button>
+                </div>
+                <div id="scoreContent" class="result-panel active" role="tabpanel"></div>
+                <div id="summaryContent" class="result-panel" role="tabpanel"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const themeToggle = document.getElementById('themeToggle');
+        const themeToggleIcon = document.getElementById('themeToggleIcon');
+        const themeToggleLabel = document.getElementById('themeToggleLabel');
+        const savedTheme = localStorage.getItem('evaluator-theme');
+        const systemPrefersDark = window.matchMedia &&
+            window.matchMedia('(prefers-color-scheme: dark)').matches;
+
+        function applyTheme(theme, persist = true) {
+            const isDark = theme === 'dark';
+            document.body.classList.toggle('dark-mode', isDark);
+            themeToggle.setAttribute('aria-pressed', String(isDark));
+            themeToggleIcon.textContent = isDark ? '☀' : '◐';
+            themeToggleLabel.textContent = isDark ? '浅色模式' : '深色模式';
+            themeToggle.title = isDark ? '切换浅色模式' : '切换深色模式';
+            if (persist) {
+                localStorage.setItem('evaluator-theme', isDark ? 'dark' : 'light');
+            }
+        }
+
+        applyTheme(savedTheme || (systemPrefersDark ? 'dark' : 'light'), false);
+        themeToggle.addEventListener('click', () => {
+            applyTheme(document.body.classList.contains('dark-mode') ? 'light' : 'dark');
+        });
+
+        function switchResultTab(tabName) {
+            const showSummary = tabName === 'summary';
+            const scoresTab = document.getElementById('scoresTab');
+            const summaryTab = document.getElementById('summaryTab');
+            const scoreContent = document.getElementById('scoreContent');
+            const summaryContent = document.getElementById('summaryContent');
+
+            scoresTab.classList.toggle('active', !showSummary);
+            summaryTab.classList.toggle('active', showSummary);
+            scoreContent.classList.toggle('active', !showSummary);
+            summaryContent.classList.toggle('active', showSummary);
+            scoresTab.setAttribute('aria-selected', String(!showSummary));
+            summaryTab.setAttribute('aria-selected', String(showSummary));
+        }
+
+        document.getElementById('scoresTab').addEventListener('click', () => {
+            switchResultTab('scores');
+        });
+        document.getElementById('summaryTab').addEventListener('click', () => {
+            switchResultTab('summary');
+        });
+
+        let currentQaType = 'image';
+        let currentQaConfig = {
+            questions: [],
+            scoring_instruction: ''
+        };
+
+        const qaCategories = [
+            ['identity', '角色一致性'],
+            ['detail', '质感和细节'],
+            ['expression', '表情动作'],
+            ['text', '文本/提示词'],
+            ['temporal', '时间稳定性'],
+            ['aesthetic', '美学观感'],
+            ['general', '通用']
+        ];
+
+        function renderQAEditor(config) {
+            currentQaConfig = config || {questions: [], scoring_instruction: ''};
+            document.getElementById('qaScoringInstruction').value =
+                currentQaConfig.scoring_instruction || '';
+
+            const list = document.getElementById('qaQuestionList');
+            list.innerHTML = '';
+            (currentQaConfig.questions || []).forEach((question, index) => {
+                const row = document.createElement('div');
+                row.className = 'qa-question-row';
+
+                const top = document.createElement('div');
+                top.className = 'qa-question-top';
+
+                const number = document.createElement('strong');
+                number.textContent = `${index + 1}.`;
+                number.className = 'qa-question-number';
+                top.appendChild(number);
+
+                const category = document.createElement('select');
+                category.dataset.qaCategory = 'true';
+                category.className = 'qa-category';
+                qaCategories.forEach(([value, label]) => {
+                    const option = document.createElement('option');
+                    option.value = value;
+                    option.textContent = label;
+                    category.appendChild(option);
+                });
+                const categoryValue = question.category || 'general';
+                category.value = qaCategories.some(([value]) => value === categoryValue)
+                    ? categoryValue
+                    : 'general';
+                top.appendChild(category);
+
+                const weight = document.createElement('input');
+                weight.type = 'number';
+                weight.min = '0';
+                weight.step = '0.1';
+                weight.value = question.weight ?? 1;
+                weight.dataset.qaWeight = 'true';
+                weight.title = '问题权重';
+                weight.className = 'qa-weight';
+                top.appendChild(weight);
+
+                const remove = document.createElement('button');
+                remove.type = 'button';
+                remove.textContent = '删除';
+                remove.className = 'btn btn-secondary qa-remove';
+                remove.addEventListener('click', () => {
+                    row.remove();
+                    renumberQAEditor();
+                });
+                top.appendChild(remove);
+                row.appendChild(top);
+
+                const questionInput = document.createElement('input');
+                questionInput.type = 'text';
+                questionInput.value = question.question || '';
+                questionInput.dataset.qaQuestion = 'true';
+                questionInput.placeholder = '输入本题要评估的具体内容';
+                questionInput.className = 'qa-question-input';
+                row.appendChild(questionInput);
+                list.appendChild(row);
+            });
+            renumberQAEditor();
+        }
+
+        function renumberQAEditor() {
+            document.querySelectorAll('.qa-question-row').forEach((row, index) => {
+                const number = row.querySelector('strong');
+                if (number) number.textContent = `${index + 1}.`;
+            });
+        }
+
+        function collectQAConfig() {
+            const questions = [];
+            document.querySelectorAll('.qa-question-row').forEach((row, index) => {
+                const question = row.querySelector('[data-qa-question]').value.trim();
+                if (!question) return;
+                const weightValue = parseFloat(row.querySelector('[data-qa-weight]').value);
+                questions.push({
+                    id: `qa_${index + 1}`,
+                    category: row.querySelector('[data-qa-category]').value || 'general',
+                    question: question,
+                    weight: Number.isFinite(weightValue) ? Math.max(weightValue, 0) : 1,
+                    score: null
+                });
+            });
+            return {
+                questions: questions,
+                scoring_instruction: document.getElementById('qaScoringInstruction').value.trim()
+            };
+        }
+
+        // 更新 QA 状态并加载可编辑问题
+        function updateQAStatus(hasImages, hasVideos) {
+            const badge = document.getElementById('qaTypeBadge');
+            const desc = document.getElementById('qaTypeDesc');
+
+            let type = 'image';
+            let typeName = '图片QA';
+            let descText = '使用 image_qa.json（仅上传参考图片时使用）';
+
+            if (hasVideos) {
+                type = 'video';
+                typeName = '视频QA';
+                descText = '使用 vedio_qa.json（上传了参考视频时使用）';
+                badge.className = 'badge video-qa';
+            } else {
+                badge.className = 'badge image-qa';
+            }
+
+            badge.textContent = typeName;
+            desc.textContent = descText;
+            currentQaType = type;
+
+            fetch('/qa/preview?type=' + type)
+                .then(res => res.json())
+                .then(data => {
+                    if (data.status === 'success' && data.questions) {
+                        renderQAEditor(data);
+                    } else {
+                        renderQAEditor({questions: [], scoring_instruction: ''});
+                    }
+                })
+                .catch(() => {
+                    renderQAEditor({questions: [], scoring_instruction: ''});
+                });
+        }
+
+        document.getElementById('addQaQuestion').addEventListener('click', function() {
+            const config = collectQAConfig();
+            config.questions.push({
+                id: `qa_${config.questions.length + 1}`,
+                category: 'general',
+                question: '',
+                weight: 1,
+                score: null
+            });
+            renderQAEditor(config);
+            const rows = document.querySelectorAll('.qa-question-row');
+            const lastQuestion = rows[rows.length - 1]?.querySelector('[data-qa-question]');
+            if (lastQuestion) lastQuestion.focus();
+        });
+
+        function updateFileInput(input, files) {
+            const transfer = new DataTransfer();
+            files.forEach(file => transfer.items.add(file));
+            input.files = transfer.files;
+        }
+
+        function renderFileList(inputId, listId, emptyText, sizeFormatter) {
+            const input = document.getElementById(inputId);
+            const list = document.getElementById(listId);
+            const files = Array.from(input.files);
+            list.innerHTML = '';
+
+            files.forEach((file, index) => {
+                const tag = document.createElement('span');
+                tag.className = 'file-tag';
+
+                const label = document.createElement('span');
+                label.textContent = `${file.name} (${sizeFormatter(file.size)})`;
+                tag.appendChild(label);
+
+                const remove = document.createElement('button');
+                remove.type = 'button';
+                remove.className = 'remove';
+                remove.textContent = '×';
+                remove.title = `删除 ${file.name}`;
+                remove.setAttribute('aria-label', `删除 ${file.name}`);
+                remove.addEventListener('click', () => {
+                    const remainingFiles = Array.from(input.files);
+                    remainingFiles.splice(index, 1);
+                    updateFileInput(input, remainingFiles);
+                    renderFileList(inputId, listId, emptyText, sizeFormatter);
+                    updateMediaQAStatus();
+                });
+                tag.appendChild(remove);
+                list.appendChild(tag);
+            });
+
+            if (files.length === 0) {
+                const empty = document.createElement('span');
+                empty.style.cssText = 'font-size:13px;color:#94a3b8;';
+                empty.textContent = emptyText;
+                list.appendChild(empty);
+            }
+        }
+
+        function fileMatchesAccept(file, input) {
+            const accept = (input.getAttribute('accept') || '')
+                .split(',')
+                .map(item => item.trim().toLowerCase())
+                .filter(Boolean);
+            if (!accept.length || accept.includes('*/*')) {
+                return true;
+            }
+
+            const fileType = (file.type || '').toLowerCase();
+            const fileName = (file.name || '').toLowerCase();
+            return accept.some(rule => {
+                if (rule.endsWith('/*')) {
+                    return fileType.startsWith(rule.slice(0, -1));
+                }
+                if (rule.startsWith('.')) {
+                    return fileName.endsWith(rule);
+                }
+                return fileType === rule;
+            });
+        }
+
+        function mergeDroppedFiles(input, droppedFiles) {
+            const acceptedFiles = droppedFiles.filter(file =>
+                fileMatchesAccept(file, input)
+            );
+            if (!acceptedFiles.length) {
+                alert('拖入的文件格式不符合当前上传区域的要求。');
+                return;
+            }
+
+            const existingFiles = input.multiple ? Array.from(input.files) : [];
+            const candidates = input.multiple
+                ? existingFiles.concat(acceptedFiles)
+                : acceptedFiles.slice(0, 1);
+            const seen = new Set();
+            const uniqueFiles = candidates.filter(file => {
+                const key = `${file.name}:${file.size}:${file.lastModified}`;
+                if (seen.has(key)) {
+                    return false;
+                }
+                seen.add(key);
+                return true;
+            });
+
+            updateFileInput(input, uniqueFiles);
+            input.dispatchEvent(new Event('change', {bubbles: true}));
+        }
+
+        function bindFileDropzone(dropzone) {
+            const input = document.getElementById(dropzone.dataset.dropInput);
+            if (!input) return;
+
+            ['dragenter', 'dragover'].forEach(eventName => {
+                dropzone.addEventListener(eventName, event => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    dropzone.classList.add('dragover');
+                    event.dataTransfer.dropEffect = 'copy';
+                });
+            });
+
+            ['dragleave', 'drop'].forEach(eventName => {
+                dropzone.addEventListener(eventName, event => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    dropzone.classList.remove('dragover');
+                });
+            });
+
+            dropzone.addEventListener('drop', event => {
+                mergeDroppedFiles(input, Array.from(event.dataTransfer.files || []));
+            });
+
+            dropzone.addEventListener('click', event => {
+                if (!event.target.closest('label, button, a')) {
+                    input.click();
+                }
+            });
+
+            dropzone.addEventListener('keydown', event => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    input.click();
+                }
+            });
+        }
+
+        document.querySelectorAll('[data-drop-input]').forEach(bindFileDropzone);
+
+        function updateMediaQAStatus() {
+            const hasImages = document.getElementById('personImages').files.length > 0;
+            const hasVideos = document.getElementById('refVideos').files.length > 0;
+            updateQAStatus(hasImages, hasVideos);
+        }
+
+        document.getElementById('genVideo').addEventListener('change', function() {
+            renderFileList(
+                'genVideo',
+                'genVideoList',
+                '未选择',
+                size => `${(size / 1024 / 1024).toFixed(1)}MB`
+            );
+        });
+
+        document.getElementById('personImages').addEventListener('change', function() {
+            renderFileList(
+                'personImages',
+                'personImageList',
+                '未选择',
+                size => `${(size / 1024).toFixed(0)}KB`
+            );
+            updateMediaQAStatus();
+        });
+
+        document.getElementById('refVideos').addEventListener('change', function() {
+            renderFileList(
+                'refVideos',
+                'refVideoList',
+                '未选择',
+                size => `${(size / 1024 / 1024).toFixed(1)}MB`
+            );
+            updateMediaQAStatus();
+        });
+
+        renderFileList('genVideo', 'genVideoList', '未选择', size => `${(size / 1024 / 1024).toFixed(1)}MB`);
+        renderFileList('personImages', 'personImageList', '未选择', size => `${(size / 1024).toFixed(0)}KB`);
+        renderFileList('refVideos', 'refVideoList', '未选择', size => `${(size / 1024 / 1024).toFixed(1)}MB`);
+
+        // 初始化QA状态
+        updateQAStatus(false, false);
+
+        // 重置表单
+        function resetForm() {
+            document.getElementById('evalForm').reset();
+            document.getElementById('paramsForm').reset();
+            renderFileList('genVideo', 'genVideoList', '未选择', size => `${(size / 1024 / 1024).toFixed(1)}MB`);
+            renderFileList('personImages', 'personImageList', '未选择', size => `${(size / 1024).toFixed(0)}KB`);
+            renderFileList('refVideos', 'refVideoList', '未选择', size => `${(size / 1024 / 1024).toFixed(1)}MB`);
+            document.getElementById('results').classList.remove('active');
+            document.getElementById('scoreContent').innerHTML = '';
+            document.getElementById('summaryContent').innerHTML = '';
+            switchResultTab('scores');
+            document.getElementById('loader').classList.remove('active');
+            document.getElementById('progressBar').style.width = '0%';
+            document.getElementById('maxFrames').value = 16;
+            document.getElementById('device').value = 'cuda';
+            document.getElementById('useQwen').checked = true;
+            document.getElementById('useLpips').checked = false;
+            const qwenModelPath = document.getElementById('qwenModelPath');
+            if (qwenModelPath) {
+                qwenModelPath.value = 'checkpoints/Qwen3-VL-4B-Instruct';
+            }
+            document.getElementById('prompt').value = '';
+            updateQAStatus(false, false);
+        }
+
+        // 开始评估
+        async function startEvaluation() {
+            const form = document.getElementById('evalForm');
+            const formData = new FormData(form);
+
+            // 添加参数
+            const paramsForm = document.getElementById('paramsForm');
+            const paramsData = new FormData(paramsForm);
+            for (let [key, value] of paramsData) {
+                formData.append(key, value);
+            }
+
+            const qaConfig = collectQAConfig();
+            if (!qaConfig.questions.length) {
+                alert('请至少保留一个有效的 QA 问题。');
+                return;
+            }
+            formData.append('qa_questions', JSON.stringify(qaConfig));
+
+            // 检查必填
+            const genVideo = document.getElementById('genVideo').files[0];
+            if (!genVideo) {
+                alert('请选择生成视频！');
+                return;
+            }
+
+            // 禁用按钮
+            const btn = document.getElementById('evalBtn');
+            btn.disabled = true;
+            btn.textContent = '⏳ 评估中...';
+            document.getElementById('loader').classList.add('active');
+            document.getElementById('results').classList.remove('active');
+            document.getElementById('scoreContent').innerHTML = '';
+            document.getElementById('summaryContent').innerHTML = '';
+            switchResultTab('scores');
+            document.getElementById('progressBar').style.width = '20%';
+
+            const progressStages = [
+                { after: 0, text: '正在上传文件...', progress: 30 },
+                { after: 3, text: '正在读取视频帧...', progress: 38 },
+                { after: 10, text: '正在分析人脸和身份一致性...', progress: 50 },
+                { after: 20, text: '正在提取表情和动作特征...', progress: 62 },
+                { after: 35, text: '正在执行 Qwen 语义 QA...', progress: 75 },
+                { after: 75, text: '正在计算清晰度、稳定性和美学指标...', progress: 86 },
+                { after: 120, text: '正在汇总最终评分...', progress: 92 }
+            ];
+            const progressStartedAt = Date.now();
+            let progressTimer = null;
+
+            function updateEvaluationProgress() {
+                const elapsed = (Date.now() - progressStartedAt) / 1000;
+                let stage = progressStages[0];
+                for (const candidate of progressStages) {
+                    if (elapsed >= candidate.after) {
+                        stage = candidate;
+                    }
+                }
+                document.getElementById('loaderText').textContent = stage.text;
+                document.getElementById('progressBar').style.width = `${stage.progress}%`;
+            }
+
+            try {
+                document.getElementById('loaderText').textContent = '正在上传文件...';
+                document.getElementById('progressBar').style.width = '30%';
+                updateEvaluationProgress();
+                progressTimer = setInterval(updateEvaluationProgress, 1000);
+
+                const response = await fetch('/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (progressTimer) {
+                    clearInterval(progressTimer);
+                    progressTimer = null;
+                }
+                document.getElementById('progressBar').style.width = '95%';
+                document.getElementById('loaderText').textContent = '正在生成评估结果...';
+
+                const data = await response.json();
+
+                document.getElementById('progressBar').style.width = '100%';
+
+                if (data.status === 'error') {
+                    showError(data.error, data.traceback);
+                    return;
+                }
+
+                if (data.status === 'success') {
+                    displayResults(data);
+                } else {
+                    showError('评估返回未知状态');
+                }
+
+            } catch (error) {
+                showError('请求失败: ' + error.message);
+            } finally {
+                if (progressTimer) {
+                    clearInterval(progressTimer);
+                }
+                btn.disabled = false;
+                btn.textContent = '🚀 开始评估';
+                document.getElementById('loader').classList.remove('active');
+                setTimeout(() => {
+                    document.getElementById('progressBar').style.width = '0%';
+                }, 1000);
+            }
+        }
+
+        function showError(message, traceback) {
+            const container = document.getElementById('scoreContent');
+            document.getElementById('summaryContent').innerHTML = '';
+            switchResultTab('scores');
+            container.innerHTML = `
+                <div class="error-box">
+                    <strong>❌ 评估失败</strong>
+                    <p>${message}</p>
+                    ${traceback ? `<pre>${traceback}</pre>` : ''}
+                </div>
+            `;
+            document.getElementById('results').classList.add('active');
+        }
+
+        function buildRadarChart(metrics) {
+            const definitions = [
+                { label: '角色一致性', aliases: ['角色一致性', 'identity'] },
+                { label: '质感和细节', aliases: ['质感和细节', 'detail'] },
+                { label: '表情/文本准确性', aliases: ['表情/文本准确性', 'expression_text'] },
+                { label: '时间稳定性', aliases: ['时间稳定性', 'temporal'] },
+                { label: '美学', aliases: ['美学', 'aesthetic'] }
+            ];
+            const sourceMetrics = Array.isArray(metrics) ? metrics : [];
+            const width = 360;
+            const height = 310;
+            const centerX = 180;
+            const centerY = 160;
+            const radius = 104;
+            const labelRadius = 132;
+            const count = definitions.length;
+
+            const getPoint = (value, index, scale = 1) => {
+                const angle = -Math.PI / 2 + index * (Math.PI * 2 / count);
+                const distance = radius * scale * (value / 100);
+                return [
+                    centerX + Math.cos(angle) * distance,
+                    centerY + Math.sin(angle) * distance
+                ];
+            };
+            const getGridPoint = (scale, index) => {
+                const angle = -Math.PI / 2 + index * (Math.PI * 2 / count);
+                return [
+                    centerX + Math.cos(angle) * radius * scale,
+                    centerY + Math.sin(angle) * radius * scale
+                ];
+            };
+            const pointsToString = points => points
+                .map(point => `${point[0].toFixed(1)},${point[1].toFixed(1)}`)
+                .join(' ');
+            const findMetric = (definition, index) => sourceMetrics.find(metric => {
+                const name = String(
+                    metric['项目'] || metric.project || metric.name || ''
+                );
+                return definition.aliases.some(alias => name.includes(alias));
+            }) || sourceMetrics[index] || {};
+            const getScore = metric => {
+                const raw = metric['分数'] !== undefined
+                    ? metric['分数']
+                    : (metric.score !== undefined ? metric.score : metric['score']);
+                const score = Number(raw);
+                return Number.isFinite(score)
+                    ? Math.max(0, Math.min(100, score))
+                    : null;
+            };
+
+            const scores = definitions.map((definition, index) =>
+                getScore(findMetric(definition, index))
+            );
+            const gridHtml = [0.2, 0.4, 0.6, 0.8, 1.0].map(scale =>
+                `<polygon class="radar-grid" points="${pointsToString(
+                    definitions.map((_, index) => getGridPoint(scale, index))
+                )}"></polygon>`
+            ).join('');
+            const axesHtml = definitions.map((_, index) => {
+                const point = getGridPoint(1, index);
+                return `<line class="radar-axis" x1="${centerX}" y1="${centerY}" x2="${point[0].toFixed(1)}" y2="${point[1].toFixed(1)}"></line>`;
+            }).join('');
+            const areaPoints = pointsToString(
+                scores.map((score, index) => getPoint(score || 0, index))
+            );
+            const dotsHtml = scores.map((score, index) => {
+                if (score === null) {
+                    return '';
+                }
+                const point = getPoint(score, index);
+                return `<circle class="radar-dot" cx="${point[0].toFixed(1)}" cy="${point[1].toFixed(1)}" r="4"></circle>`;
+            }).join('');
+            const labelsHtml = definitions.map((definition, index) => {
+                const angle = -Math.PI / 2 + index * (Math.PI * 2 / count);
+                const x = centerX + Math.cos(angle) * labelRadius;
+                const y = centerY + Math.sin(angle) * labelRadius;
+                const anchor = x < centerX - 8 ? 'end' : (x > centerX + 8 ? 'start' : 'middle');
+                const baseline = y < centerY - 8 ? 'auto' : (y > centerY + 8 ? 'hanging' : 'middle');
+                const scoreText = scores[index] === null ? 'N/A' : `${scores[index].toFixed(1)}%`;
+                return `
+                    <text class="radar-label" x="${x.toFixed(1)}" y="${y.toFixed(1)}" text-anchor="${anchor}" dominant-baseline="${baseline}">${definition.label}</text>
+                    <text class="radar-score" x="${x.toFixed(1)}" y="${(y + 14).toFixed(1)}" text-anchor="${anchor}" dominant-baseline="${baseline}">${scoreText}</text>
+                `;
+            }).join('');
+
+            return `
+                <div class="radar-panel">
+                    <div class="radar-panel-title">五维评价雷达图</div>
+                    <div class="radar-panel-subtitle">各项指标得分（满分 100）</div>
+                    <svg class="radar-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="五项评价指标雷达图">
+                        ${gridHtml}
+                        ${axesHtml}
+                        <polygon class="radar-area" points="${areaPoints}"></polygon>
+                        ${dotsHtml}
+                        ${labelsHtml}
+                    </svg>
+                </div>
+            `;
+        }
+
+        function buildAuthenticityAnalysis(authenticity) {
+            if (!authenticity) {
+                return '';
+            }
+            const toProbability = value => (
+                value === null
+                || value === undefined
+                || value === ''
+            )
+                ? 'N/A'
+                : (Number.isFinite(Number(value))
+                ? `${(Number(value) * 100).toFixed(1)}%`
+                : 'N/A');
+            const toScore = value => {
+                if (value === null || value === undefined || value === '') {
+                    return 'N/A';
+                }
+                const score = Number(value);
+                if (!Number.isFinite(score)) {
+                    return 'N/A';
+                }
+                return `${(score > 1 ? score : score * 100).toFixed(1)}%`;
+            };
+            const generatedProbability = (
+                authenticity.生成概率 === null
+                || authenticity.生成概率 === undefined
+            )
+                ? NaN
+                : Number(authenticity.生成概率);
+            const realProbability = (
+                authenticity.真实概率 === null
+                || authenticity.真实概率 === undefined
+            )
+                ? NaN
+                : Number(authenticity.真实概率);
+            const realPercent = Number.isFinite(realProbability)
+                ? Math.max(0, Math.min(100, realProbability * 100))
+                : 50;
+            const generatedPercent = Number.isFinite(generatedProbability)
+                ? Math.max(0, Math.min(100, generatedProbability * 100))
+                : 50;
+            const prediction = ['real', 'generated', 'uncertain'].includes(
+                authenticity.预测
+            )
+                ? authenticity.预测
+                : 'uncertain';
+            const faceMetric = authenticity.人脸表情与肌肉运动 || {};
+            const faceAnalysis = faceMetric.分析 || {};
+            const faceDetails = authenticity['人脸专项：表情、眼神与肌肉皱纹'] || {};
+            const faceValues = [
+                ['动作原型匹配', faceDetails.frame_match_score],
+                ['肌肉几何', faceDetails.geometry_score],
+                ['眼神匹配', faceDetails.gaze_score],
+                ['皱纹/高频纹理', faceDetails.wrinkle_score],
+                ['肌肉-皱纹同步', faceDetails.motion_score]
+            ];
+            const evidence = Array.isArray(authenticity.证据)
+                ? authenticity.证据
+                : [];
+            const evidenceHtml = evidence.length
+                ? `
+                    <div class="authenticity-evidence">
+                        <div class="metric-evidence-title">真伪模型判定依据</div>
+                        ${evidence.map(item => `
+                            <div class="metric-evidence-row">
+                                <span>${item.指标 || '模型证据'}</span>
+                                <strong>${item.方向 || ''}${item.说明 ? ` · ${item.说明}` : ''}</strong>
+                            </div>
+                        `).join('')}
+                    </div>
+                `
+                : '';
+            const faceGood = Array.isArray(faceAnalysis.好在哪里)
+                ? faceAnalysis.好在哪里.slice(0, 1)
+                : [];
+            const faceBad = Array.isArray(faceAnalysis.不好在哪里)
+                ? faceAnalysis.不好在哪里.slice(0, 1)
+                : [];
+            const facePointHtml = [
+                ...faceGood.map(item => `<div><span class="good-text">✅</span> ${item}</div>`),
+                ...faceBad.map(item => `<div><span class="bad-text">⚠️</span> ${item}</div>`)
+            ].join('');
+
+            return `
+                <div class="authenticity-analysis ${prediction}">
+                    <div class="authenticity-header">
+                        <div>
+                            <div class="authenticity-title">🎬 视频真实/生成分析</div>
+                            <div class="authenticity-conclusion">
+                                ${authenticity.结论 || '暂无真伪分析结论。'}
+                            </div>
+                        </div>
+                        <span class="authenticity-badge ${prediction}">
+                            ${authenticity.标签 || '暂无法区分'}
+                        </span>
+                    </div>
+                    <div class="authenticity-probabilities">
+                        <div class="authenticity-probability">
+                            <span>真实概率</span>
+                            <strong>${toProbability(realProbability)}</strong>
+                        </div>
+                        <div class="authenticity-probability">
+                            <span>生成概率</span>
+                            <strong>${toProbability(generatedProbability)}</strong>
+                        </div>
+                    </div>
+                    <div class="authenticity-bar" aria-label="真实和生成概率">
+                        <span class="real" style="width:${realPercent.toFixed(1)}%"></span>
+                        <span class="generated" style="width:${generatedPercent.toFixed(1)}%"></span>
+                    </div>
+                    <div class="authenticity-meta">
+                        证据强度：${toProbability(authenticity.证据强度)}
+                        · ${authenticity.方法 || '真实视频检测模型'}
+                        ${authenticity.模型状态 ? ` · 模型状态：${authenticity.模型状态}` : ''}
+                    </div>
+                    ${authenticity.模型状态 === '不可用' && authenticity.说明 ? `
+                        <div class="authenticity-error">
+                            模型调用错误：${authenticity.说明}
+                        </div>
+                    ` : ''}
+                    ${evidenceHtml}
+                    <div class="authenticity-section">
+                        <div class="authenticity-section-header">
+                            <span>人脸表情与肌肉运动</span>
+                            <span class="authenticity-section-score">${toScore(faceMetric.分数)}</span>
+                        </div>
+                        <div class="authenticity-meta">
+                            ${faceAnalysis.结论 || '表情与肌肉运动结果已并入真伪分析。'}
+                        </div>
+                        ${facePointHtml}
+                    </div>
+                    <div class="authenticity-section">
+                        <div class="authenticity-section-header">
+                            <span>人脸专项：表情、眼神与肌肉皱纹</span>
+                            <span class="authenticity-section-score">${toScore(faceDetails.score)}</span>
+                        </div>
+                        <div class="authenticity-meta">
+                            参考 ${faceDetails.profile_sample_count || faceDetails.reference_count || 0} 条
+                            · ${faceDetails.geometry_method || '肌肉几何'}
+                            · ${faceDetails.gaze_method || '眼神分析'}
+                            · AU=${faceDetails.au_source || 'n/a'}
+                        </div>
+                        <div class="authenticity-face-grid">
+                            ${faceValues.map(([label, value]) => `
+                                <div class="authenticity-face-value">
+                                    ${label}
+                                    <strong>${toProbability(value)}</strong>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function displayResults(data) {
+            const scoreContainer = document.getElementById('scoreContent');
+            const summaryContainer = document.getElementById('summaryContent');
+            let totalScore = data.total_score;
+            let scoreClass = totalScore >= 80 ? 'good' : (totalScore >= 60 ? 'medium' : 'poor');
+            const authenticity = data.authenticity
+                || (data.full_report && data.full_report.视频真伪判断);
+
+            // 显示使用的QA类型
+            const qaTypeLabel = data.qa_type === 'video' ? '视频QA (vedio_qa.json)' : '图片QA (image_qa.json)';
+
+            let scoreHtml = `
+                <!-- QA类型指示 -->
+                <div style="margin-bottom:16px;">
+                    <span class="qa-indicator ${data.qa_type}">📋 使用: ${qaTypeLabel}</span>
+                </div>
+        
+                <!-- 总分概览 -->
+                <div class="score-overview">
+                    <div class="score-card">
+                        <div class="number ${scoreClass}">${totalScore !== null ? totalScore.toFixed(1) : 'N/A'}</div>
+                        <div class="label">综合得分</div>
+                    </div>
+                    <div class="score-card">
+                        <div class="number">${data.coverage !== null ? data.coverage.toFixed(0) : 'N/A'}%</div>
+                        <div class="label">评分覆盖率</div>
+                    </div>
+                    <div class="score-card">
+                        <div class="number">${data.metrics ? data.metrics.filter(m => m.分数 !== null).length : 0}/${data.metrics ? data.metrics.length : 0}</div>
+                        <div class="label">有效指标</div>
+                    </div>
+                </div>
+            `;
+
+            scoreHtml += buildAuthenticityAnalysis(authenticity);
+        
+            // 详细指标
+            if (data.metrics && data.metrics.length > 0) {
+                // Keep the UI labels aligned with main.py, even for older report formats.
+                const metricNameMap = {
+                    'identity': '角色一致性',
+                    'detail': '质感和细节',
+                    'expression_text': '表情/文本准确性',
+                    'temporal': '时间稳定性',
+                    'aesthetic': '美学'
+                };
+                const metricDisplayNames = [
+                    '角色一致性',
+                    '质感和细节',
+                    '表情/文本准确性',
+                    '时间稳定性',
+                    '美学'
+                ];
+        
+                scoreHtml += `<div class="metrics-grid">`;
+                for (let [index, metric] of data.metrics.entries()) {
+                    let score = metric.分数;
+                    let sClass = score >= 80 ? 'good' : (score >= 60 ? 'medium' : 'poor');
+                    let analysis = metric.分析 || {};
+                    let goodPoints = analysis.好在哪里 || [];
+                    let badPoints = analysis.不好在哪里 || [];
+                    let improvementPoints = analysis.后续改进方向 || [];
+                    let evidence = metric.证据 || [];
+
+                    const metricKey = metric.key || metric.name || metric.metric || metric.id;
+                    const backendName = metric.项目 || metric.project || metric.label;
+                    const statusLabels = ['已完成', '质量估计', '人工评分', '证据不足'];
+                    const metricName = (
+                        metricNameMap[metricKey]
+                        || (backendName && !statusLabels.includes(backendName) ? backendName : '')
+                        || metricDisplayNames[index]
+                        || '未知指标'
+                    );
+        
+                    scoreHtml += `
+                        <div class="metric-item">
+                            <div class="header">
+                                <span class="name">${metricName}</span>
+                                <span class="score ${sClass}">${score !== null ? score.toFixed(1) : 'N/A'}</span>
+                            </div>
+                            <div class="status">权重 ${metric.权重}% · ${metric.状态}</div>
+                            <div class="analysis">
+                                ${analysis.结论 ? `<p style="font-weight:500;margin-bottom:4px;">${analysis.结论}</p>` : ''}
+                                ${goodPoints.length > 0 ? `<div><span class="good-text">✅</span> ${goodPoints.slice(0,2).join('；')}</div>` : ''}
+                                ${badPoints.length > 0 ? `<div><span class="bad-text">⚠️</span> ${badPoints.slice(0,2).join('；')}</div>` : ''}
+                                ${improvementPoints.length > 0 ? `<div style="margin-top:5px;"><span style="color:#2563eb;">💡</span> ${improvementPoints.slice(0,2).join('；')}</div>` : ''}
+                            </div>
+                            ${evidence.length > 0 ? `
+                                <div class="metric-evidence">
+                                    <div class="metric-evidence-title">视觉对比证据</div>
+                                    ${evidence.map(item => `
+                                        <div class="metric-evidence-row">
+                                            <span>${item.label}</span>
+                                            <strong>${item.value}</strong>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            ` : ''}
+                        </div>
+                    `;
+                }
+                scoreHtml += `</div>`;
+            }
+
+            let summaryHtml = '';
+
+            // 总分析
+            if (data.analysis) {
+                const analysis = data.analysis;
+                summaryHtml += `
+                    <div class="analysis-section analysis-with-radar">
+                        <div class="analysis-copy">
+                        <h4>📋 综合总结</h4>
+                        <p style="font-size:14px;color:var(--text);margin-bottom:8px;">${analysis.结论 || ''}</p>
+                        ${analysis.主要优点 ? `<h4 style="margin-top:12px;">✅ 主要优点</h4><ul>${analysis.主要优点.map(item => `<li class="good">${item}</li>`).join('')}</ul>` : ''}
+                        ${analysis.主要问题 ? `<h4 style="margin-top:12px;">⚠️ 主要问题</h4><ul>${analysis.主要问题.map(item => `<li class="bad">${item}</li>`).join('')}</ul>` : ''}
+                        ${analysis.后续改进方向 ? `<h4 style="margin-top:12px;">💡 改进建议</h4><ul>${analysis.后续改进方向.map(item => `<li>${item}</li>`).join('')}</ul>` : ''}
+                        </div>
+                        ${buildRadarChart(data.metrics)}
+                    </div>
+                `;
+            }
+
+            // 语义 QA 结果；没有结果时不展示工程性错误或模型加载信息。
+            if (data.qwen_evaluation) {
+                const qwen = data.qwen_evaluation;
+                summaryHtml += `
+                    <div class="qwen-results">
+                        <div class="header">
+                            <span style="font-weight:600;">📝 语义 QA 结果</span>
+                            <span style="float:right;font-size:14px;">平均分: <strong>${(qwen.average_score * 100).toFixed(1)}%</strong></span>
+                        </div>
+                        <div style="margin-top:8px;">
+                            ${qwen.results ? qwen.results.map((item, idx) => {
+                                let s = item.score !== null ? item.score * 100 : null;
+                                let sClass = s >= 80 ? 'good' : (s >= 60 ? 'medium' : 'poor');
+                                let qText = item.question.length > 50 ? item.question.substring(0,50)+'...' : item.question;
+                                return `<div class="qwen-item"><span>${idx+1}. ${qText}</span><span class="q-score ${sClass}">${s !== null ? s.toFixed(0)+'%' : 'N/A'}</span></div>`;
+                            }).join('') : ''}
+                        </div>
+                    </div>
+                `;
+            }
+
+            scoreContainer.innerHTML = scoreHtml;
+            summaryContainer.innerHTML = summaryHtml || `
+                <div class="hint">暂无总结或语义 QA 结果。</div>
+            `;
+            switchResultTab('scores');
+            document.getElementById('results').classList.add('active');
+        }
+
+        // 键盘快捷键
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                e.preventDefault();
+                startEvaluation();
+            }
+        });
+    </script>
+</body>
+</html>
+'''
+
+# 写入模板文件
+with open(TEMPLATE_DIR / 'index.html', 'w', encoding='utf-8') as f:
+    f.write(HTML_TEMPLATE)
+
+
+def main():
+    """启动Web服务"""
+    # 检查QA文件是否存在
+    if not QA_IMAGE_PATH.exists():
+        LOGGER.warning("image_qa.json 不存在: %s", QA_IMAGE_PATH)
+    if not QA_VIDEO_PATH.exists():
+        LOGGER.warning("vedio_qa.json 不存在: %s", QA_VIDEO_PATH)
+
+    import webbrowser
+    import threading
+
+    def open_browser():
+        time.sleep(1.5)
+        webbrowser.open('http://127.0.0.1:5000')
+
+    threading.Thread(target=open_browser, daemon=True).start()
+
+    app.run(
+        host='0.0.0.0',
+        port=5000,
+        debug=True,
+        threaded=True
+    )
+
+
+if __name__ == '__main__':
+    main()

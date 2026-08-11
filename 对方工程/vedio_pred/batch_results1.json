@@ -1,0 +1,952 @@
+[
+  {
+    "预测": "real",
+    "标签": "更可能是真实视频",
+    "生成概率": 0.0369,
+    "真实概率": 0.9631,
+    "证据强度": 0.9594,
+    "结论": "监督式神经网络判定：当前视频更可能是真实视频，生成概率 3.7%，真实概率 96.3%。",
+    "证据": [
+      {
+        "指标": "真实/生成监督分类器",
+        "指标得分": 96.31,
+        "方向": "偏向真实",
+        "说明": "校准温度=0.2500，分类 logit=-0.8154"
+      }
+    ],
+    "方法": "空间帧编码器 + 双向 GRU 时序编码 + 温度校准监督分类",
+    "说明": "模型使用真实视频和 WangXing_Seedance 假视频监督训练；概率已在分组留出验证集上做温度校准。",
+    "模型路径": "D:\\python\\Evaluator\\video_pred\\models\\real_fake_video_classifier.pt",
+    "真实数据目录": "E:\\python\\Evaluator\\video_pred\\MD_CL",
+    "假数据目录": "E:\\python\\Evaluator\\video_pred\\WangXing_Seedance",
+    "真实训练视频数": 612,
+    "假训练视频数": 85,
+    "真实验证视频数": 169,
+    "假验证视频数": 22,
+    "验证指标": {
+      "accuracy": 0.9895287958115183,
+      "balanced_accuracy": 0.9940828402366864,
+      "precision_fake": 0.9166666666666666,
+      "recall_fake": 1.0,
+      "f1": 0.9565217391304348,
+      "false_positive_rate_real": 0.011834319526627219,
+      "roc_auc": 1.0
+    },
+    "模型版本": "real-video-feature-v1",
+    "video_path": "D:\\python\\Evaluator\\input\\tt\\2026_05_18_15_42_56-049011110008-4.mp4",
+    "video_name": "2026_05_18_15_42_56-049011110008-4.mp4",
+    "status": "success"
+  },
+  {
+    "预测": "uncertain",
+    "标签": "暂无法区分",
+    "生成概率": 0.4234,
+    "真实概率": 0.5766,
+    "证据强度": 0.5343,
+    "结论": "监督式神经网络判定：当前视频暂无法区分，生成概率 42.3%，真实概率 57.7%。",
+    "证据": [
+      {
+        "指标": "真实/生成监督分类器",
+        "指标得分": 57.66,
+        "方向": "偏向真实",
+        "说明": "校准温度=0.2500，分类 logit=-0.0772"
+      }
+    ],
+    "方法": "空间帧编码器 + 双向 GRU 时序编码 + 温度校准监督分类",
+    "说明": "模型使用真实视频和 WangXing_Seedance 假视频监督训练；概率已在分组留出验证集上做温度校准。",
+    "模型路径": "D:\\python\\Evaluator\\video_pred\\models\\real_fake_video_classifier.pt",
+    "真实数据目录": "E:\\python\\Evaluator\\video_pred\\MD_CL",
+    "假数据目录": "E:\\python\\Evaluator\\video_pred\\WangXing_Seedance",
+    "真实训练视频数": 612,
+    "假训练视频数": 85,
+    "真实验证视频数": 169,
+    "假验证视频数": 22,
+    "验证指标": {
+      "accuracy": 0.9895287958115183,
+      "balanced_accuracy": 0.9940828402366864,
+      "precision_fake": 0.9166666666666666,
+      "recall_fake": 1.0,
+      "f1": 0.9565217391304348,
+      "false_positive_rate_real": 0.011834319526627219,
+      "roc_auc": 1.0
+    },
+    "模型版本": "real-video-feature-v1",
+    "video_path": "D:\\python\\Evaluator\\input\\tt\\2026_05_18_15_42_56-049090310173-4.mp4",
+    "video_name": "2026_05_18_15_42_56-049090310173-4.mp4",
+    "status": "success"
+  },
+  {
+    "预测": "real",
+    "标签": "更可能是真实视频",
+    "生成概率": 0.163,
+    "真实概率": 0.837,
+    "证据强度": 0.8207,
+    "结论": "监督式神经网络判定：当前视频更可能是真实视频，生成概率 16.3%，真实概率 83.7%。",
+    "证据": [
+      {
+        "指标": "真实/生成监督分类器",
+        "指标得分": 83.7,
+        "方向": "偏向真实",
+        "说明": "校准温度=0.2500，分类 logit=-0.4089"
+      }
+    ],
+    "方法": "空间帧编码器 + 双向 GRU 时序编码 + 温度校准监督分类",
+    "说明": "模型使用真实视频和 WangXing_Seedance 假视频监督训练；概率已在分组留出验证集上做温度校准。",
+    "模型路径": "D:\\python\\Evaluator\\video_pred\\models\\real_fake_video_classifier.pt",
+    "真实数据目录": "E:\\python\\Evaluator\\video_pred\\MD_CL",
+    "假数据目录": "E:\\python\\Evaluator\\video_pred\\WangXing_Seedance",
+    "真实训练视频数": 612,
+    "假训练视频数": 85,
+    "真实验证视频数": 169,
+    "假验证视频数": 22,
+    "验证指标": {
+      "accuracy": 0.9895287958115183,
+      "balanced_accuracy": 0.9940828402366864,
+      "precision_fake": 0.9166666666666666,
+      "recall_fake": 1.0,
+      "f1": 0.9565217391304348,
+      "false_positive_rate_real": 0.011834319526627219,
+      "roc_auc": 1.0
+    },
+    "模型版本": "real-video-feature-v1",
+    "video_path": "D:\\python\\Evaluator\\input\\tt\\2026_05_18_15_42_59-040061620397-4.mp4",
+    "video_name": "2026_05_18_15_42_59-040061620397-4.mp4",
+    "status": "success"
+  },
+  {
+    "预测": "real",
+    "标签": "更可能是真实视频",
+    "生成概率": 0.024,
+    "真实概率": 0.976,
+    "证据强度": 0.9736,
+    "结论": "监督式神经网络判定：当前视频更可能是真实视频，生成概率 2.4%，真实概率 97.6%。",
+    "证据": [
+      {
+        "指标": "真实/生成监督分类器",
+        "指标得分": 97.6,
+        "方向": "偏向真实",
+        "说明": "校准温度=0.2500，分类 logit=-0.9263"
+      }
+    ],
+    "方法": "空间帧编码器 + 双向 GRU 时序编码 + 温度校准监督分类",
+    "说明": "模型使用真实视频和 WangXing_Seedance 假视频监督训练；概率已在分组留出验证集上做温度校准。",
+    "模型路径": "D:\\python\\Evaluator\\video_pred\\models\\real_fake_video_classifier.pt",
+    "真实数据目录": "E:\\python\\Evaluator\\video_pred\\MD_CL",
+    "假数据目录": "E:\\python\\Evaluator\\video_pred\\WangXing_Seedance",
+    "真实训练视频数": 612,
+    "假训练视频数": 85,
+    "真实验证视频数": 169,
+    "假验证视频数": 22,
+    "验证指标": {
+      "accuracy": 0.9895287958115183,
+      "balanced_accuracy": 0.9940828402366864,
+      "precision_fake": 0.9166666666666666,
+      "recall_fake": 1.0,
+      "f1": 0.9565217391304348,
+      "false_positive_rate_real": 0.011834319526627219,
+      "roc_auc": 1.0
+    },
+    "模型版本": "real-video-feature-v1",
+    "video_path": "D:\\python\\Evaluator\\input\\tt\\2026_05_18_15_42_59-040061620402-4.mp4",
+    "video_name": "2026_05_18_15_42_59-040061620402-4.mp4",
+    "status": "success"
+  },
+  {
+    "预测": "real",
+    "标签": "更可能是真实视频",
+    "生成概率": 0.0196,
+    "真实概率": 0.9804,
+    "证据强度": 0.9784,
+    "结论": "监督式神经网络判定：当前视频更可能是真实视频，生成概率 2.0%，真实概率 98.0%。",
+    "证据": [
+      {
+        "指标": "真实/生成监督分类器",
+        "指标得分": 98.04,
+        "方向": "偏向真实",
+        "说明": "校准温度=0.2500，分类 logit=-0.9776"
+      }
+    ],
+    "方法": "空间帧编码器 + 双向 GRU 时序编码 + 温度校准监督分类",
+    "说明": "模型使用真实视频和 WangXing_Seedance 假视频监督训练；概率已在分组留出验证集上做温度校准。",
+    "模型路径": "D:\\python\\Evaluator\\video_pred\\models\\real_fake_video_classifier.pt",
+    "真实数据目录": "E:\\python\\Evaluator\\video_pred\\MD_CL",
+    "假数据目录": "E:\\python\\Evaluator\\video_pred\\WangXing_Seedance",
+    "真实训练视频数": 612,
+    "假训练视频数": 85,
+    "真实验证视频数": 169,
+    "假验证视频数": 22,
+    "验证指标": {
+      "accuracy": 0.9895287958115183,
+      "balanced_accuracy": 0.9940828402366864,
+      "precision_fake": 0.9166666666666666,
+      "recall_fake": 1.0,
+      "f1": 0.9565217391304348,
+      "false_positive_rate_real": 0.011834319526627219,
+      "roc_auc": 1.0
+    },
+    "模型版本": "real-video-feature-v1",
+    "video_path": "D:\\python\\Evaluator\\input\\tt\\2026_05_18_15_48_16-048070810265-5.mp4",
+    "video_name": "2026_05_18_15_48_16-048070810265-5.mp4",
+    "status": "success"
+  },
+  {
+    "预测": "real",
+    "标签": "更可能是真实视频",
+    "生成概率": 0.0207,
+    "真实概率": 0.9793,
+    "证据强度": 0.9772,
+    "结论": "监督式神经网络判定：当前视频更可能是真实视频，生成概率 2.1%，真实概率 97.9%。",
+    "证据": [
+      {
+        "指标": "真实/生成监督分类器",
+        "指标得分": 97.93,
+        "方向": "偏向真实",
+        "说明": "校准温度=0.2500，分类 logit=-0.9640"
+      }
+    ],
+    "方法": "空间帧编码器 + 双向 GRU 时序编码 + 温度校准监督分类",
+    "说明": "模型使用真实视频和 WangXing_Seedance 假视频监督训练；概率已在分组留出验证集上做温度校准。",
+    "模型路径": "D:\\python\\Evaluator\\video_pred\\models\\real_fake_video_classifier.pt",
+    "真实数据目录": "E:\\python\\Evaluator\\video_pred\\MD_CL",
+    "假数据目录": "E:\\python\\Evaluator\\video_pred\\WangXing_Seedance",
+    "真实训练视频数": 612,
+    "假训练视频数": 85,
+    "真实验证视频数": 169,
+    "假验证视频数": 22,
+    "验证指标": {
+      "accuracy": 0.9895287958115183,
+      "balanced_accuracy": 0.9940828402366864,
+      "precision_fake": 0.9166666666666666,
+      "recall_fake": 1.0,
+      "f1": 0.9565217391304348,
+      "false_positive_rate_real": 0.011834319526627219,
+      "roc_auc": 1.0
+    },
+    "模型版本": "real-video-feature-v1",
+    "video_path": "D:\\python\\Evaluator\\input\\tt\\2026_05_18_15_48_16-049011110008-5.mp4",
+    "video_name": "2026_05_18_15_48_16-049011110008-5.mp4",
+    "status": "success"
+  },
+  {
+    "预测": "real",
+    "标签": "更可能是真实视频",
+    "生成概率": 0.2273,
+    "真实概率": 0.7727,
+    "证据强度": 0.75,
+    "结论": "监督式神经网络判定：当前视频更可能是真实视频，生成概率 22.7%，真实概率 77.3%。",
+    "证据": [
+      {
+        "指标": "真实/生成监督分类器",
+        "指标得分": 77.27,
+        "方向": "偏向真实",
+        "说明": "校准温度=0.2500，分类 logit=-0.3058"
+      }
+    ],
+    "方法": "空间帧编码器 + 双向 GRU 时序编码 + 温度校准监督分类",
+    "说明": "模型使用真实视频和 WangXing_Seedance 假视频监督训练；概率已在分组留出验证集上做温度校准。",
+    "模型路径": "D:\\python\\Evaluator\\video_pred\\models\\real_fake_video_classifier.pt",
+    "真实数据目录": "E:\\python\\Evaluator\\video_pred\\MD_CL",
+    "假数据目录": "E:\\python\\Evaluator\\video_pred\\WangXing_Seedance",
+    "真实训练视频数": 612,
+    "假训练视频数": 85,
+    "真实验证视频数": 169,
+    "假验证视频数": 22,
+    "验证指标": {
+      "accuracy": 0.9895287958115183,
+      "balanced_accuracy": 0.9940828402366864,
+      "precision_fake": 0.9166666666666666,
+      "recall_fake": 1.0,
+      "f1": 0.9565217391304348,
+      "false_positive_rate_real": 0.011834319526627219,
+      "roc_auc": 1.0
+    },
+    "模型版本": "real-video-feature-v1",
+    "video_path": "D:\\python\\Evaluator\\input\\tt\\2026_05_18_15_48_16-049090310173-5.mp4",
+    "video_name": "2026_05_18_15_48_16-049090310173-5.mp4",
+    "status": "success"
+  },
+  {
+    "预测": "real",
+    "标签": "更可能是真实视频",
+    "生成概率": 0.0583,
+    "真实概率": 0.9417,
+    "证据强度": 0.9359,
+    "结论": "监督式神经网络判定：当前视频更可能是真实视频，生成概率 5.8%，真实概率 94.2%。",
+    "证据": [
+      {
+        "指标": "真实/生成监督分类器",
+        "指标得分": 94.17,
+        "方向": "偏向真实",
+        "说明": "校准温度=0.2500，分类 logit=-0.6957"
+      }
+    ],
+    "方法": "空间帧编码器 + 双向 GRU 时序编码 + 温度校准监督分类",
+    "说明": "模型使用真实视频和 WangXing_Seedance 假视频监督训练；概率已在分组留出验证集上做温度校准。",
+    "模型路径": "D:\\python\\Evaluator\\video_pred\\models\\real_fake_video_classifier.pt",
+    "真实数据目录": "E:\\python\\Evaluator\\video_pred\\MD_CL",
+    "假数据目录": "E:\\python\\Evaluator\\video_pred\\WangXing_Seedance",
+    "真实训练视频数": 612,
+    "假训练视频数": 85,
+    "真实验证视频数": 169,
+    "假验证视频数": 22,
+    "验证指标": {
+      "accuracy": 0.9895287958115183,
+      "balanced_accuracy": 0.9940828402366864,
+      "precision_fake": 0.9166666666666666,
+      "recall_fake": 1.0,
+      "f1": 0.9565217391304348,
+      "false_positive_rate_real": 0.011834319526627219,
+      "roc_auc": 1.0
+    },
+    "模型版本": "real-video-feature-v1",
+    "video_path": "D:\\python\\Evaluator\\input\\tt\\2026_05_18_15_48_19-040061620397-5.mp4",
+    "video_name": "2026_05_18_15_48_19-040061620397-5.mp4",
+    "status": "success"
+  },
+  {
+    "预测": "real",
+    "标签": "更可能是真实视频",
+    "生成概率": 0.0327,
+    "真实概率": 0.9673,
+    "证据强度": 0.964,
+    "结论": "监督式神经网络判定：当前视频更可能是真实视频，生成概率 3.3%，真实概率 96.7%。",
+    "证据": [
+      {
+        "指标": "真实/生成监督分类器",
+        "指标得分": 96.73,
+        "方向": "偏向真实",
+        "说明": "校准温度=0.2500，分类 logit=-0.8470"
+      }
+    ],
+    "方法": "空间帧编码器 + 双向 GRU 时序编码 + 温度校准监督分类",
+    "说明": "模型使用真实视频和 WangXing_Seedance 假视频监督训练；概率已在分组留出验证集上做温度校准。",
+    "模型路径": "D:\\python\\Evaluator\\video_pred\\models\\real_fake_video_classifier.pt",
+    "真实数据目录": "E:\\python\\Evaluator\\video_pred\\MD_CL",
+    "假数据目录": "E:\\python\\Evaluator\\video_pred\\WangXing_Seedance",
+    "真实训练视频数": 612,
+    "假训练视频数": 85,
+    "真实验证视频数": 169,
+    "假验证视频数": 22,
+    "验证指标": {
+      "accuracy": 0.9895287958115183,
+      "balanced_accuracy": 0.9940828402366864,
+      "precision_fake": 0.9166666666666666,
+      "recall_fake": 1.0,
+      "f1": 0.9565217391304348,
+      "false_positive_rate_real": 0.011834319526627219,
+      "roc_auc": 1.0
+    },
+    "模型版本": "real-video-feature-v1",
+    "video_path": "D:\\python\\Evaluator\\input\\tt\\2026_05_18_16_10_00-049011110008-1.mp4",
+    "video_name": "2026_05_18_16_10_00-049011110008-1.mp4",
+    "status": "success"
+  },
+  {
+    "预测": "real",
+    "标签": "更可能是真实视频",
+    "生成概率": 0.3125,
+    "真实概率": 0.6875,
+    "证据强度": 0.6562,
+    "结论": "监督式神经网络判定：当前视频更可能是真实视频，生成概率 31.2%，真实概率 68.8%。",
+    "证据": [
+      {
+        "指标": "真实/生成监督分类器",
+        "指标得分": 68.75,
+        "方向": "偏向真实",
+        "说明": "校准温度=0.2500，分类 logit=-0.1971"
+      }
+    ],
+    "方法": "空间帧编码器 + 双向 GRU 时序编码 + 温度校准监督分类",
+    "说明": "模型使用真实视频和 WangXing_Seedance 假视频监督训练；概率已在分组留出验证集上做温度校准。",
+    "模型路径": "D:\\python\\Evaluator\\video_pred\\models\\real_fake_video_classifier.pt",
+    "真实数据目录": "E:\\python\\Evaluator\\video_pred\\MD_CL",
+    "假数据目录": "E:\\python\\Evaluator\\video_pred\\WangXing_Seedance",
+    "真实训练视频数": 612,
+    "假训练视频数": 85,
+    "真实验证视频数": 169,
+    "假验证视频数": 22,
+    "验证指标": {
+      "accuracy": 0.9895287958115183,
+      "balanced_accuracy": 0.9940828402366864,
+      "precision_fake": 0.9166666666666666,
+      "recall_fake": 1.0,
+      "f1": 0.9565217391304348,
+      "false_positive_rate_real": 0.011834319526627219,
+      "roc_auc": 1.0
+    },
+    "模型版本": "real-video-feature-v1",
+    "video_path": "D:\\python\\Evaluator\\input\\tt\\2026_05_18_16_10_00-049090310173-1.mp4",
+    "video_name": "2026_05_18_16_10_00-049090310173-1.mp4",
+    "status": "success"
+  },
+  {
+    "预测": "real",
+    "标签": "更可能是真实视频",
+    "生成概率": 0.1703,
+    "真实概率": 0.8297,
+    "证据强度": 0.8127,
+    "结论": "监督式神经网络判定：当前视频更可能是真实视频，生成概率 17.0%，真实概率 83.0%。",
+    "证据": [
+      {
+        "指标": "真实/生成监督分类器",
+        "指标得分": 82.97,
+        "方向": "偏向真实",
+        "说明": "校准温度=0.2500，分类 logit=-0.3959"
+      }
+    ],
+    "方法": "空间帧编码器 + 双向 GRU 时序编码 + 温度校准监督分类",
+    "说明": "模型使用真实视频和 WangXing_Seedance 假视频监督训练；概率已在分组留出验证集上做温度校准。",
+    "模型路径": "D:\\python\\Evaluator\\video_pred\\models\\real_fake_video_classifier.pt",
+    "真实数据目录": "E:\\python\\Evaluator\\video_pred\\MD_CL",
+    "假数据目录": "E:\\python\\Evaluator\\video_pred\\WangXing_Seedance",
+    "真实训练视频数": 612,
+    "假训练视频数": 85,
+    "真实验证视频数": 169,
+    "假验证视频数": 22,
+    "验证指标": {
+      "accuracy": 0.9895287958115183,
+      "balanced_accuracy": 0.9940828402366864,
+      "precision_fake": 0.9166666666666666,
+      "recall_fake": 1.0,
+      "f1": 0.9565217391304348,
+      "false_positive_rate_real": 0.011834319526627219,
+      "roc_auc": 1.0
+    },
+    "模型版本": "real-video-feature-v1",
+    "video_path": "D:\\python\\Evaluator\\input\\tt\\2026_05_18_16_10_03-040061620397-1.mp4",
+    "video_name": "2026_05_18_16_10_03-040061620397-1.mp4",
+    "status": "success"
+  },
+  {
+    "预测": "real",
+    "标签": "更可能是真实视频",
+    "生成概率": 0.0255,
+    "真实概率": 0.9745,
+    "证据强度": 0.972,
+    "结论": "监督式神经网络判定：当前视频更可能是真实视频，生成概率 2.5%，真实概率 97.5%。",
+    "证据": [
+      {
+        "指标": "真实/生成监督分类器",
+        "指标得分": 97.45,
+        "方向": "偏向真实",
+        "说明": "校准温度=0.2500，分类 logit=-0.9106"
+      }
+    ],
+    "方法": "空间帧编码器 + 双向 GRU 时序编码 + 温度校准监督分类",
+    "说明": "模型使用真实视频和 WangXing_Seedance 假视频监督训练；概率已在分组留出验证集上做温度校准。",
+    "模型路径": "D:\\python\\Evaluator\\video_pred\\models\\real_fake_video_classifier.pt",
+    "真实数据目录": "E:\\python\\Evaluator\\video_pred\\MD_CL",
+    "假数据目录": "E:\\python\\Evaluator\\video_pred\\WangXing_Seedance",
+    "真实训练视频数": 612,
+    "假训练视频数": 85,
+    "真实验证视频数": 169,
+    "假验证视频数": 22,
+    "验证指标": {
+      "accuracy": 0.9895287958115183,
+      "balanced_accuracy": 0.9940828402366864,
+      "precision_fake": 0.9166666666666666,
+      "recall_fake": 1.0,
+      "f1": 0.9565217391304348,
+      "false_positive_rate_real": 0.011834319526627219,
+      "roc_auc": 1.0
+    },
+    "模型版本": "real-video-feature-v1",
+    "video_path": "D:\\python\\Evaluator\\input\\tt\\2026_05_18_16_10_03-040061620402-1.mp4",
+    "video_name": "2026_05_18_16_10_03-040061620402-1.mp4",
+    "status": "success"
+  },
+  {
+    "预测": "real",
+    "标签": "更可能是真实视频",
+    "生成概率": 0.068,
+    "真实概率": 0.932,
+    "证据强度": 0.9252,
+    "结论": "监督式神经网络判定：当前视频更可能是真实视频，生成概率 6.8%，真实概率 93.2%。",
+    "证据": [
+      {
+        "指标": "真实/生成监督分类器",
+        "指标得分": 93.2,
+        "方向": "偏向真实",
+        "说明": "校准温度=0.2500，分类 logit=-0.6546"
+      }
+    ],
+    "方法": "空间帧编码器 + 双向 GRU 时序编码 + 温度校准监督分类",
+    "说明": "模型使用真实视频和 WangXing_Seedance 假视频监督训练；概率已在分组留出验证集上做温度校准。",
+    "模型路径": "D:\\python\\Evaluator\\video_pred\\models\\real_fake_video_classifier.pt",
+    "真实数据目录": "E:\\python\\Evaluator\\video_pred\\MD_CL",
+    "假数据目录": "E:\\python\\Evaluator\\video_pred\\WangXing_Seedance",
+    "真实训练视频数": 612,
+    "假训练视频数": 85,
+    "真实验证视频数": 169,
+    "假验证视频数": 22,
+    "验证指标": {
+      "accuracy": 0.9895287958115183,
+      "balanced_accuracy": 0.9940828402366864,
+      "precision_fake": 0.9166666666666666,
+      "recall_fake": 1.0,
+      "f1": 0.9565217391304348,
+      "false_positive_rate_real": 0.011834319526627219,
+      "roc_auc": 1.0
+    },
+    "模型版本": "real-video-feature-v1",
+    "video_path": "D:\\python\\Evaluator\\input\\tt\\2026_05_18_16_10_03-040061620404-1.mp4",
+    "video_name": "2026_05_18_16_10_03-040061620404-1.mp4",
+    "status": "success"
+  },
+  {
+    "预测": "real",
+    "标签": "更可能是真实视频",
+    "生成概率": 0.3406,
+    "真实概率": 0.6594,
+    "证据强度": 0.6253,
+    "结论": "监督式神经网络判定：当前视频更可能是真实视频，生成概率 34.1%，真实概率 65.9%。",
+    "证据": [
+      {
+        "指标": "真实/生成监督分类器",
+        "指标得分": 65.94,
+        "方向": "偏向真实",
+        "说明": "校准温度=0.2500，分类 logit=-0.1652"
+      }
+    ],
+    "方法": "空间帧编码器 + 双向 GRU 时序编码 + 温度校准监督分类",
+    "说明": "模型使用真实视频和 WangXing_Seedance 假视频监督训练；概率已在分组留出验证集上做温度校准。",
+    "模型路径": "D:\\python\\Evaluator\\video_pred\\models\\real_fake_video_classifier.pt",
+    "真实数据目录": "E:\\python\\Evaluator\\video_pred\\MD_CL",
+    "假数据目录": "E:\\python\\Evaluator\\video_pred\\WangXing_Seedance",
+    "真实训练视频数": 612,
+    "假训练视频数": 85,
+    "真实验证视频数": 169,
+    "假验证视频数": 22,
+    "验证指标": {
+      "accuracy": 0.9895287958115183,
+      "balanced_accuracy": 0.9940828402366864,
+      "precision_fake": 0.9166666666666666,
+      "recall_fake": 1.0,
+      "f1": 0.9565217391304348,
+      "false_positive_rate_real": 0.011834319526627219,
+      "roc_auc": 1.0
+    },
+    "模型版本": "real-video-feature-v1",
+    "video_path": "D:\\python\\Evaluator\\input\\tt\\2026_05_18_16_25_56-040061620409-2.mp4",
+    "video_name": "2026_05_18_16_25_56-040061620409-2.mp4",
+    "status": "success"
+  },
+  {
+    "预测": "real",
+    "标签": "更可能是真实视频",
+    "生成概率": 0.0162,
+    "真实概率": 0.9838,
+    "证据强度": 0.9822,
+    "结论": "监督式神经网络判定：当前视频更可能是真实视频，生成概率 1.6%，真实概率 98.4%。",
+    "证据": [
+      {
+        "指标": "真实/生成监督分类器",
+        "指标得分": 98.38,
+        "方向": "偏向真实",
+        "说明": "校准温度=0.2500，分类 logit=-1.0272"
+      }
+    ],
+    "方法": "空间帧编码器 + 双向 GRU 时序编码 + 温度校准监督分类",
+    "说明": "模型使用真实视频和 WangXing_Seedance 假视频监督训练；概率已在分组留出验证集上做温度校准。",
+    "模型路径": "D:\\python\\Evaluator\\video_pred\\models\\real_fake_video_classifier.pt",
+    "真实数据目录": "E:\\python\\Evaluator\\video_pred\\MD_CL",
+    "假数据目录": "E:\\python\\Evaluator\\video_pred\\WangXing_Seedance",
+    "真实训练视频数": 612,
+    "假训练视频数": 85,
+    "真实验证视频数": 169,
+    "假验证视频数": 22,
+    "验证指标": {
+      "accuracy": 0.9895287958115183,
+      "balanced_accuracy": 0.9940828402366864,
+      "precision_fake": 0.9166666666666666,
+      "recall_fake": 1.0,
+      "f1": 0.9565217391304348,
+      "false_positive_rate_real": 0.011834319526627219,
+      "roc_auc": 1.0
+    },
+    "模型版本": "real-video-feature-v1",
+    "video_path": "D:\\python\\Evaluator\\input\\tt\\2026_05_18_16_25_56-048070810265-2.mp4",
+    "video_name": "2026_05_18_16_25_56-048070810265-2.mp4",
+    "status": "success"
+  },
+  {
+    "预测": "real",
+    "标签": "更可能是真实视频",
+    "生成概率": 0.0185,
+    "真实概率": 0.9815,
+    "证据强度": 0.9797,
+    "结论": "监督式神经网络判定：当前视频更可能是真实视频，生成概率 1.8%，真实概率 98.2%。",
+    "证据": [
+      {
+        "指标": "真实/生成监督分类器",
+        "指标得分": 98.15,
+        "方向": "偏向真实",
+        "说明": "校准温度=0.2500，分类 logit=-0.9931"
+      }
+    ],
+    "方法": "空间帧编码器 + 双向 GRU 时序编码 + 温度校准监督分类",
+    "说明": "模型使用真实视频和 WangXing_Seedance 假视频监督训练；概率已在分组留出验证集上做温度校准。",
+    "模型路径": "D:\\python\\Evaluator\\video_pred\\models\\real_fake_video_classifier.pt",
+    "真实数据目录": "E:\\python\\Evaluator\\video_pred\\MD_CL",
+    "假数据目录": "E:\\python\\Evaluator\\video_pred\\WangXing_Seedance",
+    "真实训练视频数": 612,
+    "假训练视频数": 85,
+    "真实验证视频数": 169,
+    "假验证视频数": 22,
+    "验证指标": {
+      "accuracy": 0.9895287958115183,
+      "balanced_accuracy": 0.9940828402366864,
+      "precision_fake": 0.9166666666666666,
+      "recall_fake": 1.0,
+      "f1": 0.9565217391304348,
+      "false_positive_rate_real": 0.011834319526627219,
+      "roc_auc": 1.0
+    },
+    "模型版本": "real-video-feature-v1",
+    "video_path": "D:\\python\\Evaluator\\input\\tt\\2026_05_18_16_25_56-049011110008-2.mp4",
+    "video_name": "2026_05_18_16_25_56-049011110008-2.mp4",
+    "status": "success"
+  },
+  {
+    "预测": "generated",
+    "标签": "更可能是生成视频",
+    "生成概率": 0.75,
+    "真实概率": 0.25,
+    "证据强度": 0.725,
+    "结论": "监督式神经网络判定：当前视频更可能是生成视频，生成概率 75.0%，真实概率 25.0%。",
+    "证据": [
+      {
+        "指标": "真实/生成监督分类器",
+        "指标得分": 25.0,
+        "方向": "偏向生成",
+        "说明": "校准温度=0.2500，分类 logit=0.2746"
+      }
+    ],
+    "方法": "空间帧编码器 + 双向 GRU 时序编码 + 温度校准监督分类",
+    "说明": "模型使用真实视频和 WangXing_Seedance 假视频监督训练；概率已在分组留出验证集上做温度校准。",
+    "模型路径": "D:\\python\\Evaluator\\video_pred\\models\\real_fake_video_classifier.pt",
+    "真实数据目录": "E:\\python\\Evaluator\\video_pred\\MD_CL",
+    "假数据目录": "E:\\python\\Evaluator\\video_pred\\WangXing_Seedance",
+    "真实训练视频数": 612,
+    "假训练视频数": 85,
+    "真实验证视频数": 169,
+    "假验证视频数": 22,
+    "验证指标": {
+      "accuracy": 0.9895287958115183,
+      "balanced_accuracy": 0.9940828402366864,
+      "precision_fake": 0.9166666666666666,
+      "recall_fake": 1.0,
+      "f1": 0.9565217391304348,
+      "false_positive_rate_real": 0.011834319526627219,
+      "roc_auc": 1.0
+    },
+    "模型版本": "real-video-feature-v1",
+    "video_path": "D:\\python\\Evaluator\\input\\tt\\2026_05_18_16_26_44-040061620398-3.mp4",
+    "video_name": "2026_05_18_16_26_44-040061620398-3.mp4",
+    "status": "success"
+  },
+  {
+    "预测": "real",
+    "标签": "更可能是真实视频",
+    "生成概率": 0.3472,
+    "真实概率": 0.6528,
+    "证据强度": 0.6181,
+    "结论": "监督式神经网络判定：当前视频更可能是真实视频，生成概率 34.7%，真实概率 65.3%。",
+    "证据": [
+      {
+        "指标": "真实/生成监督分类器",
+        "指标得分": 65.28,
+        "方向": "偏向真实",
+        "说明": "校准温度=0.2500，分类 logit=-0.1578"
+      }
+    ],
+    "方法": "空间帧编码器 + 双向 GRU 时序编码 + 温度校准监督分类",
+    "说明": "模型使用真实视频和 WangXing_Seedance 假视频监督训练；概率已在分组留出验证集上做温度校准。",
+    "模型路径": "D:\\python\\Evaluator\\video_pred\\models\\real_fake_video_classifier.pt",
+    "真实数据目录": "E:\\python\\Evaluator\\video_pred\\MD_CL",
+    "假数据目录": "E:\\python\\Evaluator\\video_pred\\WangXing_Seedance",
+    "真实训练视频数": 612,
+    "假训练视频数": 85,
+    "真实验证视频数": 169,
+    "假验证视频数": 22,
+    "验证指标": {
+      "accuracy": 0.9895287958115183,
+      "balanced_accuracy": 0.9940828402366864,
+      "precision_fake": 0.9166666666666666,
+      "recall_fake": 1.0,
+      "f1": 0.9565217391304348,
+      "false_positive_rate_real": 0.011834319526627219,
+      "roc_auc": 1.0
+    },
+    "模型版本": "real-video-feature-v1",
+    "video_path": "D:\\python\\Evaluator\\input\\tt\\2026_05_18_16_26_44-040061620409-3.mp4",
+    "video_name": "2026_05_18_16_26_44-040061620409-3.mp4",
+    "status": "success"
+  },
+  {
+    "预测": "real",
+    "标签": "更可能是真实视频",
+    "生成概率": 0.0129,
+    "真实概率": 0.9871,
+    "证据强度": 0.9858,
+    "结论": "监督式神经网络判定：当前视频更可能是真实视频，生成概率 1.3%，真实概率 98.7%。",
+    "证据": [
+      {
+        "指标": "真实/生成监督分类器",
+        "指标得分": 98.71,
+        "方向": "偏向真实",
+        "说明": "校准温度=0.2500，分类 logit=-1.0841"
+      }
+    ],
+    "方法": "空间帧编码器 + 双向 GRU 时序编码 + 温度校准监督分类",
+    "说明": "模型使用真实视频和 WangXing_Seedance 假视频监督训练；概率已在分组留出验证集上做温度校准。",
+    "模型路径": "D:\\python\\Evaluator\\video_pred\\models\\real_fake_video_classifier.pt",
+    "真实数据目录": "E:\\python\\Evaluator\\video_pred\\MD_CL",
+    "假数据目录": "E:\\python\\Evaluator\\video_pred\\WangXing_Seedance",
+    "真实训练视频数": 612,
+    "假训练视频数": 85,
+    "真实验证视频数": 169,
+    "假验证视频数": 22,
+    "验证指标": {
+      "accuracy": 0.9895287958115183,
+      "balanced_accuracy": 0.9940828402366864,
+      "precision_fake": 0.9166666666666666,
+      "recall_fake": 1.0,
+      "f1": 0.9565217391304348,
+      "false_positive_rate_real": 0.011834319526627219,
+      "roc_auc": 1.0
+    },
+    "模型版本": "real-video-feature-v1",
+    "video_path": "D:\\python\\Evaluator\\input\\tt\\2026_05_18_16_26_44-048070810265-3.mp4",
+    "video_name": "2026_05_18_16_26_44-048070810265-3.mp4",
+    "status": "success"
+  },
+  {
+    "预测": "real",
+    "标签": "更可能是真实视频",
+    "生成概率": 0.0196,
+    "真实概率": 0.9804,
+    "证据强度": 0.9784,
+    "结论": "监督式神经网络判定：当前视频更可能是真实视频，生成概率 2.0%，真实概率 98.0%。",
+    "证据": [
+      {
+        "指标": "真实/生成监督分类器",
+        "指标得分": 98.04,
+        "方向": "偏向真实",
+        "说明": "校准温度=0.2500，分类 logit=-0.9776"
+      }
+    ],
+    "方法": "空间帧编码器 + 双向 GRU 时序编码 + 温度校准监督分类",
+    "说明": "模型使用真实视频和 WangXing_Seedance 假视频监督训练；概率已在分组留出验证集上做温度校准。",
+    "模型路径": "D:\\python\\Evaluator\\video_pred\\models\\real_fake_video_classifier.pt",
+    "真实数据目录": "E:\\python\\Evaluator\\video_pred\\MD_CL",
+    "假数据目录": "E:\\python\\Evaluator\\video_pred\\WangXing_Seedance",
+    "真实训练视频数": 612,
+    "假训练视频数": 85,
+    "真实验证视频数": 169,
+    "假验证视频数": 22,
+    "验证指标": {
+      "accuracy": 0.9895287958115183,
+      "balanced_accuracy": 0.9940828402366864,
+      "precision_fake": 0.9166666666666666,
+      "recall_fake": 1.0,
+      "f1": 0.9565217391304348,
+      "false_positive_rate_real": 0.011834319526627219,
+      "roc_auc": 1.0
+    },
+    "模型版本": "real-video-feature-v1",
+    "video_path": "D:\\python\\Evaluator\\input\\tt\\2026_05_18_16_26_44-049011110008-3.mp4",
+    "video_name": "2026_05_18_16_26_44-049011110008-3.mp4",
+    "status": "success"
+  },
+  {
+    "预测": "real",
+    "标签": "更可能是真实视频",
+    "生成概率": 0.1471,
+    "真实概率": 0.8529,
+    "证据强度": 0.8382,
+    "结论": "监督式神经网络判定：当前视频更可能是真实视频，生成概率 14.7%，真实概率 85.3%。",
+    "证据": [
+      {
+        "指标": "真实/生成监督分类器",
+        "指标得分": 85.29,
+        "方向": "偏向真实",
+        "说明": "校准温度=0.2500，分类 logit=-0.4393"
+      }
+    ],
+    "方法": "空间帧编码器 + 双向 GRU 时序编码 + 温度校准监督分类",
+    "说明": "模型使用真实视频和 WangXing_Seedance 假视频监督训练；概率已在分组留出验证集上做温度校准。",
+    "模型路径": "D:\\python\\Evaluator\\video_pred\\models\\real_fake_video_classifier.pt",
+    "真实数据目录": "E:\\python\\Evaluator\\video_pred\\MD_CL",
+    "假数据目录": "E:\\python\\Evaluator\\video_pred\\WangXing_Seedance",
+    "真实训练视频数": 612,
+    "假训练视频数": 85,
+    "真实验证视频数": 169,
+    "假验证视频数": 22,
+    "验证指标": {
+      "accuracy": 0.9895287958115183,
+      "balanced_accuracy": 0.9940828402366864,
+      "precision_fake": 0.9166666666666666,
+      "recall_fake": 1.0,
+      "f1": 0.9565217391304348,
+      "false_positive_rate_real": 0.011834319526627219,
+      "roc_auc": 1.0
+    },
+    "模型版本": "real-video-feature-v1",
+    "video_path": "D:\\python\\Evaluator\\input\\tt\\2026_05_18_16_26_44-049090310173-3.mp4",
+    "video_name": "2026_05_18_16_26_44-049090310173-3.mp4",
+    "status": "success"
+  },
+  {
+    "预测": "generated",
+    "标签": "更可能是生成视频",
+    "生成概率": 0.7637,
+    "真实概率": 0.2363,
+    "证据强度": 0.7401,
+    "结论": "监督式神经网络判定：当前视频更可能是生成视频，生成概率 76.4%，真实概率 23.6%。",
+    "证据": [
+      {
+        "指标": "真实/生成监督分类器",
+        "指标得分": 23.63,
+        "方向": "偏向生成",
+        "说明": "校准温度=0.2500，分类 logit=0.2933"
+      }
+    ],
+    "方法": "空间帧编码器 + 双向 GRU 时序编码 + 温度校准监督分类",
+    "说明": "模型使用真实视频和 WangXing_Seedance 假视频监督训练；概率已在分组留出验证集上做温度校准。",
+    "模型路径": "D:\\python\\Evaluator\\video_pred\\models\\real_fake_video_classifier.pt",
+    "真实数据目录": "E:\\python\\Evaluator\\video_pred\\MD_CL",
+    "假数据目录": "E:\\python\\Evaluator\\video_pred\\WangXing_Seedance",
+    "真实训练视频数": 612,
+    "假训练视频数": 85,
+    "真实验证视频数": 169,
+    "假验证视频数": 22,
+    "验证指标": {
+      "accuracy": 0.9895287958115183,
+      "balanced_accuracy": 0.9940828402366864,
+      "precision_fake": 0.9166666666666666,
+      "recall_fake": 1.0,
+      "f1": 0.9565217391304348,
+      "false_positive_rate_real": 0.011834319526627219,
+      "roc_auc": 1.0
+    },
+    "模型版本": "real-video-feature-v1",
+    "video_path": "D:\\python\\Evaluator\\input\\tt\\2026_05_18_16_27_27-040061620398-4.mp4",
+    "video_name": "2026_05_18_16_27_27-040061620398-4.mp4",
+    "status": "success"
+  },
+  {
+    "预测": "real",
+    "标签": "更可能是真实视频",
+    "生成概率": 0.283,
+    "真实概率": 0.717,
+    "证据强度": 0.6887,
+    "结论": "监督式神经网络判定：当前视频更可能是真实视频，生成概率 28.3%，真实概率 71.7%。",
+    "证据": [
+      {
+        "指标": "真实/生成监督分类器",
+        "指标得分": 71.7,
+        "方向": "偏向真实",
+        "说明": "校准温度=0.2500，分类 logit=-0.2324"
+      }
+    ],
+    "方法": "空间帧编码器 + 双向 GRU 时序编码 + 温度校准监督分类",
+    "说明": "模型使用真实视频和 WangXing_Seedance 假视频监督训练；概率已在分组留出验证集上做温度校准。",
+    "模型路径": "D:\\python\\Evaluator\\video_pred\\models\\real_fake_video_classifier.pt",
+    "真实数据目录": "E:\\python\\Evaluator\\video_pred\\MD_CL",
+    "假数据目录": "E:\\python\\Evaluator\\video_pred\\WangXing_Seedance",
+    "真实训练视频数": 612,
+    "假训练视频数": 85,
+    "真实验证视频数": 169,
+    "假验证视频数": 22,
+    "验证指标": {
+      "accuracy": 0.9895287958115183,
+      "balanced_accuracy": 0.9940828402366864,
+      "precision_fake": 0.9166666666666666,
+      "recall_fake": 1.0,
+      "f1": 0.9565217391304348,
+      "false_positive_rate_real": 0.011834319526627219,
+      "roc_auc": 1.0
+    },
+    "模型版本": "real-video-feature-v1",
+    "video_path": "D:\\python\\Evaluator\\input\\tt\\2026_05_18_16_27_27-040061620409-4.mp4",
+    "video_name": "2026_05_18_16_27_27-040061620409-4.mp4",
+    "status": "success"
+  },
+  {
+    "预测": "real",
+    "标签": "更可能是真实视频",
+    "生成概率": 0.0157,
+    "真实概率": 0.9843,
+    "证据强度": 0.9827,
+    "结论": "监督式神经网络判定：当前视频更可能是真实视频，生成概率 1.6%，真实概率 98.4%。",
+    "证据": [
+      {
+        "指标": "真实/生成监督分类器",
+        "指标得分": 98.43,
+        "方向": "偏向真实",
+        "说明": "校准温度=0.2500，分类 logit=-1.0352"
+      }
+    ],
+    "方法": "空间帧编码器 + 双向 GRU 时序编码 + 温度校准监督分类",
+    "说明": "模型使用真实视频和 WangXing_Seedance 假视频监督训练；概率已在分组留出验证集上做温度校准。",
+    "模型路径": "D:\\python\\Evaluator\\video_pred\\models\\real_fake_video_classifier.pt",
+    "真实数据目录": "E:\\python\\Evaluator\\video_pred\\MD_CL",
+    "假数据目录": "E:\\python\\Evaluator\\video_pred\\WangXing_Seedance",
+    "真实训练视频数": 612,
+    "假训练视频数": 85,
+    "真实验证视频数": 169,
+    "假验证视频数": 22,
+    "验证指标": {
+      "accuracy": 0.9895287958115183,
+      "balanced_accuracy": 0.9940828402366864,
+      "precision_fake": 0.9166666666666666,
+      "recall_fake": 1.0,
+      "f1": 0.9565217391304348,
+      "false_positive_rate_real": 0.011834319526627219,
+      "roc_auc": 1.0
+    },
+    "模型版本": "real-video-feature-v1",
+    "video_path": "D:\\python\\Evaluator\\input\\tt\\2026_05_18_16_27_27-048070810265-4.mp4",
+    "video_name": "2026_05_18_16_27_27-048070810265-4.mp4",
+    "status": "success"
+  },
+  {
+    "预测": "real",
+    "标签": "更可能是真实视频",
+    "生成概率": 0.0262,
+    "真实概率": 0.9738,
+    "证据强度": 0.9712,
+    "结论": "监督式神经网络判定：当前视频更可能是真实视频，生成概率 2.6%，真实概率 97.4%。",
+    "证据": [
+      {
+        "指标": "真实/生成监督分类器",
+        "指标得分": 97.38,
+        "方向": "偏向真实",
+        "说明": "校准温度=0.2500，分类 logit=-0.9036"
+      }
+    ],
+    "方法": "空间帧编码器 + 双向 GRU 时序编码 + 温度校准监督分类",
+    "说明": "模型使用真实视频和 WangXing_Seedance 假视频监督训练；概率已在分组留出验证集上做温度校准。",
+    "模型路径": "D:\\python\\Evaluator\\video_pred\\models\\real_fake_video_classifier.pt",
+    "真实数据目录": "E:\\python\\Evaluator\\video_pred\\MD_CL",
+    "假数据目录": "E:\\python\\Evaluator\\video_pred\\WangXing_Seedance",
+    "真实训练视频数": 612,
+    "假训练视频数": 85,
+    "真实验证视频数": 169,
+    "假验证视频数": 22,
+    "验证指标": {
+      "accuracy": 0.9895287958115183,
+      "balanced_accuracy": 0.9940828402366864,
+      "precision_fake": 0.9166666666666666,
+      "recall_fake": 1.0,
+      "f1": 0.9565217391304348,
+      "false_positive_rate_real": 0.011834319526627219,
+      "roc_auc": 1.0
+    },
+    "模型版本": "real-video-feature-v1",
+    "video_path": "D:\\python\\Evaluator\\input\\tt\\2026_05_18_16_27_27-049011110008-4.mp4",
+    "video_name": "2026_05_18_16_27_27-049011110008-4.mp4",
+    "status": "success"
+  }
+]

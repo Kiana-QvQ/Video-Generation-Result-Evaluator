@@ -1,0 +1,1904 @@
+{
+  "face_expression_evaluation": {
+    "scope": "expression_prototype_fallback",
+    "placeholder": false,
+    "method": "expression_prototype_fallback",
+    "composite_score_0_1": 0.8810874820073078,
+    "composite_score_0_100": 88.10874820073079,
+    "dimensions": {
+      "profile_compatibility_0_1": {
+        "score_0_1": null,
+        "score_0_100": null
+      },
+      "muscle_action_evidence_0_1": {
+        "score_0_1": null,
+        "score_0_100": null
+      },
+      "action_coherence_0_1": {
+        "score_0_1": null,
+        "score_0_100": null
+      },
+      "active_ratio_0_1": {
+        "score_0_1": null,
+        "score_0_100": null
+      },
+      "landmark_coverage_0_1": {
+        "score_0_1": null,
+        "score_0_100": null
+      }
+    },
+    "metric_labels": {
+      "profile_compatibility_0_1": "动作原型匹配",
+      "muscle_action_evidence_0_1": "肌肉几何",
+      "action_coherence_0_1": "肌肉-皱纹同步",
+      "active_ratio_0_1": "有效帧覆盖",
+      "landmark_coverage_0_1": "关键点覆盖"
+    },
+    "profile_compatibility_0_1": 0.8986356083263198,
+    "muscle_action_evidence_0_1": 0.8986356083263198,
+    "action_coherence_0_1": 0.7259665680493512,
+    "active_ratio_0_1": 1.0,
+    "landmark_coverage_0_1": 1.0,
+    "frame_match_score": 0.8986356083263198,
+    "geometry_score": 0.8986356083263198,
+    "gaze_score": 0.8986356083263198,
+    "wrinkle_score": 0.8952762394212186,
+    "texture_score": 0.8952762394212186,
+    "motion_score": 0.7259665680493512,
+    "geometry_method": "expression_prototype_match",
+    "gaze_method": "expression_prototype_match",
+    "expression_dir": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\evaluator\\Expression",
+    "selected_profile": null,
+    "selected_profile_display_name": null,
+    "profile_result": {},
+    "reference_count": 116,
+    "valid_face_frames": 32,
+    "total_sampled_frames": 32,
+    "face_coverage": 1.0,
+    "reference_frame_count": 0,
+    "reference_image_count": 0,
+    "max_frames": 32,
+    "sample_fps": 24.0,
+    "video_path": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\evaluator\\uploads\\gen_ea3efdeb_ltx2.3icloraJieGuo.mp4",
+    "au_csv": null,
+    "expression_profile": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\evaluator\\modules\\assets\\profiles\\wangxing_expression_profile.json",
+    "profile_schema_version": "wangxing_expression_profile_v2",
+    "forensics": {
+      "schema_version": "video_forensics_report_v1",
+      "status": "calibrated",
+      "branches": {
+        "facial_motion": null,
+        "texture_detail": {
+          "status": "calibrated",
+          "probability_calibrated": false,
+          "backend": "aligned_texture_frequency_temporal_profile",
+          "schema_version": "texture_detail_forensics_v1",
+          "metrics": {
+            "real_domain_fit_0_1": 0.5925776564586096,
+            "seedance_domain_fit_0_1": 0.7646244738436802,
+            "profile_raw_real_domain_evidence_0_1": 0.43661709868273246,
+            "raw_real_domain_evidence_0_1": 0.5139124168432714,
+            "real_capture_likelihood_0_1": 0.5139124168432714,
+            "calibrated_real_probability_0_1": null,
+            "temporal_stability_proxy_0_1": 0.9908584923363261,
+            "texture_flicker_0_1": 0.01812960592008406,
+            "optical_flow_homogeneity_0_1": 0.7842785070350137,
+            "micro_temporal_naturalness_0_1": 0.8660355329079485,
+            "training_free_texture_prior_0_1": 0.8660355329079485,
+            "nr_vqa_score_0_1": 0.644830157440706
+          },
+          "feature_record": {
+            "schema_version": "texture_detail_forensics_v1",
+            "source": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\evaluator\\uploads\\gen_ea3efdeb_ltx2.3icloraJieGuo.mp4",
+            "frame_count": 32,
+            "timestamps": [
+              0.0,
+              0.1935483870967742,
+              0.3870967741935484,
+              0.5806451612903225,
+              0.7741935483870968,
+              0.967741935483871,
+              1.161290322580645,
+              1.3548387096774193,
+              1.5483870967741935,
+              1.7419354838709677,
+              1.935483870967742,
+              2.129032258064516,
+              2.32258064516129,
+              2.5161290322580645,
+              2.7096774193548385,
+              2.903225806451613,
+              3.096774193548387,
+              3.290322580645161,
+              3.4838709677419355,
+              3.6774193548387095,
+              3.870967741935484,
+              4.064516129032258,
+              4.258064516129032,
+              4.451612903225806,
+              4.64516129032258,
+              4.838709677419355,
+              5.032258064516129,
+              5.225806451612903,
+              5.419354838709677,
+              5.612903225806451,
+              5.806451612903226,
+              6.0
+            ],
+            "video_info": {
+              "path": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\evaluator\\uploads\\gen_ea3efdeb_ltx2.3icloraJieGuo.mp4",
+              "fps": 24.0,
+              "frame_count": 145,
+              "width": 2160,
+              "height": 3840,
+              "duration_seconds": 6.041666666666667
+            },
+            "features": {
+              "high_frequency_ratio_mean": 0.03895066271070391,
+              "high_frequency_ratio_std": 0.0021386548775803524,
+              "high_frequency_ratio_p95": 0.04202219247817993,
+              "laplacian_variance_mean": 346.7497100830078,
+              "laplacian_variance_std": 35.693128724103126,
+              "laplacian_variance_p95": 389.88152770996095,
+              "gradient_mean_mean": 0.14650464244186878,
+              "gradient_mean_std": 0.006393440989266066,
+              "gradient_mean_p95": 0.15355167761445046,
+              "gradient_std_mean": 0.26247204141691327,
+              "gradient_std_std": 0.012832383879857513,
+              "gradient_std_p95": 0.2821797549724579,
+              "intensity_entropy_mean": 3.886844240128994,
+              "intensity_entropy_std": 0.023693284553892736,
+              "intensity_entropy_p95": 3.9298144578933716,
+              "dct_high_frequency_ratio_mean": 0.7281890155869737,
+              "dct_high_frequency_ratio_std": 0.012954977904164233,
+              "dct_high_frequency_ratio_p95": 0.7458492030389775,
+              "region_skin_forehead_high_frequency_ratio_mean": 0.022346844896674156,
+              "region_skin_forehead_high_frequency_ratio_std": 0.001496339215625633,
+              "region_skin_forehead_high_frequency_ratio_p95": 0.02413262901827693,
+              "region_skin_forehead_laplacian_variance_mean": 111.23804998397827,
+              "region_skin_forehead_laplacian_variance_std": 20.68421423566755,
+              "region_skin_forehead_laplacian_variance_p95": 138.9440818786621,
+              "region_skin_forehead_gradient_mean_mean": 0.11145603307522833,
+              "region_skin_forehead_gradient_mean_std": 0.004990378122595345,
+              "region_skin_forehead_gradient_mean_p95": 0.11712296716868878,
+              "region_skin_forehead_gradient_std_mean": 0.10085190553218126,
+              "region_skin_forehead_gradient_std_std": 0.004462818074094426,
+              "region_skin_forehead_gradient_std_p95": 0.10555840618908405,
+              "region_skin_forehead_intensity_entropy_mean": 3.418226905167103,
+              "region_skin_forehead_intensity_entropy_std": 0.03148779600271735,
+              "region_skin_forehead_intensity_entropy_p95": 3.471065068244934,
+              "region_skin_forehead_dct_high_frequency_ratio_mean": 0.4272780135581512,
+              "region_skin_forehead_dct_high_frequency_ratio_std": 0.014576610610571606,
+              "region_skin_forehead_dct_high_frequency_ratio_p95": 0.44363220551961347,
+              "region_skin_left_cheek_high_frequency_ratio_mean": 0.04727207240648568,
+              "region_skin_left_cheek_high_frequency_ratio_std": 0.0023116348283204087,
+              "region_skin_left_cheek_high_frequency_ratio_p95": 0.05026972219347954,
+              "region_skin_left_cheek_laplacian_variance_mean": 560.8014860153198,
+              "region_skin_left_cheek_laplacian_variance_std": 39.056772558572185,
+              "region_skin_left_cheek_laplacian_variance_p95": 618.9816070556641,
+              "region_skin_left_cheek_gradient_mean_mean": 0.19735594792291522,
+              "region_skin_left_cheek_gradient_mean_std": 0.005652207068544355,
+              "region_skin_left_cheek_gradient_mean_p95": 0.20703396648168565,
+              "region_skin_left_cheek_gradient_std_mean": 0.33079478796571493,
+              "region_skin_left_cheek_gradient_std_std": 0.011532708928332233,
+              "region_skin_left_cheek_gradient_std_p95": 0.35489058345556257,
+              "region_skin_left_cheek_intensity_entropy_mean": 3.9752039685845375,
+              "region_skin_left_cheek_intensity_entropy_std": 0.018194728282895662,
+              "region_skin_left_cheek_intensity_entropy_p95": 3.997979533672333,
+              "region_skin_left_cheek_dct_high_frequency_ratio_mean": 0.6151617609871906,
+              "region_skin_left_cheek_dct_high_frequency_ratio_std": 0.008952924289193849,
+              "region_skin_left_cheek_dct_high_frequency_ratio_p95": 0.6289862754999969,
+              "region_skin_right_cheek_high_frequency_ratio_mean": 0.04146839876193553,
+              "region_skin_right_cheek_high_frequency_ratio_std": 0.002172881743745412,
+              "region_skin_right_cheek_high_frequency_ratio_p95": 0.04479538779705763,
+              "region_skin_right_cheek_laplacian_variance_mean": 506.457088470459,
+              "region_skin_right_cheek_laplacian_variance_std": 41.124267756152854,
+              "region_skin_right_cheek_laplacian_variance_p95": 557.8454742431641,
+              "region_skin_right_cheek_gradient_mean_mean": 0.18457407504320145,
+              "region_skin_right_cheek_gradient_mean_std": 0.009258422497102327,
+              "region_skin_right_cheek_gradient_mean_p95": 0.19848771542310714,
+              "region_skin_right_cheek_gradient_std_mean": 0.32148978114128113,
+              "region_skin_right_cheek_gradient_std_std": 0.01029336872992145,
+              "region_skin_right_cheek_gradient_std_p95": 0.3422976240515709,
+              "region_skin_right_cheek_intensity_entropy_mean": 3.808886334300041,
+              "region_skin_right_cheek_intensity_entropy_std": 0.04616916254088483,
+              "region_skin_right_cheek_intensity_entropy_p95": 3.8756083726882933,
+              "region_skin_right_cheek_dct_high_frequency_ratio_mean": 0.5955877778912362,
+              "region_skin_right_cheek_dct_high_frequency_ratio_std": 0.01175970260413259,
+              "region_skin_right_cheek_dct_high_frequency_ratio_p95": 0.6114374984103379,
+              "region_eyes_high_frequency_ratio_mean": 0.03316661453573033,
+              "region_eyes_high_frequency_ratio_std": 0.0022851568103364568,
+              "region_eyes_high_frequency_ratio_p95": 0.03651362638920545,
+              "region_eyes_laplacian_variance_mean": 264.25812101364136,
+              "region_eyes_laplacian_variance_std": 43.455460241079216,
+              "region_eyes_laplacian_variance_p95": 318.5416976928711,
+              "region_eyes_gradient_mean_mean": 0.16675015818327665,
+              "region_eyes_gradient_mean_std": 0.007323786019039568,
+              "region_eyes_gradient_mean_p95": 0.1802157148718834,
+              "region_eyes_gradient_std_mean": 0.17124349111691117,
+              "region_eyes_gradient_std_std": 0.012367946908592444,
+              "region_eyes_gradient_std_p95": 0.19082221686840056,
+              "region_eyes_intensity_entropy_mean": 3.609741650521755,
+              "region_eyes_intensity_entropy_std": 0.041578995849494794,
+              "region_eyes_intensity_entropy_p95": 3.6920328021049498,
+              "region_eyes_dct_high_frequency_ratio_mean": 0.608492671415054,
+              "region_eyes_dct_high_frequency_ratio_std": 0.017164121323924572,
+              "region_eyes_dct_high_frequency_ratio_p95": 0.6332631690869688,
+              "region_mouth_high_frequency_ratio_mean": 0.028006920125335455,
+              "region_mouth_high_frequency_ratio_std": 0.00526490708516982,
+              "region_mouth_high_frequency_ratio_p95": 0.034284147620201114,
+              "region_mouth_laplacian_variance_mean": 246.66131973266602,
+              "region_mouth_laplacian_variance_std": 87.38441101323846,
+              "region_mouth_laplacian_variance_p95": 345.400129699707,
+              "region_mouth_gradient_mean_mean": 0.15934667829424143,
+              "region_mouth_gradient_mean_std": 0.025062307453521938,
+              "region_mouth_gradient_mean_p95": 0.18917909041047096,
+              "region_mouth_gradient_std_mean": 0.237493347376585,
+              "region_mouth_gradient_std_std": 0.03773364165089558,
+              "region_mouth_gradient_std_p95": 0.2755232110619545,
+              "region_mouth_intensity_entropy_mean": 3.210220478475094,
+              "region_mouth_intensity_entropy_std": 0.15275859521844715,
+              "region_mouth_intensity_entropy_p95": 3.404585087299347,
+              "region_mouth_dct_high_frequency_ratio_mean": 0.6297940525020109,
+              "region_mouth_dct_high_frequency_ratio_std": 0.03384535389051292,
+              "region_mouth_dct_high_frequency_ratio_p95": 0.6657050053486543,
+              "temporal_warp_residual_mean": 0.009141507663673932,
+              "temporal_warp_residual_std": 0.0025093207938803644,
+              "temporal_raw_difference_mean": 0.02924663603546158,
+              "texture_flicker_mean": 0.001812960592008406,
+              "texture_flicker_std": 0.0011373440159365789,
+              "optical_flow_magnitude_mean": 1.9276886274737697,
+              "optical_flow_magnitude_std": 0.8232992780779068,
+              "optical_flow_second_order_mean": 0.0023242530257751542,
+              "optical_flow_second_order_std": 0.0019248431665310685,
+              "nr_vqa_score_0_1": 0.644830157440706,
+              "nr_vqa_backend_code": 0.0,
+              "nr_vqa_spatial_score_0_1": 0.46392889387810776,
+              "nr_vqa_temporal_score_0_1": 0.9399848506217874,
+              "nr_vqa_flicker_mean": 0.004899212273794754,
+              "nr_vqa_laplacian_variance_mean": 177.6255612373352,
+              "optical_flow_residual_cv": 0.2744974774622548,
+              "optical_flow_homogeneity_0_1": 0.7842785070350137,
+              "optical_flow_second_order_score_0_1": 0.9767574697422484,
+              "micro_temporal_naturalness_0_1": 0.8660355329079485,
+              "training_free_texture_prior_0_1": 0.8660355329079485,
+              "region_skin_forehead_flicker_mean": 0.0006553794467641462,
+              "region_skin_forehead_flicker_std": 0.0005304860312770122,
+              "region_skin_left_cheek_flicker_mean": 0.0011890798566802855,
+              "region_skin_left_cheek_flicker_std": 0.0010166964335923993,
+              "region_skin_right_cheek_flicker_mean": 0.0011153900094570653,
+              "region_skin_right_cheek_flicker_std": 0.0009106123490423507,
+              "region_eyes_flicker_mean": 0.0011566736765446202,
+              "region_eyes_flicker_std": 0.001033412892862151,
+              "region_mouth_flicker_mean": 0.0022349415286894766,
+              "region_mouth_flicker_std": 0.0025451973847123136,
+              "frame_count": 32.0,
+              "face_box_coverage": 1.0
+            },
+            "window_records": [
+              {
+                "window_index": 0,
+                "start_frame": 0,
+                "end_frame": 7,
+                "high_frequency_mean": 0.03966809483245015,
+                "texture_flicker_mean": 0.001218415264572416,
+                "evidence_score_0_1": 0.012184152645724162
+              },
+              {
+                "window_index": 1,
+                "start_frame": 8,
+                "end_frame": 15,
+                "high_frequency_mean": 0.040198168251663446,
+                "texture_flicker_mean": 0.00183767027088574,
+                "evidence_score_0_1": 0.0183767027088574
+              },
+              {
+                "window_index": 2,
+                "start_frame": 16,
+                "end_frame": 23,
+                "high_frequency_mean": 0.03941297624260187,
+                "texture_flicker_mean": 0.0022107293563229696,
+                "evidence_score_0_1": 0.022107293563229696
+              },
+              {
+                "window_index": 3,
+                "start_frame": 24,
+                "end_frame": 31,
+                "high_frequency_mean": 0.03652341151610017,
+                "texture_flicker_mean": 0.0019491852394172124,
+                "evidence_score_0_1": 0.019491852394172123
+              }
+            ],
+            "regions": [
+              "skin_forehead",
+              "skin_left_cheek",
+              "skin_right_cheek",
+              "eyes",
+              "mouth"
+            ],
+            "face_detection_backend": "opencv_haar",
+            "nr_vqa": {
+              "schema_version": "no_reference_vqa_v1",
+              "status": "available",
+              "backend": "builtin_nr_vqa",
+              "score_0_1": 0.644830157440706,
+              "features": {
+                "nr_vqa_score_0_1": 0.644830157440706,
+                "nr_vqa_backend_code": 0.0,
+                "nr_vqa_spatial_score_0_1": 0.46392889387810776,
+                "nr_vqa_temporal_score_0_1": 0.9399848506217874,
+                "nr_vqa_flicker_mean": 0.004899212273794754,
+                "nr_vqa_laplacian_variance_mean": 177.6255612373352
+              },
+              "attempts": [
+                {
+                  "backend": "builtin_nr_vqa",
+                  "status": "available"
+                }
+              ],
+              "vmaf_used": false,
+              "note": "Built-in no-reference spatial-temporal VQA proxy. Not VMAF (full-reference) and not a human MOS substitute."
+            },
+            "note": "These are quality and temporal-texture features plus optional no-reference VQA. A calibrated real-versus-Seedance profile is required for authenticity claims. VMAF is not used."
+          },
+          "warnings": [
+            "The two-domain score is raw profile evidence only; a held-out probability calibrator is required for an authenticity decision."
+          ]
+        }
+      },
+      "fusion": {
+        "real_capture_likelihood_0_1": 0.06601999456016996,
+        "raw_real_domain_evidence_0_1": 0.5139124168432714,
+        "branch_count": 1,
+        "profile_scored_branch_count": 1,
+        "calibrated_branch_count": 0,
+        "method": "confidence_weighted_calibrated_probability_fusion",
+        "warning": null
+      },
+      "scores": {
+        "facial_expression_muscle_score_0_1": null,
+        "texture_detail_score_0_1": 0.5139124168432714,
+        "real_capture_likelihood_0_1": 0.06601999456016996,
+        "raw_real_domain_evidence_0_1": 0.5139124168432714,
+        "calibrated_real_probability_0_1": 0.06601999456016996,
+        "ssl_au_score_0_1": null,
+        "nr_vqa_score_0_1": 0.644830157440706,
+        "pose_normalized_frame_ratio": null
+      },
+      "authenticity": {
+        "status": "calibrated",
+        "decision": "seedance_like",
+        "raw_evidence_direction": "mixed",
+        "raw_real_capture_likelihood_0_1": 0.5139124168432714,
+        "raw_real_domain_evidence_0_1": 0.5139124168432714,
+        "calibrated_real_probability_0_1": 0.06601999456016996,
+        "confidence_0_1": 0.7652732969375828,
+        "calibrator_applied": true,
+        "calibrator_status": "ready",
+        "branch_weights": {
+          "texture_detail": 1.0
+        },
+        "branch_scores": {
+          "texture_detail": 0.5139124168432714
+        },
+        "training_free_prior_0_1": 0.8660355329079484,
+        "uncertainty_reasons": []
+      },
+      "window_evidence": {
+        "facial_expression_muscle": [],
+        "texture_detail": [
+          {
+            "window_index": 2,
+            "start_frame": 16,
+            "end_frame": 23,
+            "high_frequency_mean": 0.03941297624260187,
+            "texture_flicker_mean": 0.0022107293563229696,
+            "evidence_score_0_1": 0.022107293563229696
+          },
+          {
+            "window_index": 3,
+            "start_frame": 24,
+            "end_frame": 31,
+            "high_frequency_mean": 0.03652341151610017,
+            "texture_flicker_mean": 0.0019491852394172124,
+            "evidence_score_0_1": 0.019491852394172123
+          },
+          {
+            "window_index": 1,
+            "start_frame": 8,
+            "end_frame": 15,
+            "high_frequency_mean": 0.040198168251663446,
+            "texture_flicker_mean": 0.00183767027088574,
+            "evidence_score_0_1": 0.0183767027088574
+          },
+          {
+            "window_index": 0,
+            "start_frame": 0,
+            "end_frame": 7,
+            "high_frequency_mean": 0.03966809483245015,
+            "texture_flicker_mean": 0.001218415264572416,
+            "evidence_score_0_1": 0.012184152645724162
+          }
+        ]
+      },
+      "window_summaries": {
+        "facial_expression_muscle": {
+          "summary": {
+            "window_count": 0,
+            "mean_evidence_score_0_1": null,
+            "worst_evidence_score_0_1": null,
+            "aggregate_evidence_score_0_1": null,
+            "worst_window": null
+          },
+          "semantics": "Motion activity coverage and peaks; not an artifact probability."
+        },
+        "texture_detail": {
+          "summary": {
+            "window_count": 4,
+            "mean_evidence_score_0_1": 0.018039999529719353,
+            "worst_evidence_score_0_1": 0.02210729382932186,
+            "aggregate_evidence_score_0_1": 0.020073646679520607,
+            "worst_window": {
+              "window_index": 2,
+              "start_frame": 16,
+              "end_frame": 23,
+              "high_frequency_mean": 0.03941297624260187,
+              "texture_flicker_mean": 0.0022107293563229696,
+              "evidence_score_0_1": 0.022107293563229696
+            }
+          },
+          "semantics": "Texture flicker evidence; higher values indicate windows requiring review."
+        }
+      },
+      "score_semantics": {
+        "facial_expression_muscle_score_0_1": "Raw real-versus-Seedance facial-motion profile evidence. It is not a probability and is not an ordinary expression correctness score.",
+        "texture_detail_score_0_1": "Raw real-versus-Seedance texture profile evidence. It is not a probability and is not a generic image-quality score.",
+        "real_capture_likelihood_0_1": "Held-out calibrated real-capture probability; null until a ready probability calibrator is supplied.",
+        "not_expression_correctness": true,
+        "not_generic_image_quality": true
+      }
+    },
+    "warning": "未提供 AU CSV，已回退到 Expression 动作原型匹配；完整王兴 AU 专项仍建议提供旁路 AU 表。",
+    "reference_used": true,
+    "reference_note": "Scored against local Expression prototypes because AU CSV was unavailable.",
+    "score": 0.8810874820073078,
+    "tail_20_percent_score": 0.8810874820073078,
+    "match_consistency_score": 0.7259665680493512,
+    "motion_details": {
+      "profile_compatibility_0_1": {
+        "score_0_1": null,
+        "score_0_100": null
+      },
+      "muscle_action_evidence_0_1": {
+        "score_0_1": null,
+        "score_0_100": null
+      },
+      "action_coherence_0_1": {
+        "score_0_1": null,
+        "score_0_100": null
+      },
+      "active_ratio_0_1": {
+        "score_0_1": null,
+        "score_0_100": null
+      },
+      "landmark_coverage_0_1": {
+        "score_0_1": null,
+        "score_0_100": null
+      }
+    },
+    "action_scores": [],
+    "low_reference_actions": [],
+    "group_scores": {},
+    "top_frame_matches": [],
+    "semantic_qa_suggestions": [],
+    "evidence": [
+      {
+        "label": "画像符合度",
+        "value": "89.9%"
+      },
+      {
+        "label": "肌肉动作证据",
+        "value": "89.9%"
+      },
+      {
+        "label": "动作连贯",
+        "value": "72.6%"
+      },
+      {
+        "label": "关键点覆盖",
+        "value": "100.0%"
+      }
+    ]
+  },
+  "视频真伪判断": {
+    "预测": "uncertain",
+    "标签": "真伪模型不可用",
+    "生成概率": null,
+    "真实概率": null,
+    "证据强度": 0.0,
+    "结论": "当前视频无法完成真实/生成概率判断。",
+    "证据": [],
+    "方法": "video_pred/predict_real_video.py",
+    "说明": "ModuleNotFoundError: No module named 'video_pred'",
+    "模型状态": "不可用",
+    "人脸表情与肌肉运动": {
+      "项目": "人脸表情与肌肉运动",
+      "分数": 88.11,
+      "权重": 15.0,
+      "状态": "partial",
+      "分析": {
+        "结论": "本项得分为 88.11 分，整体表现较好。",
+        "好在哪里": [
+          "眉眼、嘴部和下颌的肌肉形变与 Expression 动作原型较一致。",
+          "眼神/虹膜位置变化与参考表情较一致。",
+          "眼周、脸颊、嘴周和下颌的局部皱纹/高频纹理保留较好。"
+        ],
+        "不好在哪里": [
+          "本项未发现明确的低分证据。"
+        ],
+        "可能影响": [
+          "人脸表情和肌肉纹理失真会直接降低人物真实感、眼神可信度和表演连续性。"
+        ],
+        "后续改进方向": [
+          "保持当前表现，继续抽查开头、中段和结尾的质量一致性。"
+        ]
+      }
+    },
+    "人脸专项：表情、眼神与肌肉皱纹": {
+      "scope": "expression_prototype_fallback",
+      "placeholder": false,
+      "method": "expression_prototype_fallback",
+      "composite_score_0_1": 0.8810874820073078,
+      "composite_score_0_100": 88.10874820073079,
+      "dimensions": {
+        "profile_compatibility_0_1": {
+          "score_0_1": null,
+          "score_0_100": null
+        },
+        "muscle_action_evidence_0_1": {
+          "score_0_1": null,
+          "score_0_100": null
+        },
+        "action_coherence_0_1": {
+          "score_0_1": null,
+          "score_0_100": null
+        },
+        "active_ratio_0_1": {
+          "score_0_1": null,
+          "score_0_100": null
+        },
+        "landmark_coverage_0_1": {
+          "score_0_1": null,
+          "score_0_100": null
+        }
+      },
+      "metric_labels": {
+        "profile_compatibility_0_1": "动作原型匹配",
+        "muscle_action_evidence_0_1": "肌肉几何",
+        "action_coherence_0_1": "肌肉-皱纹同步",
+        "active_ratio_0_1": "有效帧覆盖",
+        "landmark_coverage_0_1": "关键点覆盖"
+      },
+      "profile_compatibility_0_1": 0.8986356083263198,
+      "muscle_action_evidence_0_1": 0.8986356083263198,
+      "action_coherence_0_1": 0.7259665680493512,
+      "active_ratio_0_1": 1.0,
+      "landmark_coverage_0_1": 1.0,
+      "frame_match_score": 0.8986356083263198,
+      "geometry_score": 0.8986356083263198,
+      "gaze_score": 0.8986356083263198,
+      "wrinkle_score": 0.8952762394212186,
+      "texture_score": 0.8952762394212186,
+      "motion_score": 0.7259665680493512,
+      "geometry_method": "expression_prototype_match",
+      "gaze_method": "expression_prototype_match",
+      "expression_dir": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\evaluator\\Expression",
+      "selected_profile": null,
+      "selected_profile_display_name": null,
+      "profile_result": {},
+      "reference_count": 116,
+      "valid_face_frames": 32,
+      "total_sampled_frames": 32,
+      "face_coverage": 1.0,
+      "reference_frame_count": 0,
+      "reference_image_count": 0,
+      "max_frames": 32,
+      "sample_fps": 24.0,
+      "video_path": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\evaluator\\uploads\\gen_ea3efdeb_ltx2.3icloraJieGuo.mp4",
+      "au_csv": null,
+      "expression_profile": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\evaluator\\modules\\assets\\profiles\\wangxing_expression_profile.json",
+      "profile_schema_version": "wangxing_expression_profile_v2",
+      "forensics": {
+        "schema_version": "video_forensics_report_v1",
+        "status": "calibrated",
+        "branches": {
+          "facial_motion": null,
+          "texture_detail": {
+            "status": "calibrated",
+            "probability_calibrated": false,
+            "backend": "aligned_texture_frequency_temporal_profile",
+            "schema_version": "texture_detail_forensics_v1",
+            "metrics": {
+              "real_domain_fit_0_1": 0.5925776564586096,
+              "seedance_domain_fit_0_1": 0.7646244738436802,
+              "profile_raw_real_domain_evidence_0_1": 0.43661709868273246,
+              "raw_real_domain_evidence_0_1": 0.5139124168432714,
+              "real_capture_likelihood_0_1": 0.5139124168432714,
+              "calibrated_real_probability_0_1": null,
+              "temporal_stability_proxy_0_1": 0.9908584923363261,
+              "texture_flicker_0_1": 0.01812960592008406,
+              "optical_flow_homogeneity_0_1": 0.7842785070350137,
+              "micro_temporal_naturalness_0_1": 0.8660355329079485,
+              "training_free_texture_prior_0_1": 0.8660355329079485,
+              "nr_vqa_score_0_1": 0.644830157440706
+            },
+            "feature_record": {
+              "schema_version": "texture_detail_forensics_v1",
+              "source": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\evaluator\\uploads\\gen_ea3efdeb_ltx2.3icloraJieGuo.mp4",
+              "frame_count": 32,
+              "timestamps": [
+                0.0,
+                0.1935483870967742,
+                0.3870967741935484,
+                0.5806451612903225,
+                0.7741935483870968,
+                0.967741935483871,
+                1.161290322580645,
+                1.3548387096774193,
+                1.5483870967741935,
+                1.7419354838709677,
+                1.935483870967742,
+                2.129032258064516,
+                2.32258064516129,
+                2.5161290322580645,
+                2.7096774193548385,
+                2.903225806451613,
+                3.096774193548387,
+                3.290322580645161,
+                3.4838709677419355,
+                3.6774193548387095,
+                3.870967741935484,
+                4.064516129032258,
+                4.258064516129032,
+                4.451612903225806,
+                4.64516129032258,
+                4.838709677419355,
+                5.032258064516129,
+                5.225806451612903,
+                5.419354838709677,
+                5.612903225806451,
+                5.806451612903226,
+                6.0
+              ],
+              "video_info": {
+                "path": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\evaluator\\uploads\\gen_ea3efdeb_ltx2.3icloraJieGuo.mp4",
+                "fps": 24.0,
+                "frame_count": 145,
+                "width": 2160,
+                "height": 3840,
+                "duration_seconds": 6.041666666666667
+              },
+              "features": {
+                "high_frequency_ratio_mean": 0.03895066271070391,
+                "high_frequency_ratio_std": 0.0021386548775803524,
+                "high_frequency_ratio_p95": 0.04202219247817993,
+                "laplacian_variance_mean": 346.7497100830078,
+                "laplacian_variance_std": 35.693128724103126,
+                "laplacian_variance_p95": 389.88152770996095,
+                "gradient_mean_mean": 0.14650464244186878,
+                "gradient_mean_std": 0.006393440989266066,
+                "gradient_mean_p95": 0.15355167761445046,
+                "gradient_std_mean": 0.26247204141691327,
+                "gradient_std_std": 0.012832383879857513,
+                "gradient_std_p95": 0.2821797549724579,
+                "intensity_entropy_mean": 3.886844240128994,
+                "intensity_entropy_std": 0.023693284553892736,
+                "intensity_entropy_p95": 3.9298144578933716,
+                "dct_high_frequency_ratio_mean": 0.7281890155869737,
+                "dct_high_frequency_ratio_std": 0.012954977904164233,
+                "dct_high_frequency_ratio_p95": 0.7458492030389775,
+                "region_skin_forehead_high_frequency_ratio_mean": 0.022346844896674156,
+                "region_skin_forehead_high_frequency_ratio_std": 0.001496339215625633,
+                "region_skin_forehead_high_frequency_ratio_p95": 0.02413262901827693,
+                "region_skin_forehead_laplacian_variance_mean": 111.23804998397827,
+                "region_skin_forehead_laplacian_variance_std": 20.68421423566755,
+                "region_skin_forehead_laplacian_variance_p95": 138.9440818786621,
+                "region_skin_forehead_gradient_mean_mean": 0.11145603307522833,
+                "region_skin_forehead_gradient_mean_std": 0.004990378122595345,
+                "region_skin_forehead_gradient_mean_p95": 0.11712296716868878,
+                "region_skin_forehead_gradient_std_mean": 0.10085190553218126,
+                "region_skin_forehead_gradient_std_std": 0.004462818074094426,
+                "region_skin_forehead_gradient_std_p95": 0.10555840618908405,
+                "region_skin_forehead_intensity_entropy_mean": 3.418226905167103,
+                "region_skin_forehead_intensity_entropy_std": 0.03148779600271735,
+                "region_skin_forehead_intensity_entropy_p95": 3.471065068244934,
+                "region_skin_forehead_dct_high_frequency_ratio_mean": 0.4272780135581512,
+                "region_skin_forehead_dct_high_frequency_ratio_std": 0.014576610610571606,
+                "region_skin_forehead_dct_high_frequency_ratio_p95": 0.44363220551961347,
+                "region_skin_left_cheek_high_frequency_ratio_mean": 0.04727207240648568,
+                "region_skin_left_cheek_high_frequency_ratio_std": 0.0023116348283204087,
+                "region_skin_left_cheek_high_frequency_ratio_p95": 0.05026972219347954,
+                "region_skin_left_cheek_laplacian_variance_mean": 560.8014860153198,
+                "region_skin_left_cheek_laplacian_variance_std": 39.056772558572185,
+                "region_skin_left_cheek_laplacian_variance_p95": 618.9816070556641,
+                "region_skin_left_cheek_gradient_mean_mean": 0.19735594792291522,
+                "region_skin_left_cheek_gradient_mean_std": 0.005652207068544355,
+                "region_skin_left_cheek_gradient_mean_p95": 0.20703396648168565,
+                "region_skin_left_cheek_gradient_std_mean": 0.33079478796571493,
+                "region_skin_left_cheek_gradient_std_std": 0.011532708928332233,
+                "region_skin_left_cheek_gradient_std_p95": 0.35489058345556257,
+                "region_skin_left_cheek_intensity_entropy_mean": 3.9752039685845375,
+                "region_skin_left_cheek_intensity_entropy_std": 0.018194728282895662,
+                "region_skin_left_cheek_intensity_entropy_p95": 3.997979533672333,
+                "region_skin_left_cheek_dct_high_frequency_ratio_mean": 0.6151617609871906,
+                "region_skin_left_cheek_dct_high_frequency_ratio_std": 0.008952924289193849,
+                "region_skin_left_cheek_dct_high_frequency_ratio_p95": 0.6289862754999969,
+                "region_skin_right_cheek_high_frequency_ratio_mean": 0.04146839876193553,
+                "region_skin_right_cheek_high_frequency_ratio_std": 0.002172881743745412,
+                "region_skin_right_cheek_high_frequency_ratio_p95": 0.04479538779705763,
+                "region_skin_right_cheek_laplacian_variance_mean": 506.457088470459,
+                "region_skin_right_cheek_laplacian_variance_std": 41.124267756152854,
+                "region_skin_right_cheek_laplacian_variance_p95": 557.8454742431641,
+                "region_skin_right_cheek_gradient_mean_mean": 0.18457407504320145,
+                "region_skin_right_cheek_gradient_mean_std": 0.009258422497102327,
+                "region_skin_right_cheek_gradient_mean_p95": 0.19848771542310714,
+                "region_skin_right_cheek_gradient_std_mean": 0.32148978114128113,
+                "region_skin_right_cheek_gradient_std_std": 0.01029336872992145,
+                "region_skin_right_cheek_gradient_std_p95": 0.3422976240515709,
+                "region_skin_right_cheek_intensity_entropy_mean": 3.808886334300041,
+                "region_skin_right_cheek_intensity_entropy_std": 0.04616916254088483,
+                "region_skin_right_cheek_intensity_entropy_p95": 3.8756083726882933,
+                "region_skin_right_cheek_dct_high_frequency_ratio_mean": 0.5955877778912362,
+                "region_skin_right_cheek_dct_high_frequency_ratio_std": 0.01175970260413259,
+                "region_skin_right_cheek_dct_high_frequency_ratio_p95": 0.6114374984103379,
+                "region_eyes_high_frequency_ratio_mean": 0.03316661453573033,
+                "region_eyes_high_frequency_ratio_std": 0.0022851568103364568,
+                "region_eyes_high_frequency_ratio_p95": 0.03651362638920545,
+                "region_eyes_laplacian_variance_mean": 264.25812101364136,
+                "region_eyes_laplacian_variance_std": 43.455460241079216,
+                "region_eyes_laplacian_variance_p95": 318.5416976928711,
+                "region_eyes_gradient_mean_mean": 0.16675015818327665,
+                "region_eyes_gradient_mean_std": 0.007323786019039568,
+                "region_eyes_gradient_mean_p95": 0.1802157148718834,
+                "region_eyes_gradient_std_mean": 0.17124349111691117,
+                "region_eyes_gradient_std_std": 0.012367946908592444,
+                "region_eyes_gradient_std_p95": 0.19082221686840056,
+                "region_eyes_intensity_entropy_mean": 3.609741650521755,
+                "region_eyes_intensity_entropy_std": 0.041578995849494794,
+                "region_eyes_intensity_entropy_p95": 3.6920328021049498,
+                "region_eyes_dct_high_frequency_ratio_mean": 0.608492671415054,
+                "region_eyes_dct_high_frequency_ratio_std": 0.017164121323924572,
+                "region_eyes_dct_high_frequency_ratio_p95": 0.6332631690869688,
+                "region_mouth_high_frequency_ratio_mean": 0.028006920125335455,
+                "region_mouth_high_frequency_ratio_std": 0.00526490708516982,
+                "region_mouth_high_frequency_ratio_p95": 0.034284147620201114,
+                "region_mouth_laplacian_variance_mean": 246.66131973266602,
+                "region_mouth_laplacian_variance_std": 87.38441101323846,
+                "region_mouth_laplacian_variance_p95": 345.400129699707,
+                "region_mouth_gradient_mean_mean": 0.15934667829424143,
+                "region_mouth_gradient_mean_std": 0.025062307453521938,
+                "region_mouth_gradient_mean_p95": 0.18917909041047096,
+                "region_mouth_gradient_std_mean": 0.237493347376585,
+                "region_mouth_gradient_std_std": 0.03773364165089558,
+                "region_mouth_gradient_std_p95": 0.2755232110619545,
+                "region_mouth_intensity_entropy_mean": 3.210220478475094,
+                "region_mouth_intensity_entropy_std": 0.15275859521844715,
+                "region_mouth_intensity_entropy_p95": 3.404585087299347,
+                "region_mouth_dct_high_frequency_ratio_mean": 0.6297940525020109,
+                "region_mouth_dct_high_frequency_ratio_std": 0.03384535389051292,
+                "region_mouth_dct_high_frequency_ratio_p95": 0.6657050053486543,
+                "temporal_warp_residual_mean": 0.009141507663673932,
+                "temporal_warp_residual_std": 0.0025093207938803644,
+                "temporal_raw_difference_mean": 0.02924663603546158,
+                "texture_flicker_mean": 0.001812960592008406,
+                "texture_flicker_std": 0.0011373440159365789,
+                "optical_flow_magnitude_mean": 1.9276886274737697,
+                "optical_flow_magnitude_std": 0.8232992780779068,
+                "optical_flow_second_order_mean": 0.0023242530257751542,
+                "optical_flow_second_order_std": 0.0019248431665310685,
+                "nr_vqa_score_0_1": 0.644830157440706,
+                "nr_vqa_backend_code": 0.0,
+                "nr_vqa_spatial_score_0_1": 0.46392889387810776,
+                "nr_vqa_temporal_score_0_1": 0.9399848506217874,
+                "nr_vqa_flicker_mean": 0.004899212273794754,
+                "nr_vqa_laplacian_variance_mean": 177.6255612373352,
+                "optical_flow_residual_cv": 0.2744974774622548,
+                "optical_flow_homogeneity_0_1": 0.7842785070350137,
+                "optical_flow_second_order_score_0_1": 0.9767574697422484,
+                "micro_temporal_naturalness_0_1": 0.8660355329079485,
+                "training_free_texture_prior_0_1": 0.8660355329079485,
+                "region_skin_forehead_flicker_mean": 0.0006553794467641462,
+                "region_skin_forehead_flicker_std": 0.0005304860312770122,
+                "region_skin_left_cheek_flicker_mean": 0.0011890798566802855,
+                "region_skin_left_cheek_flicker_std": 0.0010166964335923993,
+                "region_skin_right_cheek_flicker_mean": 0.0011153900094570653,
+                "region_skin_right_cheek_flicker_std": 0.0009106123490423507,
+                "region_eyes_flicker_mean": 0.0011566736765446202,
+                "region_eyes_flicker_std": 0.001033412892862151,
+                "region_mouth_flicker_mean": 0.0022349415286894766,
+                "region_mouth_flicker_std": 0.0025451973847123136,
+                "frame_count": 32.0,
+                "face_box_coverage": 1.0
+              },
+              "window_records": [
+                {
+                  "window_index": 0,
+                  "start_frame": 0,
+                  "end_frame": 7,
+                  "high_frequency_mean": 0.03966809483245015,
+                  "texture_flicker_mean": 0.001218415264572416,
+                  "evidence_score_0_1": 0.012184152645724162
+                },
+                {
+                  "window_index": 1,
+                  "start_frame": 8,
+                  "end_frame": 15,
+                  "high_frequency_mean": 0.040198168251663446,
+                  "texture_flicker_mean": 0.00183767027088574,
+                  "evidence_score_0_1": 0.0183767027088574
+                },
+                {
+                  "window_index": 2,
+                  "start_frame": 16,
+                  "end_frame": 23,
+                  "high_frequency_mean": 0.03941297624260187,
+                  "texture_flicker_mean": 0.0022107293563229696,
+                  "evidence_score_0_1": 0.022107293563229696
+                },
+                {
+                  "window_index": 3,
+                  "start_frame": 24,
+                  "end_frame": 31,
+                  "high_frequency_mean": 0.03652341151610017,
+                  "texture_flicker_mean": 0.0019491852394172124,
+                  "evidence_score_0_1": 0.019491852394172123
+                }
+              ],
+              "regions": [
+                "skin_forehead",
+                "skin_left_cheek",
+                "skin_right_cheek",
+                "eyes",
+                "mouth"
+              ],
+              "face_detection_backend": "opencv_haar",
+              "nr_vqa": {
+                "schema_version": "no_reference_vqa_v1",
+                "status": "available",
+                "backend": "builtin_nr_vqa",
+                "score_0_1": 0.644830157440706,
+                "features": {
+                  "nr_vqa_score_0_1": 0.644830157440706,
+                  "nr_vqa_backend_code": 0.0,
+                  "nr_vqa_spatial_score_0_1": 0.46392889387810776,
+                  "nr_vqa_temporal_score_0_1": 0.9399848506217874,
+                  "nr_vqa_flicker_mean": 0.004899212273794754,
+                  "nr_vqa_laplacian_variance_mean": 177.6255612373352
+                },
+                "attempts": [
+                  {
+                    "backend": "builtin_nr_vqa",
+                    "status": "available"
+                  }
+                ],
+                "vmaf_used": false,
+                "note": "Built-in no-reference spatial-temporal VQA proxy. Not VMAF (full-reference) and not a human MOS substitute."
+              },
+              "note": "These are quality and temporal-texture features plus optional no-reference VQA. A calibrated real-versus-Seedance profile is required for authenticity claims. VMAF is not used."
+            },
+            "warnings": [
+              "The two-domain score is raw profile evidence only; a held-out probability calibrator is required for an authenticity decision."
+            ]
+          }
+        },
+        "fusion": {
+          "real_capture_likelihood_0_1": 0.06601999456016996,
+          "raw_real_domain_evidence_0_1": 0.5139124168432714,
+          "branch_count": 1,
+          "profile_scored_branch_count": 1,
+          "calibrated_branch_count": 0,
+          "method": "confidence_weighted_calibrated_probability_fusion",
+          "warning": null
+        },
+        "scores": {
+          "facial_expression_muscle_score_0_1": null,
+          "texture_detail_score_0_1": 0.5139124168432714,
+          "real_capture_likelihood_0_1": 0.06601999456016996,
+          "raw_real_domain_evidence_0_1": 0.5139124168432714,
+          "calibrated_real_probability_0_1": 0.06601999456016996,
+          "ssl_au_score_0_1": null,
+          "nr_vqa_score_0_1": 0.644830157440706,
+          "pose_normalized_frame_ratio": null
+        },
+        "authenticity": {
+          "status": "calibrated",
+          "decision": "seedance_like",
+          "raw_evidence_direction": "mixed",
+          "raw_real_capture_likelihood_0_1": 0.5139124168432714,
+          "raw_real_domain_evidence_0_1": 0.5139124168432714,
+          "calibrated_real_probability_0_1": 0.06601999456016996,
+          "confidence_0_1": 0.7652732969375828,
+          "calibrator_applied": true,
+          "calibrator_status": "ready",
+          "branch_weights": {
+            "texture_detail": 1.0
+          },
+          "branch_scores": {
+            "texture_detail": 0.5139124168432714
+          },
+          "training_free_prior_0_1": 0.8660355329079484,
+          "uncertainty_reasons": []
+        },
+        "window_evidence": {
+          "facial_expression_muscle": [],
+          "texture_detail": [
+            {
+              "window_index": 2,
+              "start_frame": 16,
+              "end_frame": 23,
+              "high_frequency_mean": 0.03941297624260187,
+              "texture_flicker_mean": 0.0022107293563229696,
+              "evidence_score_0_1": 0.022107293563229696
+            },
+            {
+              "window_index": 3,
+              "start_frame": 24,
+              "end_frame": 31,
+              "high_frequency_mean": 0.03652341151610017,
+              "texture_flicker_mean": 0.0019491852394172124,
+              "evidence_score_0_1": 0.019491852394172123
+            },
+            {
+              "window_index": 1,
+              "start_frame": 8,
+              "end_frame": 15,
+              "high_frequency_mean": 0.040198168251663446,
+              "texture_flicker_mean": 0.00183767027088574,
+              "evidence_score_0_1": 0.0183767027088574
+            },
+            {
+              "window_index": 0,
+              "start_frame": 0,
+              "end_frame": 7,
+              "high_frequency_mean": 0.03966809483245015,
+              "texture_flicker_mean": 0.001218415264572416,
+              "evidence_score_0_1": 0.012184152645724162
+            }
+          ]
+        },
+        "window_summaries": {
+          "facial_expression_muscle": {
+            "summary": {
+              "window_count": 0,
+              "mean_evidence_score_0_1": null,
+              "worst_evidence_score_0_1": null,
+              "aggregate_evidence_score_0_1": null,
+              "worst_window": null
+            },
+            "semantics": "Motion activity coverage and peaks; not an artifact probability."
+          },
+          "texture_detail": {
+            "summary": {
+              "window_count": 4,
+              "mean_evidence_score_0_1": 0.018039999529719353,
+              "worst_evidence_score_0_1": 0.02210729382932186,
+              "aggregate_evidence_score_0_1": 0.020073646679520607,
+              "worst_window": {
+                "window_index": 2,
+                "start_frame": 16,
+                "end_frame": 23,
+                "high_frequency_mean": 0.03941297624260187,
+                "texture_flicker_mean": 0.0022107293563229696,
+                "evidence_score_0_1": 0.022107293563229696
+              }
+            },
+            "semantics": "Texture flicker evidence; higher values indicate windows requiring review."
+          }
+        },
+        "score_semantics": {
+          "facial_expression_muscle_score_0_1": "Raw real-versus-Seedance facial-motion profile evidence. It is not a probability and is not an ordinary expression correctness score.",
+          "texture_detail_score_0_1": "Raw real-versus-Seedance texture profile evidence. It is not a probability and is not a generic image-quality score.",
+          "real_capture_likelihood_0_1": "Held-out calibrated real-capture probability; null until a ready probability calibrator is supplied.",
+          "not_expression_correctness": true,
+          "not_generic_image_quality": true
+        }
+      },
+      "warning": "未提供 AU CSV，已回退到 Expression 动作原型匹配；完整王兴 AU 专项仍建议提供旁路 AU 表。",
+      "reference_used": true,
+      "reference_note": "Scored against local Expression prototypes because AU CSV was unavailable.",
+      "score": 0.8810874820073078,
+      "tail_20_percent_score": 0.8810874820073078,
+      "match_consistency_score": 0.7259665680493512,
+      "motion_details": {
+        "profile_compatibility_0_1": {
+          "score_0_1": null,
+          "score_0_100": null
+        },
+        "muscle_action_evidence_0_1": {
+          "score_0_1": null,
+          "score_0_100": null
+        },
+        "action_coherence_0_1": {
+          "score_0_1": null,
+          "score_0_100": null
+        },
+        "active_ratio_0_1": {
+          "score_0_1": null,
+          "score_0_100": null
+        },
+        "landmark_coverage_0_1": {
+          "score_0_1": null,
+          "score_0_100": null
+        }
+      },
+      "action_scores": [],
+      "low_reference_actions": [],
+      "group_scores": {},
+      "top_frame_matches": [],
+      "semantic_qa_suggestions": [],
+      "evidence": [
+        {
+          "label": "画像符合度",
+          "value": "89.9%"
+        },
+        {
+          "label": "肌肉动作证据",
+          "value": "89.9%"
+        },
+        {
+          "label": "动作连贯",
+          "value": "72.6%"
+        },
+        {
+          "label": "关键点覆盖",
+          "value": "100.0%"
+        }
+      ]
+    }
+  },
+  "版本": "3.0",
+  "输入": {
+    "生成视频": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\evaluator\\uploads\\gen_ea3efdeb_ltx2.3icloraJieGuo.mp4",
+    "人物参考图": [],
+    "人物参考图展开结果": [],
+    "参考视频": null,
+    "提示词": "",
+    "外部问答结果": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\evaluator\\uploads\\qa_65833248.json",
+    "Qwen模型路径": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\evaluator\\checkpoints\\Qwen3-VL-4B-Instruct"
+  },
+  "视频信息": {
+    "生成视频": {
+      "帧率": 24.0,
+      "总帧数": 145,
+      "采样帧数": 32,
+      "宽度": 2160,
+      "高度": 3840,
+      "时长秒数": 6.041666666666667
+    },
+    "参考视频": null
+  },
+  "权重": {
+    "角色一致性": 35.0,
+    "质感和细节": 15.0,
+    "表情/文本准确性": 15.0,
+    "时间稳定性": 25.0,
+    "美学": 10.0
+  },
+  "评分": [
+    {
+      "项目": "角色一致性",
+      "分数": 96.67,
+      "权重": 35.0,
+      "状态": "质量估计",
+      "分析": {
+        "结论": "本项得分为 96.67 分，整体表现优秀。",
+        "好在哪里": [
+          "主体在 100.0% 的采样帧中保持可见。",
+          "帧间身份特征变化较小，未见明显换脸式跳变。"
+        ],
+        "不好在哪里": [
+          "部分帧的脸型或五官比例偏离参考主体。"
+        ],
+        "可能影响": [
+          "身份漂移会直接破坏观众对人物连续性的判断。"
+        ],
+        "后续改进方向": [
+          "针对偏离最大的片段固定眼睛、鼻梁、嘴角和下颌轮廓，避免表情变化带动五官位置漂移。"
+        ]
+      }
+    },
+    {
+      "项目": "质感和细节",
+      "分数": 62.63,
+      "权重": 15.0,
+      "状态": "available",
+      "分析": {
+        "结论": "本项得分为 62.63 分，整体表现偏弱。",
+        "好在哪里": [
+          "当前没有达到优势阈值的单项证据。"
+        ],
+        "不好在哪里": [
+          "边缘清晰度偏弱，近景中可能出现糊边或细节软化。",
+          "皮肤、头发或织物的高频纹理不足，画面可能偏平滑。"
+        ],
+        "可能影响": [
+          "细节软化会降低皮肤、头发和服装材质的真实感。"
+        ],
+        "后续改进方向": [
+          "优先恢复人脸五官、发丝边缘和服装褶皱的局部清晰度，避免对整幅画面统一锐化。",
+          "减少过度磨皮和降噪，针对发丝、织物和皮肤纹理增加局部细节恢复。"
+        ]
+      }
+    },
+    {
+      "项目": "表情/文本准确性",
+      "分数": 40.14,
+      "权重": 15.0,
+      "状态": "质量估计",
+      "分析": {
+        "结论": "本项得分为 40.14 分，整体表现较差。",
+        "好在哪里": [
+          "当前没有达到优势阈值的单项证据。"
+        ],
+        "不好在哪里": [
+          "面部关键点在时间上的变化偏离目标表演。"
+        ],
+        "可能影响": [
+          "表情或提示词执行偏差会让人物行为与预期不一致。"
+        ],
+        "后续改进方向": [
+          "重点修复眼睛、眉毛、嘴角和呼吸起伏的时间曲线，避免只修单帧外观。"
+        ]
+      }
+    },
+    {
+      "项目": "时间稳定性",
+      "分数": 93.59,
+      "权重": 25.0,
+      "状态": "质量估计",
+      "分析": {
+        "结论": "本项得分为 93.59 分，整体表现优秀。",
+        "好在哪里": [
+          "相邻帧的整体运动衔接较顺，未见明显重影。"
+        ],
+        "不好在哪里": [
+          "本项未发现明确的低分证据。"
+        ],
+        "可能影响": [
+          "时序不稳定会造成闪烁、重影和动作不连续，降低观看流畅度。"
+        ],
+        "后续改进方向": [
+          "保持当前运动节奏，并重点复核镜头切换、快速动作和暗部片段。"
+        ]
+      }
+    },
+    {
+      "项目": "美学",
+      "分数": 82.21,
+      "权重": 10.0,
+      "状态": "质量估计",
+      "分析": {
+        "结论": "本项得分为 82.21 分，整体表现较好。",
+        "好在哪里": [
+          "高光和暗部细节保留较完整。",
+          "主体与背景具有较好的明暗区分度。",
+          "主体位置和画面占比较稳定。"
+        ],
+        "不好在哪里": [
+          "曝光层次偏弱，主体可能过暗、过亮或缺少明暗过渡。",
+          "画面边缘和镜头质感偏弱。"
+        ],
+        "可能影响": [
+          "美学问题主要影响第一眼观感、主体突出程度和镜头质感。"
+        ],
+        "后续改进方向": [
+          "先调整主体曝光和背景亮度，再处理色彩，避免用整体提亮掩盖脸部细节。",
+          "只增强主体边缘和关键材质，不要对噪声、压缩块或背景统一锐化。"
+        ]
+      }
+    }
+  ],
+  "总分": 80.87,
+  "有效评分覆盖率": 100.0,
+  "总分析": {
+    "结论": "综合得分为 80.87 分，整体表现较好。",
+    "主要优点": [
+      "角色一致性得分最高，为 96.67 分。",
+      "主体在 100.0% 的采样帧中保持可见。",
+      "相邻帧的整体运动衔接较顺，未见明显重影。",
+      "高光和暗部细节保留较完整。"
+    ],
+    "主要问题": [
+      "表情/文本准确性得分最低，为 40.14 分。",
+      "面部关键点在时间上的变化偏离目标表演。",
+      "边缘清晰度偏弱，近景中可能出现糊边或细节软化。",
+      "曝光层次偏弱，主体可能过暗、过亮或缺少明暗过渡。"
+    ],
+    "可能影响": [
+      "表情或提示词执行偏差会让人物行为与预期不一致。",
+      "细节软化会降低皮肤、头发和服装材质的真实感。",
+      "美学问题主要影响第一眼观感、主体突出程度和镜头质感。"
+    ],
+    "后续改进方向": [
+      "表情/文本准确性：重点修复眼睛、眉毛、嘴角和呼吸起伏的时间曲线，避免只修单帧外观。",
+      "质感和细节：优先恢复人脸五官、发丝边缘和服装褶皱的局部清晰度，避免对整幅画面统一锐化。",
+      "美学：先调整主体曝光和背景亮度，再处理色彩，避免用整体提亮掩盖脸部细节。",
+      "时间稳定性：保持当前运动节奏，并重点复核镜头切换、快速动作和暗部片段。",
+      "角色一致性：针对偏离最大的片段固定眼睛、鼻梁、嘴角和下颌轮廓，避免表情变化带动五官位置漂移。"
+    ],
+    "视频真伪判断": "当前视频无法完成真实/生成概率判断。"
+  },
+  "评估组成": {
+    "视频真实/生成分析": {
+      "预测": "uncertain",
+      "标签": "真伪模型不可用",
+      "生成概率": null,
+      "真实概率": null,
+      "证据强度": 0.0,
+      "结论": "当前视频无法完成真实/生成概率判断。",
+      "证据": [],
+      "方法": "video_pred/predict_real_video.py",
+      "说明": "ModuleNotFoundError: No module named 'video_pred'",
+      "模型状态": "不可用",
+      "人脸表情与肌肉运动": {
+        "项目": "人脸表情与肌肉运动",
+        "分数": 88.11,
+        "权重": 15.0,
+        "状态": "partial",
+        "分析": {
+          "结论": "本项得分为 88.11 分，整体表现较好。",
+          "好在哪里": [
+            "眉眼、嘴部和下颌的肌肉形变与 Expression 动作原型较一致。",
+            "眼神/虹膜位置变化与参考表情较一致。",
+            "眼周、脸颊、嘴周和下颌的局部皱纹/高频纹理保留较好。"
+          ],
+          "不好在哪里": [
+            "本项未发现明确的低分证据。"
+          ],
+          "可能影响": [
+            "人脸表情和肌肉纹理失真会直接降低人物真实感、眼神可信度和表演连续性。"
+          ],
+          "后续改进方向": [
+            "保持当前表现，继续抽查开头、中段和结尾的质量一致性。"
+          ]
+        }
+      },
+      "人脸专项：表情、眼神与肌肉皱纹": {
+        "scope": "expression_prototype_fallback",
+        "placeholder": false,
+        "method": "expression_prototype_fallback",
+        "composite_score_0_1": 0.8810874820073078,
+        "composite_score_0_100": 88.10874820073079,
+        "dimensions": {
+          "profile_compatibility_0_1": {
+            "score_0_1": null,
+            "score_0_100": null
+          },
+          "muscle_action_evidence_0_1": {
+            "score_0_1": null,
+            "score_0_100": null
+          },
+          "action_coherence_0_1": {
+            "score_0_1": null,
+            "score_0_100": null
+          },
+          "active_ratio_0_1": {
+            "score_0_1": null,
+            "score_0_100": null
+          },
+          "landmark_coverage_0_1": {
+            "score_0_1": null,
+            "score_0_100": null
+          }
+        },
+        "metric_labels": {
+          "profile_compatibility_0_1": "动作原型匹配",
+          "muscle_action_evidence_0_1": "肌肉几何",
+          "action_coherence_0_1": "肌肉-皱纹同步",
+          "active_ratio_0_1": "有效帧覆盖",
+          "landmark_coverage_0_1": "关键点覆盖"
+        },
+        "profile_compatibility_0_1": 0.8986356083263198,
+        "muscle_action_evidence_0_1": 0.8986356083263198,
+        "action_coherence_0_1": 0.7259665680493512,
+        "active_ratio_0_1": 1.0,
+        "landmark_coverage_0_1": 1.0,
+        "frame_match_score": 0.8986356083263198,
+        "geometry_score": 0.8986356083263198,
+        "gaze_score": 0.8986356083263198,
+        "wrinkle_score": 0.8952762394212186,
+        "texture_score": 0.8952762394212186,
+        "motion_score": 0.7259665680493512,
+        "geometry_method": "expression_prototype_match",
+        "gaze_method": "expression_prototype_match",
+        "expression_dir": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\evaluator\\Expression",
+        "selected_profile": null,
+        "selected_profile_display_name": null,
+        "profile_result": {},
+        "reference_count": 116,
+        "valid_face_frames": 32,
+        "total_sampled_frames": 32,
+        "face_coverage": 1.0,
+        "reference_frame_count": 0,
+        "reference_image_count": 0,
+        "max_frames": 32,
+        "sample_fps": 24.0,
+        "video_path": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\evaluator\\uploads\\gen_ea3efdeb_ltx2.3icloraJieGuo.mp4",
+        "au_csv": null,
+        "expression_profile": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\evaluator\\modules\\assets\\profiles\\wangxing_expression_profile.json",
+        "profile_schema_version": "wangxing_expression_profile_v2",
+        "forensics": {
+          "schema_version": "video_forensics_report_v1",
+          "status": "calibrated",
+          "branches": {
+            "facial_motion": null,
+            "texture_detail": {
+              "status": "calibrated",
+              "probability_calibrated": false,
+              "backend": "aligned_texture_frequency_temporal_profile",
+              "schema_version": "texture_detail_forensics_v1",
+              "metrics": {
+                "real_domain_fit_0_1": 0.5925776564586096,
+                "seedance_domain_fit_0_1": 0.7646244738436802,
+                "profile_raw_real_domain_evidence_0_1": 0.43661709868273246,
+                "raw_real_domain_evidence_0_1": 0.5139124168432714,
+                "real_capture_likelihood_0_1": 0.5139124168432714,
+                "calibrated_real_probability_0_1": null,
+                "temporal_stability_proxy_0_1": 0.9908584923363261,
+                "texture_flicker_0_1": 0.01812960592008406,
+                "optical_flow_homogeneity_0_1": 0.7842785070350137,
+                "micro_temporal_naturalness_0_1": 0.8660355329079485,
+                "training_free_texture_prior_0_1": 0.8660355329079485,
+                "nr_vqa_score_0_1": 0.644830157440706
+              },
+              "feature_record": {
+                "schema_version": "texture_detail_forensics_v1",
+                "source": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\evaluator\\uploads\\gen_ea3efdeb_ltx2.3icloraJieGuo.mp4",
+                "frame_count": 32,
+                "timestamps": [
+                  0.0,
+                  0.1935483870967742,
+                  0.3870967741935484,
+                  0.5806451612903225,
+                  0.7741935483870968,
+                  0.967741935483871,
+                  1.161290322580645,
+                  1.3548387096774193,
+                  1.5483870967741935,
+                  1.7419354838709677,
+                  1.935483870967742,
+                  2.129032258064516,
+                  2.32258064516129,
+                  2.5161290322580645,
+                  2.7096774193548385,
+                  2.903225806451613,
+                  3.096774193548387,
+                  3.290322580645161,
+                  3.4838709677419355,
+                  3.6774193548387095,
+                  3.870967741935484,
+                  4.064516129032258,
+                  4.258064516129032,
+                  4.451612903225806,
+                  4.64516129032258,
+                  4.838709677419355,
+                  5.032258064516129,
+                  5.225806451612903,
+                  5.419354838709677,
+                  5.612903225806451,
+                  5.806451612903226,
+                  6.0
+                ],
+                "video_info": {
+                  "path": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\evaluator\\uploads\\gen_ea3efdeb_ltx2.3icloraJieGuo.mp4",
+                  "fps": 24.0,
+                  "frame_count": 145,
+                  "width": 2160,
+                  "height": 3840,
+                  "duration_seconds": 6.041666666666667
+                },
+                "features": {
+                  "high_frequency_ratio_mean": 0.03895066271070391,
+                  "high_frequency_ratio_std": 0.0021386548775803524,
+                  "high_frequency_ratio_p95": 0.04202219247817993,
+                  "laplacian_variance_mean": 346.7497100830078,
+                  "laplacian_variance_std": 35.693128724103126,
+                  "laplacian_variance_p95": 389.88152770996095,
+                  "gradient_mean_mean": 0.14650464244186878,
+                  "gradient_mean_std": 0.006393440989266066,
+                  "gradient_mean_p95": 0.15355167761445046,
+                  "gradient_std_mean": 0.26247204141691327,
+                  "gradient_std_std": 0.012832383879857513,
+                  "gradient_std_p95": 0.2821797549724579,
+                  "intensity_entropy_mean": 3.886844240128994,
+                  "intensity_entropy_std": 0.023693284553892736,
+                  "intensity_entropy_p95": 3.9298144578933716,
+                  "dct_high_frequency_ratio_mean": 0.7281890155869737,
+                  "dct_high_frequency_ratio_std": 0.012954977904164233,
+                  "dct_high_frequency_ratio_p95": 0.7458492030389775,
+                  "region_skin_forehead_high_frequency_ratio_mean": 0.022346844896674156,
+                  "region_skin_forehead_high_frequency_ratio_std": 0.001496339215625633,
+                  "region_skin_forehead_high_frequency_ratio_p95": 0.02413262901827693,
+                  "region_skin_forehead_laplacian_variance_mean": 111.23804998397827,
+                  "region_skin_forehead_laplacian_variance_std": 20.68421423566755,
+                  "region_skin_forehead_laplacian_variance_p95": 138.9440818786621,
+                  "region_skin_forehead_gradient_mean_mean": 0.11145603307522833,
+                  "region_skin_forehead_gradient_mean_std": 0.004990378122595345,
+                  "region_skin_forehead_gradient_mean_p95": 0.11712296716868878,
+                  "region_skin_forehead_gradient_std_mean": 0.10085190553218126,
+                  "region_skin_forehead_gradient_std_std": 0.004462818074094426,
+                  "region_skin_forehead_gradient_std_p95": 0.10555840618908405,
+                  "region_skin_forehead_intensity_entropy_mean": 3.418226905167103,
+                  "region_skin_forehead_intensity_entropy_std": 0.03148779600271735,
+                  "region_skin_forehead_intensity_entropy_p95": 3.471065068244934,
+                  "region_skin_forehead_dct_high_frequency_ratio_mean": 0.4272780135581512,
+                  "region_skin_forehead_dct_high_frequency_ratio_std": 0.014576610610571606,
+                  "region_skin_forehead_dct_high_frequency_ratio_p95": 0.44363220551961347,
+                  "region_skin_left_cheek_high_frequency_ratio_mean": 0.04727207240648568,
+                  "region_skin_left_cheek_high_frequency_ratio_std": 0.0023116348283204087,
+                  "region_skin_left_cheek_high_frequency_ratio_p95": 0.05026972219347954,
+                  "region_skin_left_cheek_laplacian_variance_mean": 560.8014860153198,
+                  "region_skin_left_cheek_laplacian_variance_std": 39.056772558572185,
+                  "region_skin_left_cheek_laplacian_variance_p95": 618.9816070556641,
+                  "region_skin_left_cheek_gradient_mean_mean": 0.19735594792291522,
+                  "region_skin_left_cheek_gradient_mean_std": 0.005652207068544355,
+                  "region_skin_left_cheek_gradient_mean_p95": 0.20703396648168565,
+                  "region_skin_left_cheek_gradient_std_mean": 0.33079478796571493,
+                  "region_skin_left_cheek_gradient_std_std": 0.011532708928332233,
+                  "region_skin_left_cheek_gradient_std_p95": 0.35489058345556257,
+                  "region_skin_left_cheek_intensity_entropy_mean": 3.9752039685845375,
+                  "region_skin_left_cheek_intensity_entropy_std": 0.018194728282895662,
+                  "region_skin_left_cheek_intensity_entropy_p95": 3.997979533672333,
+                  "region_skin_left_cheek_dct_high_frequency_ratio_mean": 0.6151617609871906,
+                  "region_skin_left_cheek_dct_high_frequency_ratio_std": 0.008952924289193849,
+                  "region_skin_left_cheek_dct_high_frequency_ratio_p95": 0.6289862754999969,
+                  "region_skin_right_cheek_high_frequency_ratio_mean": 0.04146839876193553,
+                  "region_skin_right_cheek_high_frequency_ratio_std": 0.002172881743745412,
+                  "region_skin_right_cheek_high_frequency_ratio_p95": 0.04479538779705763,
+                  "region_skin_right_cheek_laplacian_variance_mean": 506.457088470459,
+                  "region_skin_right_cheek_laplacian_variance_std": 41.124267756152854,
+                  "region_skin_right_cheek_laplacian_variance_p95": 557.8454742431641,
+                  "region_skin_right_cheek_gradient_mean_mean": 0.18457407504320145,
+                  "region_skin_right_cheek_gradient_mean_std": 0.009258422497102327,
+                  "region_skin_right_cheek_gradient_mean_p95": 0.19848771542310714,
+                  "region_skin_right_cheek_gradient_std_mean": 0.32148978114128113,
+                  "region_skin_right_cheek_gradient_std_std": 0.01029336872992145,
+                  "region_skin_right_cheek_gradient_std_p95": 0.3422976240515709,
+                  "region_skin_right_cheek_intensity_entropy_mean": 3.808886334300041,
+                  "region_skin_right_cheek_intensity_entropy_std": 0.04616916254088483,
+                  "region_skin_right_cheek_intensity_entropy_p95": 3.8756083726882933,
+                  "region_skin_right_cheek_dct_high_frequency_ratio_mean": 0.5955877778912362,
+                  "region_skin_right_cheek_dct_high_frequency_ratio_std": 0.01175970260413259,
+                  "region_skin_right_cheek_dct_high_frequency_ratio_p95": 0.6114374984103379,
+                  "region_eyes_high_frequency_ratio_mean": 0.03316661453573033,
+                  "region_eyes_high_frequency_ratio_std": 0.0022851568103364568,
+                  "region_eyes_high_frequency_ratio_p95": 0.03651362638920545,
+                  "region_eyes_laplacian_variance_mean": 264.25812101364136,
+                  "region_eyes_laplacian_variance_std": 43.455460241079216,
+                  "region_eyes_laplacian_variance_p95": 318.5416976928711,
+                  "region_eyes_gradient_mean_mean": 0.16675015818327665,
+                  "region_eyes_gradient_mean_std": 0.007323786019039568,
+                  "region_eyes_gradient_mean_p95": 0.1802157148718834,
+                  "region_eyes_gradient_std_mean": 0.17124349111691117,
+                  "region_eyes_gradient_std_std": 0.012367946908592444,
+                  "region_eyes_gradient_std_p95": 0.19082221686840056,
+                  "region_eyes_intensity_entropy_mean": 3.609741650521755,
+                  "region_eyes_intensity_entropy_std": 0.041578995849494794,
+                  "region_eyes_intensity_entropy_p95": 3.6920328021049498,
+                  "region_eyes_dct_high_frequency_ratio_mean": 0.608492671415054,
+                  "region_eyes_dct_high_frequency_ratio_std": 0.017164121323924572,
+                  "region_eyes_dct_high_frequency_ratio_p95": 0.6332631690869688,
+                  "region_mouth_high_frequency_ratio_mean": 0.028006920125335455,
+                  "region_mouth_high_frequency_ratio_std": 0.00526490708516982,
+                  "region_mouth_high_frequency_ratio_p95": 0.034284147620201114,
+                  "region_mouth_laplacian_variance_mean": 246.66131973266602,
+                  "region_mouth_laplacian_variance_std": 87.38441101323846,
+                  "region_mouth_laplacian_variance_p95": 345.400129699707,
+                  "region_mouth_gradient_mean_mean": 0.15934667829424143,
+                  "region_mouth_gradient_mean_std": 0.025062307453521938,
+                  "region_mouth_gradient_mean_p95": 0.18917909041047096,
+                  "region_mouth_gradient_std_mean": 0.237493347376585,
+                  "region_mouth_gradient_std_std": 0.03773364165089558,
+                  "region_mouth_gradient_std_p95": 0.2755232110619545,
+                  "region_mouth_intensity_entropy_mean": 3.210220478475094,
+                  "region_mouth_intensity_entropy_std": 0.15275859521844715,
+                  "region_mouth_intensity_entropy_p95": 3.404585087299347,
+                  "region_mouth_dct_high_frequency_ratio_mean": 0.6297940525020109,
+                  "region_mouth_dct_high_frequency_ratio_std": 0.03384535389051292,
+                  "region_mouth_dct_high_frequency_ratio_p95": 0.6657050053486543,
+                  "temporal_warp_residual_mean": 0.009141507663673932,
+                  "temporal_warp_residual_std": 0.0025093207938803644,
+                  "temporal_raw_difference_mean": 0.02924663603546158,
+                  "texture_flicker_mean": 0.001812960592008406,
+                  "texture_flicker_std": 0.0011373440159365789,
+                  "optical_flow_magnitude_mean": 1.9276886274737697,
+                  "optical_flow_magnitude_std": 0.8232992780779068,
+                  "optical_flow_second_order_mean": 0.0023242530257751542,
+                  "optical_flow_second_order_std": 0.0019248431665310685,
+                  "nr_vqa_score_0_1": 0.644830157440706,
+                  "nr_vqa_backend_code": 0.0,
+                  "nr_vqa_spatial_score_0_1": 0.46392889387810776,
+                  "nr_vqa_temporal_score_0_1": 0.9399848506217874,
+                  "nr_vqa_flicker_mean": 0.004899212273794754,
+                  "nr_vqa_laplacian_variance_mean": 177.6255612373352,
+                  "optical_flow_residual_cv": 0.2744974774622548,
+                  "optical_flow_homogeneity_0_1": 0.7842785070350137,
+                  "optical_flow_second_order_score_0_1": 0.9767574697422484,
+                  "micro_temporal_naturalness_0_1": 0.8660355329079485,
+                  "training_free_texture_prior_0_1": 0.8660355329079485,
+                  "region_skin_forehead_flicker_mean": 0.0006553794467641462,
+                  "region_skin_forehead_flicker_std": 0.0005304860312770122,
+                  "region_skin_left_cheek_flicker_mean": 0.0011890798566802855,
+                  "region_skin_left_cheek_flicker_std": 0.0010166964335923993,
+                  "region_skin_right_cheek_flicker_mean": 0.0011153900094570653,
+                  "region_skin_right_cheek_flicker_std": 0.0009106123490423507,
+                  "region_eyes_flicker_mean": 0.0011566736765446202,
+                  "region_eyes_flicker_std": 0.001033412892862151,
+                  "region_mouth_flicker_mean": 0.0022349415286894766,
+                  "region_mouth_flicker_std": 0.0025451973847123136,
+                  "frame_count": 32.0,
+                  "face_box_coverage": 1.0
+                },
+                "window_records": [
+                  {
+                    "window_index": 0,
+                    "start_frame": 0,
+                    "end_frame": 7,
+                    "high_frequency_mean": 0.03966809483245015,
+                    "texture_flicker_mean": 0.001218415264572416,
+                    "evidence_score_0_1": 0.012184152645724162
+                  },
+                  {
+                    "window_index": 1,
+                    "start_frame": 8,
+                    "end_frame": 15,
+                    "high_frequency_mean": 0.040198168251663446,
+                    "texture_flicker_mean": 0.00183767027088574,
+                    "evidence_score_0_1": 0.0183767027088574
+                  },
+                  {
+                    "window_index": 2,
+                    "start_frame": 16,
+                    "end_frame": 23,
+                    "high_frequency_mean": 0.03941297624260187,
+                    "texture_flicker_mean": 0.0022107293563229696,
+                    "evidence_score_0_1": 0.022107293563229696
+                  },
+                  {
+                    "window_index": 3,
+                    "start_frame": 24,
+                    "end_frame": 31,
+                    "high_frequency_mean": 0.03652341151610017,
+                    "texture_flicker_mean": 0.0019491852394172124,
+                    "evidence_score_0_1": 0.019491852394172123
+                  }
+                ],
+                "regions": [
+                  "skin_forehead",
+                  "skin_left_cheek",
+                  "skin_right_cheek",
+                  "eyes",
+                  "mouth"
+                ],
+                "face_detection_backend": "opencv_haar",
+                "nr_vqa": {
+                  "schema_version": "no_reference_vqa_v1",
+                  "status": "available",
+                  "backend": "builtin_nr_vqa",
+                  "score_0_1": 0.644830157440706,
+                  "features": {
+                    "nr_vqa_score_0_1": 0.644830157440706,
+                    "nr_vqa_backend_code": 0.0,
+                    "nr_vqa_spatial_score_0_1": 0.46392889387810776,
+                    "nr_vqa_temporal_score_0_1": 0.9399848506217874,
+                    "nr_vqa_flicker_mean": 0.004899212273794754,
+                    "nr_vqa_laplacian_variance_mean": 177.6255612373352
+                  },
+                  "attempts": [
+                    {
+                      "backend": "builtin_nr_vqa",
+                      "status": "available"
+                    }
+                  ],
+                  "vmaf_used": false,
+                  "note": "Built-in no-reference spatial-temporal VQA proxy. Not VMAF (full-reference) and not a human MOS substitute."
+                },
+                "note": "These are quality and temporal-texture features plus optional no-reference VQA. A calibrated real-versus-Seedance profile is required for authenticity claims. VMAF is not used."
+              },
+              "warnings": [
+                "The two-domain score is raw profile evidence only; a held-out probability calibrator is required for an authenticity decision."
+              ]
+            }
+          },
+          "fusion": {
+            "real_capture_likelihood_0_1": 0.06601999456016996,
+            "raw_real_domain_evidence_0_1": 0.5139124168432714,
+            "branch_count": 1,
+            "profile_scored_branch_count": 1,
+            "calibrated_branch_count": 0,
+            "method": "confidence_weighted_calibrated_probability_fusion",
+            "warning": null
+          },
+          "scores": {
+            "facial_expression_muscle_score_0_1": null,
+            "texture_detail_score_0_1": 0.5139124168432714,
+            "real_capture_likelihood_0_1": 0.06601999456016996,
+            "raw_real_domain_evidence_0_1": 0.5139124168432714,
+            "calibrated_real_probability_0_1": 0.06601999456016996,
+            "ssl_au_score_0_1": null,
+            "nr_vqa_score_0_1": 0.644830157440706,
+            "pose_normalized_frame_ratio": null
+          },
+          "authenticity": {
+            "status": "calibrated",
+            "decision": "seedance_like",
+            "raw_evidence_direction": "mixed",
+            "raw_real_capture_likelihood_0_1": 0.5139124168432714,
+            "raw_real_domain_evidence_0_1": 0.5139124168432714,
+            "calibrated_real_probability_0_1": 0.06601999456016996,
+            "confidence_0_1": 0.7652732969375828,
+            "calibrator_applied": true,
+            "calibrator_status": "ready",
+            "branch_weights": {
+              "texture_detail": 1.0
+            },
+            "branch_scores": {
+              "texture_detail": 0.5139124168432714
+            },
+            "training_free_prior_0_1": 0.8660355329079484,
+            "uncertainty_reasons": []
+          },
+          "window_evidence": {
+            "facial_expression_muscle": [],
+            "texture_detail": [
+              {
+                "window_index": 2,
+                "start_frame": 16,
+                "end_frame": 23,
+                "high_frequency_mean": 0.03941297624260187,
+                "texture_flicker_mean": 0.0022107293563229696,
+                "evidence_score_0_1": 0.022107293563229696
+              },
+              {
+                "window_index": 3,
+                "start_frame": 24,
+                "end_frame": 31,
+                "high_frequency_mean": 0.03652341151610017,
+                "texture_flicker_mean": 0.0019491852394172124,
+                "evidence_score_0_1": 0.019491852394172123
+              },
+              {
+                "window_index": 1,
+                "start_frame": 8,
+                "end_frame": 15,
+                "high_frequency_mean": 0.040198168251663446,
+                "texture_flicker_mean": 0.00183767027088574,
+                "evidence_score_0_1": 0.0183767027088574
+              },
+              {
+                "window_index": 0,
+                "start_frame": 0,
+                "end_frame": 7,
+                "high_frequency_mean": 0.03966809483245015,
+                "texture_flicker_mean": 0.001218415264572416,
+                "evidence_score_0_1": 0.012184152645724162
+              }
+            ]
+          },
+          "window_summaries": {
+            "facial_expression_muscle": {
+              "summary": {
+                "window_count": 0,
+                "mean_evidence_score_0_1": null,
+                "worst_evidence_score_0_1": null,
+                "aggregate_evidence_score_0_1": null,
+                "worst_window": null
+              },
+              "semantics": "Motion activity coverage and peaks; not an artifact probability."
+            },
+            "texture_detail": {
+              "summary": {
+                "window_count": 4,
+                "mean_evidence_score_0_1": 0.018039999529719353,
+                "worst_evidence_score_0_1": 0.02210729382932186,
+                "aggregate_evidence_score_0_1": 0.020073646679520607,
+                "worst_window": {
+                  "window_index": 2,
+                  "start_frame": 16,
+                  "end_frame": 23,
+                  "high_frequency_mean": 0.03941297624260187,
+                  "texture_flicker_mean": 0.0022107293563229696,
+                  "evidence_score_0_1": 0.022107293563229696
+                }
+              },
+              "semantics": "Texture flicker evidence; higher values indicate windows requiring review."
+            }
+          },
+          "score_semantics": {
+            "facial_expression_muscle_score_0_1": "Raw real-versus-Seedance facial-motion profile evidence. It is not a probability and is not an ordinary expression correctness score.",
+            "texture_detail_score_0_1": "Raw real-versus-Seedance texture profile evidence. It is not a probability and is not a generic image-quality score.",
+            "real_capture_likelihood_0_1": "Held-out calibrated real-capture probability; null until a ready probability calibrator is supplied.",
+            "not_expression_correctness": true,
+            "not_generic_image_quality": true
+          }
+        },
+        "warning": "未提供 AU CSV，已回退到 Expression 动作原型匹配；完整王兴 AU 专项仍建议提供旁路 AU 表。",
+        "reference_used": true,
+        "reference_note": "Scored against local Expression prototypes because AU CSV was unavailable.",
+        "score": 0.8810874820073078,
+        "tail_20_percent_score": 0.8810874820073078,
+        "match_consistency_score": 0.7259665680493512,
+        "motion_details": {
+          "profile_compatibility_0_1": {
+            "score_0_1": null,
+            "score_0_100": null
+          },
+          "muscle_action_evidence_0_1": {
+            "score_0_1": null,
+            "score_0_100": null
+          },
+          "action_coherence_0_1": {
+            "score_0_1": null,
+            "score_0_100": null
+          },
+          "active_ratio_0_1": {
+            "score_0_1": null,
+            "score_0_100": null
+          },
+          "landmark_coverage_0_1": {
+            "score_0_1": null,
+            "score_0_100": null
+          }
+        },
+        "action_scores": [],
+        "low_reference_actions": [],
+        "group_scores": {},
+        "top_frame_matches": [],
+        "semantic_qa_suggestions": [],
+        "evidence": [
+          {
+            "label": "画像符合度",
+            "value": "89.9%"
+          },
+          {
+            "label": "肌肉动作证据",
+            "value": "89.9%"
+          },
+          {
+            "label": "动作连贯",
+            "value": "72.6%"
+          },
+          {
+            "label": "关键点覆盖",
+            "value": "100.0%"
+          }
+        ]
+      }
+    },
+    "质量评分项目": [
+      {
+        "项目": "角色一致性",
+        "分数": 96.67,
+        "权重": 35.0,
+        "状态": "质量估计",
+        "分析": {
+          "结论": "本项得分为 96.67 分，整体表现优秀。",
+          "好在哪里": [
+            "主体在 100.0% 的采样帧中保持可见。",
+            "帧间身份特征变化较小，未见明显换脸式跳变。"
+          ],
+          "不好在哪里": [
+            "部分帧的脸型或五官比例偏离参考主体。"
+          ],
+          "可能影响": [
+            "身份漂移会直接破坏观众对人物连续性的判断。"
+          ],
+          "后续改进方向": [
+            "针对偏离最大的片段固定眼睛、鼻梁、嘴角和下颌轮廓，避免表情变化带动五官位置漂移。"
+          ]
+        }
+      },
+      {
+        "项目": "质感和细节",
+        "分数": 62.63,
+        "权重": 15.0,
+        "状态": "available",
+        "分析": {
+          "结论": "本项得分为 62.63 分，整体表现偏弱。",
+          "好在哪里": [
+            "当前没有达到优势阈值的单项证据。"
+          ],
+          "不好在哪里": [
+            "边缘清晰度偏弱，近景中可能出现糊边或细节软化。",
+            "皮肤、头发或织物的高频纹理不足，画面可能偏平滑。"
+          ],
+          "可能影响": [
+            "细节软化会降低皮肤、头发和服装材质的真实感。"
+          ],
+          "后续改进方向": [
+            "优先恢复人脸五官、发丝边缘和服装褶皱的局部清晰度，避免对整幅画面统一锐化。",
+            "减少过度磨皮和降噪，针对发丝、织物和皮肤纹理增加局部细节恢复。"
+          ]
+        }
+      },
+      {
+        "项目": "表情/文本准确性",
+        "分数": 40.14,
+        "权重": 15.0,
+        "状态": "质量估计",
+        "分析": {
+          "结论": "本项得分为 40.14 分，整体表现较差。",
+          "好在哪里": [
+            "当前没有达到优势阈值的单项证据。"
+          ],
+          "不好在哪里": [
+            "面部关键点在时间上的变化偏离目标表演。"
+          ],
+          "可能影响": [
+            "表情或提示词执行偏差会让人物行为与预期不一致。"
+          ],
+          "后续改进方向": [
+            "重点修复眼睛、眉毛、嘴角和呼吸起伏的时间曲线，避免只修单帧外观。"
+          ]
+        }
+      },
+      {
+        "项目": "时间稳定性",
+        "分数": 93.59,
+        "权重": 25.0,
+        "状态": "质量估计",
+        "分析": {
+          "结论": "本项得分为 93.59 分，整体表现优秀。",
+          "好在哪里": [
+            "相邻帧的整体运动衔接较顺，未见明显重影。"
+          ],
+          "不好在哪里": [
+            "本项未发现明确的低分证据。"
+          ],
+          "可能影响": [
+            "时序不稳定会造成闪烁、重影和动作不连续，降低观看流畅度。"
+          ],
+          "后续改进方向": [
+            "保持当前运动节奏，并重点复核镜头切换、快速动作和暗部片段。"
+          ]
+        }
+      },
+      {
+        "项目": "美学",
+        "分数": 82.21,
+        "权重": 10.0,
+        "状态": "质量估计",
+        "分析": {
+          "结论": "本项得分为 82.21 分，整体表现较好。",
+          "好在哪里": [
+            "高光和暗部细节保留较完整。",
+            "主体与背景具有较好的明暗区分度。",
+            "主体位置和画面占比较稳定。"
+          ],
+          "不好在哪里": [
+            "曝光层次偏弱，主体可能过暗、过亮或缺少明暗过渡。",
+            "画面边缘和镜头质感偏弱。"
+          ],
+          "可能影响": [
+            "美学问题主要影响第一眼观感、主体突出程度和镜头质感。"
+          ],
+          "后续改进方向": [
+            "先调整主体曝光和背景亮度，再处理色彩，避免用整体提亮掩盖脸部细节。",
+            "只增强主体边缘和关键材质，不要对噪声、压缩块或背景统一锐化。"
+          ]
+        }
+      }
+    ]
+  },
+  "Qwen评估结果": null,
+  "运行信息": {
+    "人脸分析器": "OpenCV Haar 人脸检测（代理）",
+    "Qwen模型": "不可用",
+    "Qwen结果文件": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\evaluator\\results\\qwen_f3eade6e.json",
+    "Qwen错误": "Qwen3-VL 依赖不可用，请检查 transformers、torch 和 pillow。",
+    "LPIPS": "未启用",
+    "关键点分析器": "未启用",
+    "缺失评分项目": [],
+    "真伪模型": "不可用"
+  }
+}

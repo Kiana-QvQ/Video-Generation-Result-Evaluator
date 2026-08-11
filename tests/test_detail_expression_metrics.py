@@ -9,9 +9,22 @@ import numpy as np
 
 import evaluator.detail_expression_metrics as public_api
 import evaluator.modules.core.detail_expression_runtime as runtime
+import evaluator.modules.core.paths as paths
 
 
 class DetailExpressionMetricsTests(unittest.TestCase):
+    def test_nested_package_resolves_parent_host_root(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            package_root = root / "evaluator"
+            package_root.mkdir()
+            (package_root / "detail_expression_metrics.py").write_text(
+                "",
+                encoding="utf-8",
+            )
+            with patch.object(paths, "PACKAGE_ROOT", package_root):
+                self.assertEqual(paths._detect_workspace_root(), root)
+
     def test_detail_public_api_delegates_to_packaged_runtime(self) -> None:
         generated = object()
         reference = object()

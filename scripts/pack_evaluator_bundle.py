@@ -62,6 +62,15 @@ ALLOWED_TOP_LEVEL = frozenset(
         "modules",
     }
 )
+IGNORED_PACKAGE_ARTIFACTS = frozenset(
+    {
+        "__pycache__",
+        ".pytest_cache",
+        ".cache",
+        ".docker",
+        "model_cache",
+    }
+)
 REQUIRED_PACKAGE_FILES = (
     "__init__.py",
     "detail_expression_metrics.py",
@@ -172,7 +181,7 @@ def _validate_package_layout(package_root: Path) -> None:
         path.name
         for path in package_root.iterdir()
         if path.name not in ALLOWED_TOP_LEVEL
-        and path.name != "__pycache__"
+        and path.name not in IGNORED_PACKAGE_ARTIFACTS
     )
     if unexpected:
         raise SystemExit(
@@ -404,8 +413,127 @@ def sync_profiles() -> dict[str, str]:
     return copied
 
 
+def build_flat_host(output: Path) -> Path:
+    """Write collaborator flat layout: detail_expression_metrics.py + modules/.
+
+    Does not touch host app files (main.py / app.py / Expression / checkpoints).
+    """
+    # Profiles should already be bundled; sync when sources exist, otherwise
+    # reuse the checked-in modules/assets/profiles copy.
+    try:
+        sync_profiles()
+    except SystemExit as exc:
+        profiles_dir = PACKAGE_ROOT / "modules" / "assets" / "profiles"
+        if not profiles_dir.is_dir():
+            raise
+        print(f"skip sync_profiles ({exc}); using bundled profiles")
+    output = output.resolve()
+    package_root = PACKAGE_ROOT.resolve()
+    # Windows paths are case-insensitive: ``Evaluator`` == ``evaluator``.
+    if output == package_root or str(output).casefold() == str(package_root).casefold():
+        raise SystemExit(
+            "Refusing --flat-host into the evaluator package itself. "
+            "On Windows, Evaluator/ and evaluator/ are the same folder. "
+            "Use a distinct host directory such as 对方工程/."
+        )
+    output.mkdir(parents=True, exist_ok=True)
+
+    modules_dst = output / "modules"
+    if modules_dst.exists():
+        shutil.rmtree(modules_dst)
+    shutil.copytree(
+        PACKAGE_ROOT / "modules",
+        modules_dst,
+        ignore=shutil.ignore_patterns(
+            "__pycache__",
+            "*.pyc",
+            ".pytest_cache",
+            ".cache",
+        ),
+    )
+    # Flat host imports ``from modules.core...`` (no evaluator. prefix).
+    entry_src = (PACKAGE_ROOT / "detail_expression_metrics.py").read_text(
+        encoding="utf-8"
+    )
+    entry_flat = entry_src.replace(
+        "from .modules.core.detail_expression_runtime import (",
+        "from modules.core.detail_expression_runtime import (",
+    )
+    (output / "detail_expression_metrics.py").write_text(
+        entry_flat,
+        encoding="utf-8",
+    )
+    readme = output / "EVALUATOR_FLAT_README.md"
+    readme.write_text(
+        "\n".join(
+            [
+                "# 扁平接入说明（对方宿主工程）",
+                "",
+                "已覆盖到对方项目根目录：",
+                "",
+                "- `detail_expression_metrics.py`",
+                "- `modules/`",
+                "",
+                "不要改对方的 `main.py` / `app.py` / `Expression` / `checkpoints`。",
+                "",
+                "无 AU CSV 时：优先从视频自动合成 AU，对照王兴表情 profile（约 648 样本）；",
+                "仅合成失败才回退 Expression/ 动作原型图。",
+                "",
+                "详见 modules/assets/ASSET_USAGE.md。",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    profiles_dir = modules_dst / "assets" / "profiles"
+    _validate_profile_assets(profiles_dir)
+    required = (
+        "detail_expression_metrics.py",
+        "modules/__init__.py",
+        "modules/core/detail_expression_runtime.py",
+        "modules/core/expression_prototype_fallback.py",
+        "modules/core/paths.py",
+    )
+    missing = [item for item in required if not (output / item).is_file()]
+    if missing:
+        raise SystemExit(
+            "Flat host overlay missing files:\n- " + "\n- ".join(missing)
+        )
+    return output
+
+
+def _copy_clean_package(destination: Path) -> Path:
+    """Copy only the public package top-level into ``destination/evaluator``."""
+    package_dst = destination / "evaluator"
+    package_dst.mkdir(parents=True, exist_ok=True)
+    for name in sorted(ALLOWED_TOP_LEVEL):
+        source = PACKAGE_ROOT / name
+        if not source.exists():
+            raise SystemExit(f"Missing required package entry: {source}")
+        target = package_dst / name
+        if source.is_dir():
+            shutil.copytree(
+                source,
+                target,
+                ignore=shutil.ignore_patterns(
+                    "__pycache__",
+                    "*.pyc",
+                    ".pytest_cache",
+                    ".cache",
+                    ".docker",
+                    "model_cache",
+                ),
+            )
+        else:
+            shutil.copy2(source, target)
+    return package_dst
+
+
 def build_bundle(output: Path) -> Path:
-    sync_profiles()
+    try:
+        sync_profiles()
+    except SystemExit as exc:
+        print(f"skip sync_profiles ({exc}); packing bundled profiles as-is")
     output = output.resolve()
     if output.suffix.lower() == ".zip":
         staging = output.with_suffix("")
@@ -415,18 +543,8 @@ def build_bundle(output: Path) -> Path:
     _remove_existing_path(staging)
     staging.mkdir(parents=True)
     # Zip / folder root is exactly ``evaluator/`` with the allowed top-level
-    # entries. Collaborators unzip and get one package folder.
-    shutil.copytree(
-        PACKAGE_ROOT,
-        staging / "evaluator",
-        ignore=shutil.ignore_patterns(
-            "__pycache__",
-            "*.pyc",
-            ".pytest_cache",
-            ".cache",
-        ),
-    )
-    bundle_package_root = staging / "evaluator"
+    # entries. Ignore any host files that may share this folder on Windows.
+    bundle_package_root = _copy_clean_package(staging)
     _prune_staged_profile_assets(bundle_package_root)
     _validate_package_layout(bundle_package_root)
     _verify_manifest(bundle_package_root)
@@ -462,12 +580,40 @@ def main() -> int:
         default="outputs/evaluator_bundle",
         help="Bundle directory or .zip path.",
     )
+    parser.add_argument(
+        "--flat-host",
+        default="",
+        help=(
+            "Write flat collaborator layout (detail_expression_metrics.py + "
+            "modules/) into this host project directory."
+        ),
+    )
     args = parser.parse_args()
     if args.sync_only:
         copied = sync_profiles()
         print(
             json.dumps(
                 {"copied": copied, "verify": verify_bundled_profiles()},
+                indent=2,
+                ensure_ascii=False,
+            )
+        )
+        return 0
+    if args.flat_host:
+        path = build_flat_host(PROJECT_ROOT / args.flat_host)
+        print(f"Wrote flat host overlay to {path}")
+        print(
+            json.dumps(
+                {
+                    "detail_expression_metrics": (
+                        path / "detail_expression_metrics.py"
+                    ).is_file(),
+                    "expression_fallback": (
+                        path
+                        / "modules/core/expression_prototype_fallback.py"
+                    ).is_file(),
+                    "profiles": verify_bundled_profiles(path),
+                },
                 indent=2,
                 ensure_ascii=False,
             )

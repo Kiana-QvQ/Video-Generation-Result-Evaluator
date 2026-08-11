@@ -1,0 +1,81 @@
+{
+  "schema_version": "evaluator_assets_manifest_v1",
+  "generated_at": "2026-08-11T11:43:56",
+  "profiles": {
+    "wangxing_expression_profile": {
+      "filename": "wangxing_expression_profile.json",
+      "source": "data/au/wangxing_expression_profile.json",
+      "bytes": 298843,
+      "sha256": "730763cbbe51597f76546b264d939cbc7612524e49956a9effd18a8079d38833"
+    },
+    "wangxing_identity_profile": {
+      "filename": "wangxing_identity_profile.json",
+      "source": "data/au/wangxing_identity_profile.json",
+      "bytes": 9636477,
+      "sha256": "8238f8cc2d8e6f3f302c28de37962aadaafaa5b7d837f9fa59e416ce2e7f5d6e"
+    },
+    "wangxing_source_profile": {
+      "filename": "wangxing_source_profile.json",
+      "source": "data/au/wangxing_source_profile.json",
+      "bytes": 214026,
+      "sha256": "d022594da98429a345d75a8c3eab6ce278f565a904209b811900893b1b6690da"
+    },
+    "wangxing_au_profile": {
+      "filename": "wangxing_au_profile.json",
+      "source": "data/au/wangxing_au_profile.json",
+      "bytes": 1710978,
+      "sha256": "43ab4d9b8bcd53544551846bb12b70fd2119074ee103ffcc14624c5459c863fe"
+    },
+    "original_emotion_au_profile": {
+      "filename": "original_emotion_au_profile.json",
+      "source": "data/au/original_emotion_au_profile.json",
+      "bytes": 1719040,
+      "sha256": "661e31b258c45d121cd4c63c34832edf6963678a2499577ed14b09c3af7f9b8d"
+    },
+    "forensics_profiles": {
+      "filename": "forensics_profiles.json",
+      "source": "outputs/forensics/forensics_profiles.json",
+      "bytes": 141437,
+      "sha256": "02a10549f967c0a481f32d75df1b5b8ce902828e1c6e65a309f6a5fd137d342f"
+    },
+    "forensics_authenticity_calibrator": {
+      "filename": "forensics_authenticity_calibrator.json",
+      "source": "extracted runtime calibrator",
+      "bytes": 443,
+      "sha256": "bfdddf5c18d73c0b20a3bc4fde80987eec7cb3d83f5a4b5338bee15e5065c22f"
+    },
+    "holdout_split": {
+      "filename": "holdout_split.json",
+      "source": "data/forensics/holdout_split.json",
+      "bytes": 16295,
+      "sha256": "3c18177232aea063f7760484a92e3dabd240a65339e56787f0c4f51c28dfee3f"
+    },
+    "model_profile": {
+      "filename": "model_profile.json",
+      "source": "config/model_profile.json",
+      "bytes": 2205,
+      "sha256": "ecf58bc66c2192fe6e7d73aa9846639a79596a64a4d90f45a4c7978c4727e6e0"
+    }
+  },
+  "calibrator_runtime_keys": [
+    "schema_version",
+    "status",
+    "feature",
+    "calibration_method",
+    "mean",
+    "scale",
+    "slope",
+    "intercept"
+  ],
+  "verify": {
+    "wangxing_expression_profile": true,
+    "wangxing_identity_profile": true,
+    "wangxing_source_profile": true,
+    "wangxing_au_profile": true,
+    "original_emotion_au_profile": true,
+    "forensics_profiles": true,
+    "forensics_authenticity_calibrator": true,
+    "holdout_split": true,
+    "model_profile": true
+  }
+}

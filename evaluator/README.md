@@ -1,6 +1,10 @@
 # Evaluator 协作包
 
-发给对方时，**整份 `evaluator/` 文件夹**即可。解压后顶层应是：
+发给对方时有两种形态：
+
+### A. 独立包（推荐新接入）
+
+**整份 `evaluator/` 文件夹**。解压后顶层应是：
 
 ```text
 evaluator/
@@ -13,6 +17,30 @@ evaluator/
     ├── forensics/
     └── wangxing/
 ```
+
+### B. 对方现有宿主工程（扁平覆盖）
+
+对方工程已是「根目录 `detail_expression_metrics.py` + `modules/`」时，执行：
+
+```powershell
+python scripts/pack_evaluator_bundle.py --flat-host "对方工程"
+```
+
+或覆盖到 `Evaluator/`（若该目录即对方完整工程根）：
+
+```powershell
+python scripts/pack_evaluator_bundle.py --flat-host "Evaluator"
+```
+
+只覆盖 `detail_expression_metrics.py` 与 `modules/`，**不改**对方的
+`main.py` / `app.py` / `Expression` / `BiaoQing` / `checkpoints` / `input`。
+
+> Windows 注意：`Evaluator` 与 `evaluator` 在同一盘符下是**同一个目录**（大小写不敏感）。
+> 对方完整工程请放在其它名字下（例如本仓库的 `对方工程/`），不要与协作包
+> `evaluator/` 重名，否则扁平覆盖会误删包内 `modules/`。
+
+无 AU CSV 时，表情专项会自动用同级 `Expression/` 动作原型匹配，避免 UI
+假 `0.0%` 与五项 `N/A`。
 
 不要打散文件；不要只拷 `detail_expression_metrics.py`。  
 `__pycache__` 可不发送。仓库根的 `backends/`、`web/` **不属于**本包。
@@ -49,8 +77,6 @@ print(expression.name, expression.score, expression.status)
 python scripts/pack_evaluator_bundle.py --output outputs/evaluator.zip
 ```
 
-解压得到名为 `evaluator` 的文件夹，内容即上表结构。
-
 刷新画像副本：
 
 ```powershell
@@ -64,5 +90,10 @@ python scripts/pack_evaluator_bundle.py --sync-only
 | `detail_expression_metrics.py` | 黄框公开入口 |
 | `modules/wangxing/` | 王兴身份与表情 AU 专项 |
 | `modules/forensics/` | 真拍 vs AI 证据分支 |
-| `modules/core/` | 路径、视频采样与专项 runtime |
+| `modules/core/` | 路径、视频采样、Face Landmarker、Expression 回退 |
 | `modules/assets/profiles/` | 打包画像与校准器 |
+
+## ѵ���ʲ��Ƿ�ᱻ�Է�����
+
+��� `modules/assets/ASSET_USAGE.md`��������·���� 648 ���� profile������· AU ���Զ��ϳ� AU������/��Դ����д�� details��
+
