@@ -1,7 +1,7 @@
 """No-reference video quality adapters (not VMAF).
 
-Preferred external backends (optional): DOVER / FAST-VQA / RAPIQUE when the
-user installs a compatible package. Always-available fallback: a lightweight
+Preferred external backends (optional): DOVER / FAST-VQA / RAPIQUE / SLEEQ when
+the user installs a compatible package. Always-available fallback: a lightweight
 spatial-temporal NR-VQA proxy built from OpenCV statistics.
 
 VMAF is intentionally unsupported here because it is a full-reference metric.
@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import importlib
 import math
+import os
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
@@ -28,7 +29,25 @@ SUPPORTED_BACKENDS = (
     "external_dover",
     "external_fast_vqa",
     "external_rapique",
+    "external_sleeq",
 )
+
+DEFAULT_BACKEND_ORDER = (
+    "external_dover",
+    "external_fast_vqa",
+    "external_rapique",
+    "external_sleeq",
+    "pyiqa_musiq",
+    "pyiqa_brisque",
+    "builtin_nr_vqa",
+)
+
+_EXTERNAL_MODULE_CANDIDATES: dict[str, tuple[str, ...]] = {
+    "external_dover": ("dover", "DOVER", "dover_vqa"),
+    "external_fast_vqa": ("fastvqa", "fast_vqa", "FASTVQA"),
+    "external_rapique": ("rapique", "RAPIQUE"),
+    "external_sleeq": ("sleeq", "SLEEQ"),
+}
 
 
 def _clamp(value: float, lower: float = 0.0, upper: float = 1.0) -> float:
@@ -38,6 +57,18 @@ def _clamp(value: float, lower: float = 0.0, upper: float = 1.0) -> float:
 def _safe_mean(values: Sequence[float]) -> float:
     finite = [float(value) for value in values if math.isfinite(float(value))]
     return float(np.mean(finite)) if finite else 0.0
+
+
+def resolve_nr_vqa_backend_order(
+    prefer_backends: Sequence[str] | None = None,
+) -> list[str]:
+    """Resolve backend preference: explicit arg → env → package default."""
+    if prefer_backends:
+        return [str(item).strip() for item in prefer_backends if str(item).strip()]
+    env_value = os.environ.get("EVALUATOR_NR_VQA_BACKENDS", "").strip()
+    if env_value:
+        return [item.strip() for item in env_value.split(",") if item.strip()]
+    return list(DEFAULT_BACKEND_ORDER)
 
 
 def _frames_from_input(
@@ -141,6 +172,15 @@ def _builtin_nr_vqa(frames: Sequence[np.ndarray]) -> dict[str, Any]:
     }
 
 
+def _normalize_external_score(raw: float) -> float:
+    if raw <= 1.5:
+        return _clamp(raw)
+    if raw <= 5.0:
+        # Common 1-5 MOS style.
+        return _clamp((raw - 1.0) / 4.0)
+    return _clamp(raw / 100.0)
+
+
 def _try_pyiqa(frames: Sequence[np.ndarray], metric_name: str) -> dict[str, Any] | None:
     try:
         import torch
@@ -169,7 +209,7 @@ def _try_pyiqa(frames: Sequence[np.ndarray], metric_name: str) -> dict[str, Any]
         # Lower is better for BRISQUE.
         score = _clamp(1.0 - raw / 100.0)
     else:
-        score = _clamp(raw / 100.0 if raw > 1.5 else raw)
+        score = _normalize_external_score(raw)
     return {
         "backend": f"pyiqa_{metric_name}",
         "status": "available",
@@ -180,33 +220,53 @@ def _try_pyiqa(frames: Sequence[np.ndarray], metric_name: str) -> dict[str, Any]
     }
 
 
-def _try_external(module_name: str, backend: str, frames: Sequence[np.ndarray]) -> dict[str, Any] | None:
-    try:
-        module = importlib.import_module(module_name)
-    except Exception:
-        return None
-    predict = getattr(module, "predict_video_quality", None) or getattr(
-        module,
-        "evaluate",
-        None,
-    )
-    if not callable(predict):
-        return None
-    try:
-        raw = predict(frames)
-        if isinstance(raw, dict):
-            score = float(raw.get("score_0_1", raw.get("score", 0.0)))
-        else:
-            score = float(raw)
-    except Exception:
-        return None
-    return {
-        "backend": backend,
-        "status": "available",
-        "score_0_1": _clamp(score if score <= 1.5 else score / 100.0),
-        "metrics": {},
-        "note": f"External optional backend loaded from {module_name}.",
-    }
+def _call_predict(predict: Any, frames: Sequence[np.ndarray]) -> float:
+    raw = predict(frames)
+    if isinstance(raw, dict):
+        for key in ("score_0_1", "score", "quality", "mos"):
+            if key in raw and raw[key] is not None:
+                return float(raw[key])
+        raise ValueError("External predictor returned a dict without a score key.")
+    return float(raw)
+
+
+def _try_external(backend: str, frames: Sequence[np.ndarray]) -> dict[str, Any] | None:
+    module_names = _EXTERNAL_MODULE_CANDIDATES.get(backend, ())
+    for module_name in module_names:
+        try:
+            module = importlib.import_module(module_name)
+        except Exception:
+            continue
+        predict = None
+        for attr in (
+            "predict_video_quality",
+            "evaluate",
+            "infer",
+            "score",
+            "predict",
+        ):
+            candidate = getattr(module, attr, None)
+            if callable(candidate):
+                predict = candidate
+                break
+        if predict is None:
+            continue
+        try:
+            score = _call_predict(predict, frames)
+        except Exception:
+            continue
+        return {
+            "backend": backend,
+            "status": "available",
+            "score_0_1": _normalize_external_score(score),
+            "raw_score": float(score),
+            "metrics": {},
+            "note": (
+                f"External optional NR-VQA backend loaded from {module_name}. "
+                "VMAF is not used."
+            ),
+        }
+    return None
 
 
 def extract_nr_vqa_features(
@@ -215,8 +275,14 @@ def extract_nr_vqa_features(
     max_frames: int = 24,
     sample_fps: float = 8.0,
     prefer_backends: Sequence[str] | None = None,
+    ensemble: bool = False,
 ) -> dict[str, Any]:
-    """Extract no-reference VQA features with graceful backend fallback."""
+    """Extract no-reference VQA features with graceful backend fallback.
+
+    Set ``EVALUATOR_NR_VQA_BACKENDS=external_dover,builtin_nr_vqa`` to override
+    the default preference order. ``ensemble=True`` averages every available
+    backend in the preference list (still never uses VMAF).
+    """
     frames = _frames_from_input(
         frames_or_video,
         max_frames=max_frames,
@@ -225,19 +291,9 @@ def extract_nr_vqa_features(
     if not frames:
         raise ValueError("No frames available for NR-VQA.")
 
-    order = list(
-        prefer_backends
-        or (
-            "external_dover",
-            "external_fast_vqa",
-            "external_rapique",
-            "pyiqa_musiq",
-            "pyiqa_brisque",
-            "builtin_nr_vqa",
-        )
-    )
+    order = resolve_nr_vqa_backend_order(prefer_backends)
     attempts: list[dict[str, Any]] = []
-    selected: dict[str, Any] | None = None
+    available: list[dict[str, Any]] = []
     for backend in order:
         result = None
         if backend == "builtin_nr_vqa":
@@ -246,20 +302,39 @@ def extract_nr_vqa_features(
             result = _try_pyiqa(frames, "musiq")
         elif backend == "pyiqa_brisque":
             result = _try_pyiqa(frames, "brisque")
-        elif backend == "external_dover":
-            result = _try_external("dover", "external_dover", frames)
-        elif backend == "external_fast_vqa":
-            result = _try_external("fastvqa", "external_fast_vqa", frames)
-        elif backend == "external_rapique":
-            result = _try_external("rapique", "external_rapique", frames)
+        elif backend in _EXTERNAL_MODULE_CANDIDATES:
+            result = _try_external(backend, frames)
         if result is None:
             attempts.append({"backend": backend, "status": "unavailable"})
             continue
         attempts.append({"backend": backend, "status": "available"})
-        selected = result
-        break
-    if selected is None:
-        selected = _builtin_nr_vqa(frames)
+        available.append(result)
+        if not ensemble:
+            break
+
+    if not available:
+        available = [_builtin_nr_vqa(frames)]
+        attempts.append({"backend": "builtin_nr_vqa", "status": "available_fallback"})
+
+    if ensemble and len(available) > 1:
+        score = float(np.mean([item["score_0_1"] for item in available]))
+        selected = {
+            "backend": "ensemble_" + "+".join(item["backend"] for item in available),
+            "status": "available",
+            "score_0_1": _clamp(score),
+            "metrics": {
+                "ensemble_member_count": float(len(available)),
+                "ensemble_score_std": float(
+                    np.std([item["score_0_1"] for item in available])
+                ),
+            },
+            "note": (
+                "Ensemble of available no-reference VQA backends. "
+                "VMAF is intentionally excluded."
+            ),
+        }
+    else:
+        selected = available[0]
 
     features = {
         "nr_vqa_score_0_1": float(selected["score_0_1"]),
@@ -279,7 +354,9 @@ def extract_nr_vqa_features(
         "score_0_1": float(selected["score_0_1"]),
         "features": features,
         "attempts": attempts,
+        "available_backends": [item["backend"] for item in available],
         "vmaf_used": False,
+        "manual_reference_required": False,
         "note": selected.get(
             "note",
             "No-reference VQA only; VMAF is intentionally not used.",

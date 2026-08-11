@@ -11,6 +11,10 @@ import numpy as np
 
 from ..core.face_detection import FaceDetector
 from ..core.video_metrics import sample_video_frames
+from .frequency_forensics import (
+    extract_frequency_forensics_features,
+    merge_frequency_into_texture_features,
+)
 from .nr_vqa import extract_nr_vqa_features
 
 TEXTURE_DETAIL_SCHEMA = "texture_detail_forensics_v1"
@@ -198,8 +202,16 @@ def extract_texture_detail_features(
     sample_fps: float = 8.0,
     detect_faces: bool = True,
     include_nr_vqa: bool = True,
+    nr_vqa_backends: Sequence[str] | None = None,
+    nr_vqa_ensemble: bool = False,
+    include_frequency_forensics: bool = True,
 ) -> dict[str, Any]:
-    """Extract local texture, frequency and frame-to-frame residual features."""
+    """Extract local texture, frequency and frame-to-frame residual features.
+
+    NR-VQA backends default to the package preference order (external DOVER /
+    FAST-VQA / RAPIQUE / SLEEQ → pyiqa → builtin). Override with
+    ``nr_vqa_backends`` or env ``EVALUATOR_NR_VQA_BACKENDS``. VMAF is never used.
+    """
     if isinstance(frames_or_video, (str, Path)):
         video_info, _, timestamps, frames = sample_video_frames(
             frames_or_video,
@@ -308,7 +320,8 @@ def extract_texture_detail_features(
             frames,
             max_frames=max_frames,
             sample_fps=sample_fps,
-            prefer_backends=("builtin_nr_vqa",),
+            prefer_backends=nr_vqa_backends,
+            ensemble=nr_vqa_ensemble,
         )
         features.update(nr_vqa_result.get("features", {}))
         features["nr_vqa_score_0_1"] = float(nr_vqa_result.get("score_0_1", 0.5))
@@ -344,7 +357,7 @@ def extract_texture_detail_features(
             }
         )
 
-    return {
+    result = {
         "schema_version": TEXTURE_DETAIL_SCHEMA,
         "source": str(frames_or_video) if isinstance(frames_or_video, (str, Path)) else "frames",
         "frame_count": len(crops),
@@ -357,10 +370,19 @@ def extract_texture_detail_features(
         "nr_vqa": nr_vqa_result,
         "note": (
             "These are quality and temporal-texture features plus optional "
-            "no-reference VQA. A calibrated real-versus-Seedance profile is "
-            "required for authenticity claims. VMAF is not used."
+            "no-reference VQA and frequency forensics. A calibrated "
+            "real-versus-Seedance profile is required for authenticity claims. "
+            "VMAF is not used."
         ),
     }
+    if include_frequency_forensics:
+        freq_result = extract_frequency_forensics_features(
+            frames,
+            max_frames=max_frames,
+            sample_fps=sample_fps,
+        )
+        result = merge_frequency_into_texture_features(result, freq_result)
+    return result
 
 
 def _profile_from_records(
@@ -424,6 +446,10 @@ def score_texture_detail(
     max_frames: int = 64,
     sample_fps: float = 8.0,
     detect_faces: bool = True,
+    include_nr_vqa: bool = True,
+    nr_vqa_backends: Sequence[str] | None = None,
+    nr_vqa_ensemble: bool = False,
+    include_frequency_forensics: bool = True,
 ) -> dict[str, Any]:
     """Score texture features and optionally calibrate them by domain."""
     if isinstance(features_or_video, dict):
@@ -435,6 +461,10 @@ def score_texture_detail(
             max_frames=max_frames,
             sample_fps=sample_fps,
             detect_faces=detect_faces,
+            include_nr_vqa=include_nr_vqa,
+            nr_vqa_backends=nr_vqa_backends,
+            nr_vqa_ensemble=nr_vqa_ensemble,
+            include_frequency_forensics=include_frequency_forensics,
         )
     if profile is None:
         feature_map = features["features"]
@@ -472,6 +502,9 @@ def score_texture_detail(
                 ),
                 "nr_vqa_score_0_1": _clamp(
                     float(feature_map.get("nr_vqa_score_0_1", 0.5))
+                ),
+                "freq_forensics_score_0_1": _clamp(
+                    float(feature_map.get("freq_forensics_score_0_1", 0.5))
                 ),
                 "raw_real_domain_evidence_0_1": None,
                 "real_capture_likelihood_0_1": None,
@@ -547,6 +580,9 @@ def score_texture_detail(
             "training_free_texture_prior_0_1": training_free_prior,
             "nr_vqa_score_0_1": _clamp(
                 float(feature_map.get("nr_vqa_score_0_1", 0.5))
+            ),
+            "freq_forensics_score_0_1": _clamp(
+                float(feature_map.get("freq_forensics_score_0_1", 0.5))
             ),
         },
         "feature_record": features,

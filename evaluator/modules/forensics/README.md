@@ -24,12 +24,19 @@
 | 模块 | 作用 |
 |------|------|
 | `../core/face_landmarker.py` | FaceLandmarker / Face Mesh 姿态归一化、blendshape、虹膜 |
-| `au_ssl.py` | 自监督 AU 时序一致性（无需人工 AU 标注） |
-| `nr_vqa.py` | 无参考 VQA（内置 + 可选外部后端；不用 VMAF） |
+| `au_ssl.py` | 自监督 AU 时序一致性代理（无需人工 AU 标注） |
+| `au_ssl_backbone.py` | 可训练 TCAE/遮挡帧 AU 时序自编码骨干（`scripts/train_au_ssl_backbone.py`） |
+| `physiological_rhythm.py` | 眨眼 / 眼裂生理节律（关键点 EAR） |
+| `frequency_forensics.py` | 无参考 DCT/FFT 压缩与频谱伪影 |
+| `nr_vqa.py` | 无参考 VQA（内置 + 可选 DOVER/FAST-VQA/RAPIQUE/SLEEQ/pyiqa；不用 VMAF） |
 | `pseudo_label_calibration.py` | 来源标签 / 多模型一致性伪标签 + hold-out 校准 |
 | `perturbation.py` | 自动退化探针（模糊、噪声、闪烁、丢帧、乱序） |
 
 ```powershell
+.\.venv\Scripts\python.exe scripts\train_au_ssl_backbone.py `
+  --au-roots data\au\MD_CL data\au\WangXing_Seedance `
+  --limit 120 --epochs 12
+
 .\.venv\Scripts\python.exe scripts\calibrate_pseudo_labels.py `
   --scored-manifest outputs\forensics\scored_manifest.json `
   --output outputs\forensics\pseudo_calibrator.json

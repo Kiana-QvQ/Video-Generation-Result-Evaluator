@@ -9,7 +9,6 @@ equivalence to human perception.
 
 from __future__ import annotations
 
-import math
 from collections.abc import Callable, Sequence
 from typing import Any
 
@@ -178,5 +177,37 @@ def run_frame_perturbation_battery(
             "Automatic perturbation robustness probe. Passing means scores "
             "move in the expected direction under synthetic degradations; it "
             "does not prove human-MOS equivalence."
+        ),
+    }
+
+
+def run_landmark_jitter_probe(
+    rows: list[dict[str, str]],
+    score_fn: Callable[[list[dict[str, str]]], float],
+    *,
+    sigma: float = 0.02,
+    seed: int = 0,
+    min_drop: float = 0.01,
+) -> dict[str, Any]:
+    """Jitter Face Mesh landmarks in AU CSV rows and check score response."""
+    clean_score = float(score_fn(rows))
+    jittered = perturb_landmark_csv_rows(rows, sigma=sigma, seed=seed)
+    perturbed_score = float(score_fn(jittered))
+    response = evaluate_score_response(
+        clean_score,
+        perturbed_score,
+        expect_decrease=True,
+        min_drop=min_drop,
+    )
+    return {
+        "schema_version": PERTURBATION_SCHEMA,
+        "probe": "landmark_jitter",
+        "sigma": float(sigma),
+        "seed": int(seed),
+        **response,
+        "note": (
+            "Landmark jitter probe for facial-motion stability. A score drop "
+            "indicates sensitivity to landmark noise; it does not prove "
+            "human-perception equivalence."
         ),
     }

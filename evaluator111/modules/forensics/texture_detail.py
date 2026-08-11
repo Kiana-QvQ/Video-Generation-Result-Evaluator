@@ -198,8 +198,15 @@ def extract_texture_detail_features(
     sample_fps: float = 8.0,
     detect_faces: bool = True,
     include_nr_vqa: bool = True,
+    nr_vqa_backends: Sequence[str] | None = None,
+    nr_vqa_ensemble: bool = False,
 ) -> dict[str, Any]:
-    """Extract local texture, frequency and frame-to-frame residual features."""
+    """Extract local texture, frequency and frame-to-frame residual features.
+
+    NR-VQA backends default to the package preference order (external DOVER /
+    FAST-VQA / RAPIQUE / SLEEQ → pyiqa → builtin). Override with
+    ``nr_vqa_backends`` or env ``EVALUATOR_NR_VQA_BACKENDS``. VMAF is never used.
+    """
     if isinstance(frames_or_video, (str, Path)):
         video_info, _, timestamps, frames = sample_video_frames(
             frames_or_video,
@@ -308,7 +315,8 @@ def extract_texture_detail_features(
             frames,
             max_frames=max_frames,
             sample_fps=sample_fps,
-            prefer_backends=("builtin_nr_vqa",),
+            prefer_backends=nr_vqa_backends,
+            ensemble=nr_vqa_ensemble,
         )
         features.update(nr_vqa_result.get("features", {}))
         features["nr_vqa_score_0_1"] = float(nr_vqa_result.get("score_0_1", 0.5))
@@ -424,6 +432,9 @@ def score_texture_detail(
     max_frames: int = 64,
     sample_fps: float = 8.0,
     detect_faces: bool = True,
+    include_nr_vqa: bool = True,
+    nr_vqa_backends: Sequence[str] | None = None,
+    nr_vqa_ensemble: bool = False,
 ) -> dict[str, Any]:
     """Score texture features and optionally calibrate them by domain."""
     if isinstance(features_or_video, dict):
@@ -435,6 +446,9 @@ def score_texture_detail(
             max_frames=max_frames,
             sample_fps=sample_fps,
             detect_faces=detect_faces,
+            include_nr_vqa=include_nr_vqa,
+            nr_vqa_backends=nr_vqa_backends,
+            nr_vqa_ensemble=nr_vqa_ensemble,
         )
     if profile is None:
         feature_map = features["features"]

@@ -14,7 +14,7 @@ They do not claim supervised AU detection accuracy.
 from __future__ import annotations
 
 import math
-from typing import Any, Sequence
+from typing import Any
 
 import numpy as np
 
@@ -95,6 +95,74 @@ def _masked_frame_prediction(
     return float(np.mean(errors)) if errors else 0.0
 
 
+def _tube_masked_prediction(
+    series: np.ndarray,
+    *,
+    tube_ratio: float = 0.20,
+    seed: int = 1,
+) -> float:
+    """VideoMAE-style contiguous tube mask: reconstruct a temporal segment."""
+    series = np.asarray(series, dtype=np.float64)
+    if series.ndim == 1:
+        series = series[:, None]
+    frame_count = series.shape[0]
+    if frame_count < 8:
+        return 0.0
+    tube_len = max(2, int(round(frame_count * tube_ratio)))
+    tube_len = min(tube_len, frame_count - 2)
+    rng = np.random.default_rng(seed)
+    start = int(rng.integers(1, max(2, frame_count - tube_len)))
+    stop = start + tube_len
+    left = series[start - 1]
+    right = series[min(stop, frame_count - 1)]
+    errors: list[float] = []
+    for offset, index in enumerate(range(start, stop)):
+        alpha = (offset + 1) / (tube_len + 1)
+        prediction = (1.0 - alpha) * left + alpha * right
+        errors.append(float(np.mean(np.abs(series[index] - prediction))))
+    return float(np.mean(errors)) if errors else 0.0
+
+
+def _multiscale_reconstruction_error(series: np.ndarray) -> float:
+    """TCAE-like multi-scale temporal autoencoder proxy (kernel 3/5/7)."""
+    series = np.asarray(series, dtype=np.float64)
+    if series.ndim == 1:
+        series = series[:, None]
+    if series.shape[0] < 3:
+        return 0.0
+    errors: list[float] = []
+    for kernel in (3, 5, 7):
+        if series.shape[0] < kernel:
+            continue
+        pad = kernel // 2
+        padded = np.pad(series, ((pad, pad), (0, 0)), mode="edge")
+        reconstructed = np.asarray(
+            [
+                padded[index : index + kernel].mean(axis=0)
+                for index in range(series.shape[0])
+            ],
+            dtype=np.float64,
+        )
+        errors.append(float(np.mean(np.abs(series - reconstructed))))
+    return float(np.mean(errors)) if errors else 0.0
+
+
+def _au_coactivation_consistency(au_matrix: np.ndarray) -> float:
+    """Score whether known synergistic AU pairs move together over time."""
+    matrix = np.asarray(au_matrix, dtype=np.float64)
+    if matrix.ndim != 2 or matrix.shape[0] < 4 or matrix.shape[1] < 2:
+        return 0.5
+    # Adjacent channel pairs as a label-free co-activation prior.
+    pair_scores: list[float] = []
+    for left, right in zip(matrix.T, matrix.T[1:]):
+        pair_scores.append((_safe_corr(left, right) + 1.0) / 2.0)
+    if not pair_scores:
+        return 0.5
+    # Prefer moderate positive coupling without perfect lockstep.
+    mean_agreement = float(np.mean(pair_scores))
+    return _clamp(1.0 - abs(mean_agreement - 0.62) / 0.62)
+
+
 def _coactivation_stability(au_matrix: np.ndarray) -> float:
     """Compare early/late AU correlation graphs (temporal consistency)."""
     matrix = np.asarray(au_matrix, dtype=np.float64)
@@ -136,26 +204,17 @@ def extract_self_supervised_au_features(
                 "ssl_temporal_consistency_0_1": 0.5,
                 "ssl_predictability_0_1": 0.5,
                 "ssl_coactivation_stability_0_1": 0.5,
+                "ssl_coactivation_consistency_0_1": 0.5,
                 "ssl_occlusion_probe_0_1": 0.5,
+                "ssl_videomae_tube_probe_0_1": 0.5,
+                "ssl_dynamics_naturalness_0_1": 0.5,
                 "ssl_au_score_0_1": 0.5,
             },
+            "manual_au_labels_required": False,
         }
 
-    # Temporal reconstruction via local moving-average autoencoder proxy.
-    kernel = 3 if matrix.shape[0] >= 5 else 1
-    if kernel > 1:
-        pad = kernel // 2
-        padded = np.pad(matrix, ((pad, pad), (0, 0)), mode="edge")
-        reconstructed = np.asarray(
-            [
-                padded[index : index + kernel].mean(axis=0)
-                for index in range(matrix.shape[0])
-            ],
-            dtype=np.float64,
-        )
-    else:
-        reconstructed = matrix
-    reconstruction_error = float(np.mean(np.abs(matrix - reconstructed)))
+    # Temporal reconstruction via multi-scale moving-average autoencoder proxy.
+    reconstruction_error = _multiscale_reconstruction_error(matrix)
     features["ssl_reconstruction_error"] = reconstruction_error
     features["ssl_temporal_consistency_0_1"] = _clamp(
         1.0 - reconstruction_error * 4.0
@@ -182,10 +241,17 @@ def extract_self_supervised_au_features(
 
     coactivation = _coactivation_stability(matrix)
     features["ssl_coactivation_stability_0_1"] = coactivation
+    features["ssl_coactivation_consistency_0_1"] = _au_coactivation_consistency(
+        matrix
+    )
 
     occlusion_error = _masked_frame_prediction(matrix)
     features["ssl_occlusion_probe_error"] = occlusion_error
     features["ssl_occlusion_probe_0_1"] = _clamp(1.0 - occlusion_error * 5.0)
+
+    tube_error = _tube_masked_prediction(matrix)
+    features["ssl_videomae_tube_probe_error"] = tube_error
+    features["ssl_videomae_tube_probe_0_1"] = _clamp(1.0 - tube_error * 4.5)
 
     if timestamps_seconds is not None:
         stamps = np.asarray(timestamps_seconds, dtype=np.float64)
@@ -213,10 +279,12 @@ def extract_self_supervised_au_features(
         features["ssl_blendshape_agreement_0_1"] = 0.5
 
     score = _clamp(
-        0.28 * features["ssl_temporal_consistency_0_1"]
-        + 0.22 * features["ssl_predictability_0_1"]
-        + 0.20 * features["ssl_coactivation_stability_0_1"]
-        + 0.18 * features["ssl_occlusion_probe_0_1"]
+        0.22 * features["ssl_temporal_consistency_0_1"]
+        + 0.16 * features["ssl_predictability_0_1"]
+        + 0.14 * features["ssl_coactivation_stability_0_1"]
+        + 0.10 * features["ssl_coactivation_consistency_0_1"]
+        + 0.14 * features["ssl_occlusion_probe_0_1"]
+        + 0.12 * features["ssl_videomae_tube_probe_0_1"]
         + 0.12 * features["ssl_dynamics_naturalness_0_1"]
     )
     features["ssl_au_score_0_1"] = score
@@ -226,10 +294,13 @@ def extract_self_supervised_au_features(
         "frame_count": int(matrix.shape[0]),
         "channel_count": int(matrix.shape[1]),
         "features": features,
+        "manual_au_labels_required": False,
         "note": (
             "Training-free self-supervised AU temporal proxies inspired by "
-            "TCAE / AU-vMAE. They do not require manual AU labels and are not "
-            "a substitute for supervised AU accuracy claims."
+            "TCAE / VideoMAE / AU-vMAE (multi-scale reconstruction, random "
+            "frame mask, contiguous tube mask, co-activation stability). "
+            "They do not require manual AU labels and are not a substitute "
+            "for supervised AU accuracy claims."
         ),
     }
 

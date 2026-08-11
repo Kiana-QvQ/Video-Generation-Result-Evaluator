@@ -1,0 +1,22 @@
+{
+  "output": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\evaluator\\modules\\assets\\models\\au_ssl_tcae.pt",
+  "sequence_count": 80,
+  "csv_count_scanned": 80,
+  "final_loss": 0.12229946682627281,
+  "train_window_count": 1415,
+  "manual_labels_required": false,
+  "sample_sources": [
+    "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_beishang01\\040061620397.csv",
+    "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_beishang01\\040061620398.csv",
+    "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_beishang01\\040061620402.csv",
+    "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_beishang01\\040061620404.csv",
+    "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_beishang01\\040061620409.csv",
+    "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_beishang01\\040061620410.csv",
+    "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_beishang01\\040061620411.csv",
+    "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_beishang01\\040061620412.csv",
+    "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_beishang01\\040061620415.csv",
+    "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_beishang01\\040061620416.csv",
+    "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_beishang01\\048070810265.csv",
+    "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\au\\MD_CL\\CL_beishang01\\048070810273.csv"
+  ]
+}

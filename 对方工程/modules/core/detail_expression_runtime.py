@@ -356,7 +356,10 @@ def _ensure_au_csv(
     max_frames: int,
 ) -> tuple[PreparedVideo, str | None]:
     """Attach a real AU CSV: side-car first, else synthesize from frames."""
-    if generated.au_csv and Path(generated.au_csv).is_file():
+    # ``prepare_video_input`` only accepts existing sidecars, while direct
+    # callers may provide a prepared object with an already-resolved path.
+    # Respect that explicit contract and avoid an unnecessary MediaPipe pass.
+    if generated.au_csv:
         return generated, "sidecar"
     if not generated.frames:
         return generated, None

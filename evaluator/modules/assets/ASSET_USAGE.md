@@ -26,9 +26,19 @@
 
 | 文件 | 说明 |
 |------|------|
-| `modules/assets/models/face_landmarker.task` | AU 合成用；缺失时首次联网下载到该路径或系统临时目录 |
+| `modules/assets/models/face_landmarker.task` | MediaPipe Face Landmarker；AU 合成 / 姿态归一化；缺失时首次联网下载到该路径或系统临时目录 |
+| `modules/assets/models/au_ssl_tcae.pt` | 无标注 AU 时序自编码骨干；由 `scripts/train_au_ssl_backbone.py` 在 `data/au` 上训练生成 |
 | `vedio_pred/models/*.pt` | 真伪检测；不在 modules zip 内，需保留对方工程原有目录 |
 | `checkpoints/Qwen*` / CLIP | 文本/QA；大模型未发则该项跳过，不影响表情 profile |
+
+可选无参考 VQA 外部包（安装后自动优先于内置代理；**不用 VMAF**）：
+
+| 环境变量 / 包 | 说明 |
+|---------------|------|
+| `EVALUATOR_NR_VQA_BACKENDS` | 逗号分隔后端顺序，如 `external_dover,pyiqa_musiq,builtin_nr_vqa` |
+| `dover` / `fastvqa` / `rapique` / `sleeq` | 需提供 `predict_video_quality(frames)` 或 `evaluate(frames)` |
+| `pyiqa` | 可选 MUSIQ / BRISQUE |
+| （默认）`builtin_nr_vqa` | OpenCV 时空代理，始终可用 |
 
 ## 交付命令
 
@@ -37,3 +47,14 @@ python scripts/pack_evaluator_bundle.py --flat-host "对方工程"
 ```
 
 只覆盖入口与 `modules/`，不覆盖对方 `main.py` / `Expression` / `checkpoints` / `input`。
+
+## 后续同步命令
+
+先在 `evaluator/` 完成修改和测试，再运行：
+
+```powershell
+.\scripts\sync_forensics_bundle.ps1
+```
+
+该命令只同步公共评估入口、MediaPipe/AU 运行时、forensics 模块、
+文档和自动校准/扰动工具到同仓库中的目标工程。

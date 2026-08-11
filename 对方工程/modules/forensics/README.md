@@ -25,7 +25,7 @@
 |------|------|
 | `../core/face_landmarker.py` | FaceLandmarker / Face Mesh 姿态归一化、blendshape、虹膜 |
 | `au_ssl.py` | 自监督 AU 时序一致性（无需人工 AU 标注） |
-| `nr_vqa.py` | 无参考 VQA（内置 + 可选外部后端；不用 VMAF） |
+| `nr_vqa.py` | 无参考 VQA（内置 + 可选 DOVER/FAST-VQA/RAPIQUE/SLEEQ/pyiqa；不用 VMAF） |
 | `pseudo_label_calibration.py` | 来源标签 / 多模型一致性伪标签 + hold-out 校准 |
 | `perturbation.py` | 自动退化探针（模糊、噪声、闪烁、丢帧、乱序） |
 
