@@ -14,6 +14,14 @@ from .au_ssl import (
     extract_self_supervised_au_features,
     merge_ssl_into_motion_features,
 )
+from .au_ssl_backbone import (
+    extract_backbone_features,
+    merge_backbone_into_ssl,
+)
+from .physiological_rhythm import (
+    extract_physiological_rhythm_features,
+    merge_physio_into_motion_features,
+)
 
 FACIAL_MOTION_SCHEMA = "facial_motion_forensics_v1"
 DEFAULT_AU_IDS = (
@@ -513,6 +521,8 @@ def extract_facial_motion_features(
     time_aware_derivatives: bool = False,
     pose_normalize: bool = True,
     include_ssl: bool = True,
+    include_physio: bool = True,
+    include_ssl_backbone: bool = True,
 ) -> dict[str, Any]:
     """Extract AU and pose-normalized Face Mesh motion features from one CSV."""
     rows, fieldnames = _read_rows(csv_path)
@@ -565,6 +575,7 @@ def extract_facial_motion_features(
     )
     valid_landmark_frames = 0
     pose_normalized_frames = 0
+    physio_landmark_frames: list[dict[int, np.ndarray]] = []
     for row_index, row in enumerate(rows):
         raw_points = _frame_landmarks(row, landmark_columns)
         z_values = _frame_landmark_z(row, landmark_z_columns)
@@ -584,6 +595,13 @@ def extract_facial_motion_features(
                 raw_points,
                 points_z=z_values or None,
                 pose_normalize=False,
+            )
+        if points:
+            physio_landmark_frames.append(
+                {
+                    index: np.asarray(coord, dtype=np.float32)
+                    for index, coord in points.items()
+                }
             )
         groups = _group_centroids(points)
         if groups:
@@ -744,7 +762,27 @@ def extract_facial_motion_features(
             timestamps_seconds=timestamps_seconds,
             blendshape_matrix=blendshape_matrix,
         )
+        if include_ssl_backbone:
+            backbone_result = extract_backbone_features(au_matrix)
+            ssl_result = merge_backbone_into_ssl(ssl_result, backbone_result)
         result = merge_ssl_into_motion_features(result, ssl_result)
+    if include_physio:
+        blink_signal = None
+        # Prefer AU45 intensity if present among columns.
+        for field in fieldnames:
+            lowered = str(field).lower().replace(" ", "")
+            if "au45" in lowered or "au_45" in lowered:
+                blink_signal = np.asarray(
+                    [_clamp(_finite(row.get(field), 0.0), 0.0, 1.0) for row in rows],
+                    dtype=np.float64,
+                )
+                break
+        physio_result = extract_physiological_rhythm_features(
+            physio_landmark_frames or None,
+            timestamps_seconds=timestamps_seconds,
+            blink_signal=blink_signal,
+        )
+        result = merge_physio_into_motion_features(result, physio_result)
     return result
 
 
@@ -971,8 +1009,14 @@ def score_facial_motion(
             "ssl_au_score_0_1": _clamp(
                 _finite(feature_map.get("ssl_au_score_0_1"), 0.5)
             ),
+            "ssl_backbone_score_0_1": _clamp(
+                _finite(feature_map.get("ssl_backbone_score_0_1"), 0.5)
+            ),
             "ssl_temporal_consistency_0_1": _clamp(
                 _finite(feature_map.get("ssl_temporal_consistency_0_1"), 0.5)
+            ),
+            "physio_rhythm_score_0_1": _clamp(
+                _finite(feature_map.get("physio_rhythm_score_0_1"), 0.5)
             ),
             "pose_normalized_frame_ratio": _clamp(
                 _finite(feature_map.get("pose_normalized_frame_ratio"), 0.0)

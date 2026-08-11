@@ -1,9 +1,13 @@
-﻿# 扁平接入说明（对方宿主工程）
+# 扁平接入说明（对方宿主工程）
 
-已覆盖：`detail_expression_metrics.py` + `modules/`
-未改：`main.py` / `app.py` / `Expression` / `checkpoints` / `input`
+已覆盖到对方项目根目录：
 
-无 AU CSV 时自动用同级 Expression/ 动作原型匹配，避免假 0.0% 与五项 N/A。
-完整王兴 AU 专项仍建议视频旁放 同名.csv / 同名_au.csv。
+- `detail_expression_metrics.py`
+- `modules/`
 
-Windows：不要把宿主工程命名为 Evaluator，若与协作包 evaluator 同盘会冲突。
+不要改对方的 `main.py` / `app.py` / `Expression` / `checkpoints`。
+
+无 AU CSV 时：优先从视频自动合成 AU，对照王兴表情 profile（约 648 样本）；
+仅合成失败才回退 Expression/ 动作原型图。
+
+详见 modules/assets/ASSET_USAGE.md。

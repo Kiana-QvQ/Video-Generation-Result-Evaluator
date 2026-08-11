@@ -25,20 +25,26 @@ $relativeFiles = @(
     "modules/core/detail_expression_runtime.py",
     "modules/core/face_landmarker.py",
     "modules/assets/ASSET_USAGE.md",
+    "modules/assets/models/au_ssl_tcae.pt",
+    "modules/assets/models/au_ssl_tcae.json",
     "modules/forensics/README.md",
     "modules/forensics/__init__.py",
     "modules/forensics/au_ssl.py",
+    "modules/forensics/au_ssl_backbone.py",
     "modules/forensics/facial_motion.py",
+    "modules/forensics/frequency_forensics.py",
     "modules/forensics/nr_vqa.py",
     "modules/forensics/perturbation.py",
     "modules/forensics/pseudo_label_calibration.py",
+    "modules/forensics/physiological_rhythm.py",
     "modules/forensics/report.py",
     "modules/forensics/texture_detail.py"
 )
 
 $toolFiles = @(
     "scripts/calibrate_pseudo_labels.py",
-    "scripts/run_perturbation_robustness.py"
+    "scripts/run_perturbation_robustness.py",
+    "scripts/train_au_ssl_backbone.py"
 )
 
 foreach ($targetName in $Targets) {

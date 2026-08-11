@@ -27,6 +27,7 @@
 | 文件 | 说明 |
 |------|------|
 | `modules/assets/models/face_landmarker.task` | MediaPipe Face Landmarker；AU 合成 / 姿态归一化；缺失时首次联网下载到该路径或系统临时目录 |
+| `modules/assets/models/au_ssl_tcae.pt` | 无标注 AU 时序自编码骨干；由 `scripts/train_au_ssl_backbone.py` 在 `data/au` 上训练生成 |
 | `vedio_pred/models/*.pt` | 真伪检测；不在 modules zip 内，需保留对方工程原有目录 |
 | `checkpoints/Qwen*` / CLIP | 文本/QA；大模型未发则该项跳过，不影响表情 profile |
 

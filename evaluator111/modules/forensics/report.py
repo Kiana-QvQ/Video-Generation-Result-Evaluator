@@ -164,8 +164,23 @@ def analyze_forensics(
                 if isinstance(facial_result, dict)
                 else None
             ),
+            "ssl_backbone_score_0_1": (
+                facial_result.get("metrics", {}).get("ssl_backbone_score_0_1")
+                if isinstance(facial_result, dict)
+                else None
+            ),
+            "physio_rhythm_score_0_1": (
+                facial_result.get("metrics", {}).get("physio_rhythm_score_0_1")
+                if isinstance(facial_result, dict)
+                else None
+            ),
             "nr_vqa_score_0_1": (
                 texture_result.get("metrics", {}).get("nr_vqa_score_0_1")
+                if isinstance(texture_result, dict)
+                else None
+            ),
+            "freq_forensics_score_0_1": (
+                texture_result.get("metrics", {}).get("freq_forensics_score_0_1")
                 if isinstance(texture_result, dict)
                 else None
             ),
@@ -227,9 +242,19 @@ def analyze_forensics(
                 "Training-free self-supervised AU temporal consistency "
                 "(TCAE / VideoMAE style proxies). No manual AU labels."
             ),
+            "ssl_backbone_score_0_1": (
+                "Trained lightweight AU temporal autoencoder score "
+                "(reconstruction + prediction + masking). Optional weights."
+            ),
+            "physio_rhythm_score_0_1": (
+                "Blink / eye-aperture physiological rhythm from landmarks."
+            ),
             "nr_vqa_score_0_1": (
                 "No-reference VQA score (builtin / pyiqa / optional DOVER, "
                 "FAST-VQA, RAPIQUE, SLEEQ). VMAF is not used."
+            ),
+            "freq_forensics_score_0_1": (
+                "No-reference DCT/FFT compression and spectrum forensics."
             ),
             "pose_normalized_frame_ratio": (
                 "Fraction of AU/landmark frames pose-normalized via "
@@ -246,7 +271,10 @@ def analyze_forensics(
         "auto_pipeline": {
             "pose_normalization": True,
             "self_supervised_au": True,
+            "ssl_backbone": True,
+            "physiological_rhythm": True,
             "no_reference_vqa": True,
+            "frequency_forensics": True,
             "nr_vqa_backend": (
                 texture_result.get("feature_record", {})
                 .get("nr_vqa", {})
