@@ -151,6 +151,24 @@ def main() -> int:
             "stored but ignored by the runtime scorer."
         ),
     )
+    parser.add_argument(
+        "--min-landmark-ratio",
+        type=float,
+        default=0.0,
+        help=(
+            "Drop AU clips below this landmark_valid_frame_ratio when "
+            "building the facial-motion profile (e.g. 0.45)."
+        ),
+    )
+    parser.add_argument(
+        "--min-pose-ratio",
+        type=float,
+        default=0.0,
+        help=(
+            "Drop AU clips below this pose_normalized_frame_ratio when "
+            "building the facial-motion profile (e.g. 0.35)."
+        ),
+    )
     args = parser.parse_args()
     if args.skip_motion and args.motion_only:
         print("ERROR: --skip-motion and --motion-only cannot be combined.")
@@ -236,6 +254,8 @@ def main() -> int:
             facial_motion_profile = build_two_domain_facial_motion_profile(
                 real_au_paths,
                 seedance_au_paths,
+                min_landmark_ratio=args.min_landmark_ratio,
+                min_pose_ratio=args.min_pose_ratio,
             )
         except (OSError, ValueError, RuntimeError) as exc:
             print(f"ERROR: facial-motion profile failed: {exc}")
@@ -254,6 +274,8 @@ def main() -> int:
             "holdout_excluded_seedance_au_count": len(
                 excluded_seedance_au
             ),
+            "min_landmark_ratio": float(args.min_landmark_ratio),
+            "min_pose_ratio": float(args.min_pose_ratio),
             "real_au_sources": _relative_sources(real_au_paths, real_au_root),
             "seedance_au_sources": _relative_sources(
                 seedance_au_paths,

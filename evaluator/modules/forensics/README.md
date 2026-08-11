@@ -28,6 +28,8 @@
 | `au_ssl_backbone.py` | 可训练 TCAE/遮挡帧 AU 时序自编码骨干（`scripts/train_au_ssl_backbone.py`） |
 | `physiological_rhythm.py` | 眨眼 / 眼裂生理节律（关键点 EAR） |
 | `frequency_forensics.py` | 无参考 DCT/FFT 压缩与频谱伪影 |
+| `fused_hard_detector.py` | 王兴 source + forensics 融合**硬判**（无不确定类） |
+| `authenticity_decision.py` | 真/生成/可选不确定判定与指标汇总 |
 | `nr_vqa.py` | 无参考 VQA（内置 + 可选 DOVER/FAST-VQA/RAPIQUE/SLEEQ/pyiqa；不用 VMAF） |
 | `pseudo_label_calibration.py` | 来源标签 / 多模型一致性伪标签 + hold-out 校准 |
 | `perturbation.py` | 自动退化探针（模糊、噪声、闪烁、丢帧、乱序） |

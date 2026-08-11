@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 1040">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0.8" y2="1">
+      <stop offset="0" stop-color="#27324a"/>
+      <stop offset=".52" stop-color="#e9784d"/>
+      <stop offset="1" stop-color="#f5b64f"/>
+    </linearGradient>
+    <linearGradient id="ground" x1="0" y1="0" x2="0" y2="1">
+      <stop stop-color="#302c2a"/>
+      <stop offset="1" stop-color="#0c1111"/>
+    </linearGradient>
+  </defs>
+  <rect width="720" height="1040" fill="url(#sky)"/>
+  <path d="M0 490 190 330 360 470 510 280 720 470V620H0Z" fill="#172630" opacity=".86"/>
+  <path d="M0 610 175 455 335 620 520 400 720 590V760H0Z" fill="#202b2b"/>
+  <rect y="680" width="720" height="360" fill="url(#ground)"/>
+  <path d="M170 710 350 570 530 710Z" fill="#344840"/>
+  <path d="M350 570 350 710H170Z" fill="#26362f"/>
+  <path d="M0 860 Q190 770 360 860 T720 840V1040H0Z" fill="#151a18"/>
+  <circle cx="555" cy="680" r="32" fill="#ffce63"/>
+  <path d="M550 750c-35 22-38 72 0 95 38-23 35-73 0-95Z" fill="#ff6a49"/>
+  <path d="M542 680 530 840M575 680 590 840" stroke="#111817" stroke-width="9"/>
+  <text x="42" y="962" fill="#f3ebd8" font-family="monospace" font-size="22" letter-spacing="4">CANDIDATE A</text>
+  <text x="42" y="998" fill="#ffb19c" font-family="monospace" font-size="12" letter-spacing="3">DEMO POSTER / REPLACE VIDEO</text>
+</svg>

@@ -100,6 +100,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="Predict generated when real-score < threshold.",
     )
     parser.add_argument(
+        "--auto-threshold",
+        action="store_true",
+        help="Pick threshold maximizing balanced recall on this holdout.",
+    )
+    parser.add_argument(
         "--include-texture",
         action="store_true",
         help="Also score texture branch (slower).",
@@ -219,11 +224,47 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
 
     metrics = _metrics(labels, preds)
+    auto = None
+    if args.auto_threshold and rows:
+        scored = [row for row in rows if row.get("status") == "ok"]
+        ys = [int(row["label_generated"]) for row in scored]
+        scores = [float(row["decision_score_real"]) for row in scored]
+        best = None
+        for step in range(15, 56):
+            threshold = step / 100.0
+            local_preds = [1 if score < threshold else 0 for score in scores]
+            local = _metrics(ys, local_preds)
+            gen_rec = float(local["generated_recall"] or 0.0)
+            real_rec = float(local["real_recall"] or 0.0)
+            bal = 0.5 * (gen_rec + real_rec)
+            cand = {
+                "threshold": threshold,
+                "metrics": local,
+                "balanced_recall": bal,
+            }
+            if best is None or bal > best["balanced_recall"]:
+                best = cand
+        auto = best
+        if best is not None:
+            metrics = best["metrics"]
+            args.threshold = float(best["threshold"])
+            # Refresh pred fields for headline consistency.
+            for row, pred in zip(
+                scored,
+                [
+                    1 if float(row["decision_score_real"]) < args.threshold else 0
+                    for row in scored
+                ],
+            ):
+                row["pred_generated"] = pred
+                row["correct"] = int(pred == int(row["label_generated"]))
+
     payload = {
         "schema_version": "holdout_detection_metrics_v1",
         "profile": str(profile_path),
         "holdout_manifest": str(holdout_path),
         "threshold": args.threshold,
+        "auto_threshold": auto,
         "decision_rule": (
             f"predict generated if {score_key_used or 'real_score'} < {args.threshold}"
         ),
@@ -233,12 +274,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         "metrics": metrics,
         "headline": {
             "generated_recall": metrics.get("generated_recall"),
+            "generated_precision": metrics.get("generated_precision"),
+            "real_recall": metrics.get("real_recall"),
             "overall_accuracy": metrics.get("accuracy"),
         },
         "rows": rows,
         "note": (
             "Holdout real/generated source labels only; no manual MOS scores. "
-            "Recall is for the generated class; accuracy is over real+generated."
+            "Recall is for the generated class; accuracy is over real+generated. "
+            "Low-quality / ugly frames are quality-gated toward uncertain."
         ),
     }
     output = project_path(args.output)

@@ -101,6 +101,11 @@ def branch_confidence(result: dict[str, Any] | None) -> float:
     if coverage is None:
         coverage = metrics.get("face_box_coverage")
     coverage_score = 0.75 if coverage is None else _clamp(float(coverage))
+    quality_gate = metrics.get("input_quality_gate_0_1")
+    if quality_gate is not None:
+        coverage_score = _clamp(
+            0.65 * coverage_score + 0.35 * float(quality_gate)
+        )
     frame_count = result.get("feature_record", {}).get("frame_count", 0)
     frame_score = _clamp(float(frame_count) / 16.0)
     fit_score = metrics.get("real_domain_fit_0_1")

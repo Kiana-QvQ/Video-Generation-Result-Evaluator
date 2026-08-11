@@ -7,6 +7,10 @@ from .au_ssl_backbone import (
     save_backbone,
     train_au_ssl_backbone,
 )
+from .authenticity_decision import (
+    decide_real_vs_generated,
+    metrics_from_decisions,
+)
 from .facial_motion import (
     build_facial_motion_profile,
     build_two_domain_facial_motion_profile,
@@ -14,6 +18,7 @@ from .facial_motion import (
     score_facial_motion,
 )
 from .frequency_forensics import extract_frequency_forensics_features
+from .fused_hard_detector import score_fused_hard_detector
 from .nr_vqa import extract_nr_vqa_features, resolve_nr_vqa_backend_order
 from .perturbation import (
     run_frame_perturbation_battery,
@@ -47,6 +52,7 @@ __all__ = [
     "build_pseudo_labeled_samples",
     "build_texture_detail_profile",
     "build_two_domain_facial_motion_profile",
+    "decide_real_vs_generated",
     "extract_backbone_features",
     "extract_facial_motion_features",
     "extract_frequency_forensics_features",
@@ -59,11 +65,13 @@ __all__ = [
     "fuse_authenticity_evidence",
     "load_backbone",
     "merge_ssl_into_motion_features",
+    "metrics_from_decisions",
     "rank_window_evidence",
     "resolve_nr_vqa_backend_order",
     "run_frame_perturbation_battery",
     "run_landmark_jitter_probe",
     "save_backbone",
+    "score_fused_hard_detector",
     "summarize_window_evidence",
     "score_facial_motion",
     "score_texture_detail",

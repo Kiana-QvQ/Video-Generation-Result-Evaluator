@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="独立的视频生成结果人工真人感对比评测页"
+    />
+    <title>Human Signal / 视频人工评测</title>
+    <link rel="stylesheet" href="/assets/styles.css" />
+  </head>
+  <body>
+    <div class="ambient ambient-one"></div>
+    <div class="ambient ambient-two"></div>
+    <div class="noise"></div>
+
+    <div class="page-shell">
+      <header class="topbar">
+        <a class="brand" href="/" aria-label="Human Signal 首页">
+          <span class="brand-mark">HS/01</span>
+          <span class="brand-copy">
+            <strong>HUMAN SIGNAL</strong>
+            <small>GENERATED VIDEO REVIEW</small>
+          </span>
+        </a>
+        <div class="topbar-right">
+          <span class="live-indicator"><i></i> LOCAL REVIEW</span>
+          <span class="topbar-rule"></span>
+          <span id="session-state">SESSION READY</span>
+        </div>
+      </header>
+
+      <main>
+        <section class="intro">
+          <div class="intro-copy">
+            <p class="kicker">PAIRWISE EVALUATION / VIDEO GENERATION</p>
+            <h1>看哪一个，<em>更像真人。</em></h1>
+            <p class="intro-text">
+              只关注人物的动作、表情、重心和时序连续性。不要评价模型名称、画质或
+              美术风格，除非它们直接影响了真人感。
+            </p>
+          </div>
+          <div class="progress-orbit" aria-label="评测进度">
+            <span class="orbit-label">ROUND</span>
+            <strong id="progress-current">--</strong>
+            <span class="orbit-total">/ <b id="progress-total">--</b></span>
+          </div>
+        </section>
+
+        <section class="review-stage" aria-live="polite">
+          <div class="stage-head">
+            <div>
+              <p class="kicker">CURRENT PAIR</p>
+              <h2 id="task-title">正在准备下一道题</h2>
+            </div>
+            <div class="stage-meta">
+              <span id="modality-chip" class="chip">LOADING</span>
+              <span id="task-id" class="task-id">TASK --</span>
+            </div>
+          </div>
+
+          <div id="context-card" class="context-card">
+            <div class="context-label">
+              <span class="context-index">01</span>
+              <span>CONDITION / 参考内容</span>
+            </div>
+            <div class="context-body">
+              <div id="prompt-block" class="prompt-block">
+                <span>TEXT CONDITION</span>
+                <p id="prompt-text">等待任务数据...</p>
+              </div>
+              <div id="reference-strip" class="reference-strip">
+                <div class="reference-empty">此题没有额外参考内容</div>
+              </div>
+            </div>
+          </div>
+
+          <div id="message-panel" class="message-panel is-hidden" role="status"></div>
+
+          <div id="compare-grid" class="compare-grid">
+            <article class="candidate-card" data-candidate="A">
+              <div class="candidate-head">
+                <div class="candidate-title">
+                  <span class="candidate-letter">A</span>
+                  <div>
+                    <span class="candidate-kicker">CANDIDATE</span>
+                    <strong>VIDEO A</strong>
+                  </div>
+                </div>
+                <span class="candidate-state">WATCH FULL CLIP</span>
+              </div>
+              <div class="video-frame">
+                <video
+                  id="video-a"
+                  playsinline
+                  controls
+                  preload="metadata"
+                  aria-label="候选视频 A"
+                ></video>
+                <div id="reveal-a" class="source-reveal is-hidden" aria-live="polite">
+                  <span>REVEALED SOURCE</span>
+                  <strong></strong>
+                </div>
+                <div class="video-empty">
+                  <span class="empty-mark">A</span>
+                  <strong>等待视频</strong>
+                  <small>请在任务清单中配置媒体路径</small>
+                </div>
+              </div>
+              <div class="candidate-foot">
+                <span>POSITION RANDOMIZED</span>
+                <span>UNKNOWN MODEL</span>
+              </div>
+            </article>
+
+            <div class="spine">
+              <div class="spine-line"></div>
+              <div class="spine-core">
+                <span>READ</span>
+                <strong>HUMAN<br />SIGNAL</strong>
+                <small>动作 / 表情 / 重心 / 连续性</small>
+              </div>
+              <div class="spine-line"></div>
+            </div>
+
+            <article class="candidate-card" data-candidate="B">
+              <div class="candidate-head">
+                <div class="candidate-title">
+                  <span class="candidate-letter">B</span>
+                  <div>
+                    <span class="candidate-kicker">CANDIDATE</span>
+                    <strong>VIDEO B</strong>
+                  </div>
+                </div>
+                <span class="candidate-state">WATCH FULL CLIP</span>
+              </div>
+              <div class="video-frame">
+                <video
+                  id="video-b"
+                  playsinline
+                  controls
+                  preload="metadata"
+                  aria-label="候选视频 B"
+                ></video>
+                <div id="reveal-b" class="source-reveal is-hidden" aria-live="polite">
+                  <span>REVEALED SOURCE</span>
+                  <strong></strong>
+                </div>
+                <div class="video-empty">
+                  <span class="empty-mark">B</span>
+                  <strong>等待视频</strong>
+                  <small>请在任务清单中配置媒体路径</small>
+                </div>
+              </div>
+              <div class="candidate-foot">
+                <span>POSITION RANDOMIZED</span>
+                <span>UNKNOWN MODEL</span>
+              </div>
+            </article>
+          </div>
+
+          <section class="decision-panel">
+            <div class="decision-copy">
+              <span class="kicker">02 / YOUR CALL</span>
+              <h2>哪一个表演更像真人？</h2>
+              <p>如果差异不明显，或视频无法判断，请选择第三项。</p>
+            </div>
+            <div class="decision-actions">
+              <button class="choice-button" data-choice="A" type="button">
+                <span class="choice-key">A</span>
+                <span class="choice-text">左侧视频更像真人</span>
+              </button>
+              <button class="choice-button" data-choice="B" type="button">
+                <span class="choice-key">B</span>
+                <span class="choice-text">右侧视频更像真人</span>
+              </button>
+              <button class="choice-button choice-neutral" data-choice="tie_or_unrateable" type="button">
+                <span class="choice-key">C</span>
+                <span class="choice-text">一样 / 无法评估</span>
+              </button>
+            </div>
+            <div class="decision-footer">
+              <span id="response-clock">观看时间 00:00</span>
+              <button id="submit-vote" class="submit-button" type="button" disabled>
+                <span>提交并进入下一题</span>
+                <b>↗</b>
+              </button>
+            </div>
+          </section>
+        </section>
+
+        <section id="complete-panel" class="complete-panel is-hidden">
+          <span class="kicker">REVIEW COMPLETE</span>
+          <h2>这一轮已经完成。</h2>
+          <p>所有可用任务都已记录。你可以清除本地会话后重新开始。</p>
+          <button id="restart-review" class="outline-button" type="button">
+            重新开始这一轮
+          </button>
+        </section>
+
+        <section class="guidance">
+          <div class="guidance-title">
+            <span class="kicker">REVIEW NOTES</span>
+            <h2>只看表演，<br /><em>不要猜模型。</em></h2>
+          </div>
+          <div class="guidance-list">
+            <article>
+              <span>01</span>
+              <strong>动作是否自然</strong>
+              <p>观察身体重心、手臂轨迹和动作收尾有没有真实惯性。</p>
+            </article>
+            <article>
+              <span>02</span>
+              <strong>表情是否连续</strong>
+              <p>观察眼睛、嘴部和面部肌肉是否在时间上保持一致。</p>
+            </article>
+            <article>
+              <span>03</span>
+              <strong>不确定就选 C</strong>
+              <p>无法看清、两者差异太小，或都没有明显真人感时不要强行二选一。</p>
+            </article>
+          </div>
+        </section>
+      </main>
+
+      <footer class="footer">
+        <span>HUMAN SIGNAL / LOCAL FIRST</span>
+        <span>Pairwise review for generated human performance</span>
+      </footer>
+    </div>
+
+    <script src="/assets/app.js"></script>
+  </body>
+</html>

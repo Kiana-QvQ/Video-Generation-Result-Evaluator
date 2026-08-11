@@ -821,48 +821,93 @@ def build_facial_motion_profile(
     csv_paths: Iterable[str | Path],
     *,
     domain: str = "real",
+    min_landmark_ratio: float = 0.0,
+    min_pose_ratio: float = 0.0,
 ) -> dict[str, Any]:
-    records = [
-        extract_facial_motion_features(
+    records: list[dict[str, Any]] = []
+    skipped = 0
+    for path in csv_paths:
+        record = extract_facial_motion_features(
             path,
             time_aware_derivatives=True,
         )
-        for path in csv_paths
-    ]
-    return _profile_from_feature_records(records, domain=domain)
+        features = record.get("features", {})
+        landmark_ratio = float(features.get("landmark_valid_frame_ratio", 0.0))
+        pose_ratio = float(features.get("pose_normalized_frame_ratio", 0.0))
+        if landmark_ratio < min_landmark_ratio or pose_ratio < min_pose_ratio:
+            skipped += 1
+            continue
+        records.append(record)
+    if not records:
+        raise ValueError(
+            f"No usable facial-motion records for domain={domain} "
+            f"(skipped_low_quality={skipped})."
+        )
+    profile = _profile_from_feature_records(records, domain=domain)
+    profile["quality_filter"] = {
+        "min_landmark_ratio": float(min_landmark_ratio),
+        "min_pose_ratio": float(min_pose_ratio),
+        "kept_count": len(records),
+        "skipped_low_quality": skipped,
+    }
+    return profile
 
 
 def build_two_domain_facial_motion_profile(
     real_csv_paths: Iterable[str | Path],
     seedance_csv_paths: Iterable[str | Path],
+    *,
+    min_landmark_ratio: float = 0.0,
+    min_pose_ratio: float = 0.0,
 ) -> dict[str, Any]:
     def _extract_all(
         paths: Sequence[str | Path],
         *,
         label: str,
-    ) -> list[dict[str, Any]]:
+    ) -> tuple[list[dict[str, Any]], int]:
         records: list[dict[str, Any]] = []
+        skipped = 0
         total = len(paths)
         for index, path in enumerate(paths, start=1):
-            records.append(
-                extract_facial_motion_features(
-                    path,
-                    time_aware_derivatives=True,
-                )
+            record = extract_facial_motion_features(
+                path,
+                time_aware_derivatives=True,
             )
+            features = record.get("features", {})
+            landmark_ratio = float(
+                features.get("landmark_valid_frame_ratio", 0.0)
+            )
+            pose_ratio = float(
+                features.get("pose_normalized_frame_ratio", 0.0)
+            )
+            if (
+                landmark_ratio < min_landmark_ratio
+                or pose_ratio < min_pose_ratio
+            ):
+                skipped += 1
+            else:
+                records.append(record)
             if index == 1 or index == total or index % 25 == 0:
                 print(
-                    f"  [{label}] {index}/{total} {Path(path).name}",
+                    f"  [{label}] {index}/{total} kept={len(records)} "
+                    f"skip_q={skipped} {Path(path).name}",
                     flush=True,
                 )
-        return records
+        return records, skipped
 
     real_path_list = list(real_csv_paths)
     seedance_path_list = list(seedance_csv_paths)
-    real_records = _extract_all(real_path_list, label="real")
-    seedance_records = _extract_all(seedance_path_list, label="seedance")
+    real_records, real_skipped = _extract_all(real_path_list, label="real")
+    seedance_records, seedance_skipped = _extract_all(
+        seedance_path_list,
+        label="seedance",
+    )
     if not real_records or not seedance_records:
-        raise ValueError("Both real and Seedance records are required.")
+        raise ValueError(
+            "Both real and Seedance records are required after quality filter "
+            f"(real_kept={len(real_records)}, seedance_kept={len(seedance_records)}, "
+            f"real_skipped={real_skipped}, seedance_skipped={seedance_skipped})."
+        )
     feature_names = sorted(
         {
             name
@@ -892,9 +937,18 @@ def build_two_domain_facial_motion_profile(
             "time_aware_derivatives": True,
             "derivative_time_unit": "seconds",
         },
+        "quality_filter": {
+            "min_landmark_ratio": float(min_landmark_ratio),
+            "min_pose_ratio": float(min_pose_ratio),
+            "real_kept": len(real_records),
+            "seedance_kept": len(seedance_records),
+            "real_skipped_low_quality": int(real_skipped),
+            "seedance_skipped_low_quality": int(seedance_skipped),
+        },
         "note": (
             "Initial calibrated profile. It is not a universal detector and "
-            "must be evaluated on held-out videos."
+            "must be evaluated on held-out videos. Low-quality AU clips can be "
+            "excluded at train time via min_landmark_ratio / min_pose_ratio."
         ),
     }
 
@@ -980,9 +1034,27 @@ def score_facial_motion(
     )
     profile_evidence = authenticity
     enriched_evidence = authenticity
+    landmark_ratio = _clamp(
+        _finite(feature_map.get("landmark_valid_frame_ratio"), 0.0)
+    )
+    pose_ratio = _clamp(
+        _finite(feature_map.get("pose_normalized_frame_ratio"), 0.0)
+    )
+    # Low landmark / pose quality (occlusion, blur, extreme pose, "ugly" frames)
+    # should push the clip toward uncertain (0.5), not confidently "generated".
+    quality_gate = _clamp(
+        0.55 * _clamp((landmark_ratio - 0.35) / 0.45)
+        + 0.45 * _clamp((pose_ratio - 0.25) / 0.55)
+    )
     if authenticity is not None:
+        prior_weight = 0.12 + 0.10 * quality_gate
         enriched_evidence = _clamp(
-            0.82 * float(authenticity) + 0.18 * training_free_prior
+            (1.0 - prior_weight) * float(authenticity)
+            + prior_weight * training_free_prior
+        )
+        enriched_evidence = _clamp(
+            quality_gate * float(enriched_evidence)
+            + (1.0 - quality_gate) * 0.5
         )
     return {
         "status": "calibrated" if authenticity is not None else "features_only",
@@ -1018,16 +1090,11 @@ def score_facial_motion(
             "physio_rhythm_score_0_1": _clamp(
                 _finite(feature_map.get("physio_rhythm_score_0_1"), 0.5)
             ),
-            "pose_normalized_frame_ratio": _clamp(
-                _finite(feature_map.get("pose_normalized_frame_ratio"), 0.0)
-            ),
+            "pose_normalized_frame_ratio": pose_ratio,
+            "input_quality_gate_0_1": quality_gate,
             "feature_mode": feature_mode,
             "scored_feature_count": len(names),
-            "landmark_valid_frame_ratio": _clamp(
-                _finite(
-                    feature_map.get("landmark_valid_frame_ratio")
-                )
-            ),
+            "landmark_valid_frame_ratio": landmark_ratio,
         },
         "feature_record": features,
         "warnings": (
