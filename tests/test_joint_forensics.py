@@ -13,7 +13,7 @@ except ImportError:  # pragma: no cover - optional test dependency
 @unittest.skipIf(torch is None, "torch is not installed")
 class JointForensicsModelTests(unittest.TestCase):
     def test_forward_supports_missing_audio_and_variable_frame_mask(self) -> None:
-        from evaluator.forensics.joint_model import JointForensicsModel
+        from evaluator.modules.forensics.joint_model import JointForensicsModel
 
         model = JointForensicsModel(
             visual_dim=6,
@@ -50,7 +50,7 @@ class JointForensicsModelTests(unittest.TestCase):
         )
 
     def test_multitask_loss_ignores_unlabeled_quality_and_support(self) -> None:
-        from evaluator.forensics.joint_model import (
+        from evaluator.modules.forensics.joint_model import (
             JointForensicsModel,
             multitask_loss,
         )
@@ -79,7 +79,7 @@ class JointForensicsModelTests(unittest.TestCase):
         self.assertEqual(float(losses["expression_support"]), 0.0)
 
     def test_all_invalid_frames_are_rejected(self) -> None:
-        from evaluator.forensics.joint_model import JointForensicsModel
+        from evaluator.modules.forensics.joint_model import JointForensicsModel
 
         model = JointForensicsModel(
             visual_dim=2,

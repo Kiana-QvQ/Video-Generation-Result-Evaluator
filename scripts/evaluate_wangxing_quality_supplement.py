@@ -10,8 +10,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from evaluator.core.paths import project_path
-from evaluator.wangxing.wangxing_quality_supplement import evaluate_quality_supplement
+from evaluator.modules.core.paths import project_path
+from evaluator.modules.wangxing.wangxing_quality_supplement import evaluate_quality_supplement
 from scripts.evaluate_generated_video import _run_extraction
 
 

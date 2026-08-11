@@ -11,13 +11,13 @@ from unittest.mock import patch
 import cv2
 import numpy as np
 
-import evaluator.core.runtime as runtime
+import evaluator.modules.core.runtime as runtime
 from backends.etva_judge import (
     _request,
     etva_service_available,
     evaluate_etva_judge,
 )
-from evaluator.core.holistic_evaluator import (
+from evaluator.modules.core.holistic_evaluator import (
     TEMPORAL_LANDMARK_INDICES,
     WEIGHTS,
     _create_offline_maniqa_metric,
@@ -32,7 +32,7 @@ from evaluator.core.holistic_evaluator import (
     evaluate_full_reference,
     evaluate_texture,
 )
-from evaluator.core.video_metrics import (
+from evaluator.modules.core.video_metrics import (
     VideoInfo,
     _aligned_sample_indices,
     _align_ground_truth_frame,
@@ -531,7 +531,7 @@ class HolisticEvaluatorTests(unittest.TestCase):
             result_path = Path(directory) / "result.mp4"
             _write_video(result_path)
             with patch(
-                "evaluator.core.holistic_evaluator.run_vbench",
+                "evaluator.modules.core.holistic_evaluator.run_vbench",
                 return_value={
                     "status": "completed",
                     "backend": "docker",
@@ -577,7 +577,7 @@ class HolisticEvaluatorTests(unittest.TestCase):
         with ExitStack() as stack:
             stack.enter_context(
                 patch(
-                    "evaluator.core.holistic_evaluator._sample_video",
+                    "evaluator.modules.core.holistic_evaluator._sample_video",
                     return_value=(
                         {"fps": 24.0},
                         np.asarray([0, 1]),
@@ -587,25 +587,25 @@ class HolisticEvaluatorTests(unittest.TestCase):
             )
             stack.enter_context(
                 patch(
-                    "evaluator.core.holistic_evaluator._reference_frames",
+                    "evaluator.modules.core.holistic_evaluator._reference_frames",
                     return_value=(frames[:1], "reference_image"),
                 )
             )
             stack.enter_context(
                 patch(
-                    "evaluator.core.holistic_evaluator._FaceDetector",
+                    "evaluator.modules.core.holistic_evaluator._FaceDetector",
                     return_value=Detector(),
                 )
             )
             stack.enter_context(
                 patch(
-                    "evaluator.core.holistic_evaluator._high_frequency_energy",
+                    "evaluator.modules.core.holistic_evaluator._high_frequency_energy",
                     side_effect=[1.0, 1.0, 2.0],
                 )
             )
             stack.enter_context(
                 patch(
-                    "evaluator.core.holistic_evaluator._optional_iqa",
+                    "evaluator.modules.core.holistic_evaluator._optional_iqa",
                     side_effect=[
                         (0.8, "maniqa"),
                         (0.4, "musiq"),
@@ -635,7 +635,7 @@ class HolisticEvaluatorTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             result_path = Path(directory) / "result.mp4"
             _write_video(result_path)
-            with patch("evaluator.core.holistic_evaluator.run_vbench") as run_vbench:
+            with patch("evaluator.modules.core.holistic_evaluator.run_vbench") as run_vbench:
                 result = evaluate_aesthetics(
                     result_path,
                     None,
@@ -653,7 +653,7 @@ class HolisticEvaluatorTests(unittest.TestCase):
             result_path = Path(directory) / "result.mp4"
             _write_video(result_path)
             with patch(
-                "evaluator.core.holistic_evaluator.run_vbench",
+                "evaluator.modules.core.holistic_evaluator.run_vbench",
                 return_value={
                     "status": "failed",
                     "backend": "package",
@@ -814,19 +814,19 @@ class HolisticEvaluatorTests(unittest.TestCase):
         }
         with (
             patch(
-                "evaluator.core.holistic_evaluator.evaluate_identity",
+                "evaluator.modules.core.holistic_evaluator.evaluate_identity",
                 return_value=categories["identity"],
             ),
             patch(
-                "evaluator.core.holistic_evaluator.evaluate_texture",
+                "evaluator.modules.core.holistic_evaluator.evaluate_texture",
                 return_value=categories["texture"],
             ),
             patch(
-                "evaluator.core.holistic_evaluator.evaluate_expression",
+                "evaluator.modules.core.holistic_evaluator.evaluate_expression",
                 return_value=categories["expression"],
             ),
             patch(
-                "evaluator.core.holistic_evaluator.evaluate_text_alignment",
+                "evaluator.modules.core.holistic_evaluator.evaluate_text_alignment",
                 return_value={
                     "status": "available",
                     "backend": "viclip_internvid_10m_flt",
@@ -835,21 +835,21 @@ class HolisticEvaluatorTests(unittest.TestCase):
                 },
             ),
             patch(
-                "evaluator.core.holistic_evaluator.evaluate_etva_judge",
+                "evaluator.modules.core.holistic_evaluator.evaluate_etva_judge",
                 return_value={
                     "status": "unavailable",
                     "score_0_1": None,
                     "warnings": [],
                 },
             ),
-            patch("evaluator.core.holistic_evaluator.etva_service_available", return_value=False),
-            patch("evaluator.core.holistic_evaluator.clear_viclip_cache"),
+            patch("evaluator.modules.core.holistic_evaluator.etva_service_available", return_value=False),
+            patch("evaluator.modules.core.holistic_evaluator.clear_viclip_cache"),
             patch(
-                "evaluator.core.holistic_evaluator.evaluate_temporal",
+                "evaluator.modules.core.holistic_evaluator.evaluate_temporal",
                 return_value=categories["temporal"],
             ),
             patch(
-                "evaluator.core.holistic_evaluator.evaluate_aesthetics",
+                "evaluator.modules.core.holistic_evaluator.evaluate_aesthetics",
                 return_value=categories["aesthetics"],
             ),
         ):
@@ -915,19 +915,19 @@ class HolisticEvaluatorTests(unittest.TestCase):
         }
         patches = [
             patch(
-                "evaluator.core.holistic_evaluator.evaluate_identity",
+                "evaluator.modules.core.holistic_evaluator.evaluate_identity",
                 return_value=categories["identity"],
             ),
             patch(
-                "evaluator.core.holistic_evaluator.evaluate_texture",
+                "evaluator.modules.core.holistic_evaluator.evaluate_texture",
                 return_value=categories["texture"],
             ),
             patch(
-                "evaluator.core.holistic_evaluator.evaluate_expression",
+                "evaluator.modules.core.holistic_evaluator.evaluate_expression",
                 return_value=categories["expression"],
             ),
             patch(
-                "evaluator.core.holistic_evaluator.evaluate_text_alignment",
+                "evaluator.modules.core.holistic_evaluator.evaluate_text_alignment",
                 return_value={
                     "status": "available",
                     "backend": "viclip_internvid_10m_flt",
@@ -936,7 +936,7 @@ class HolisticEvaluatorTests(unittest.TestCase):
                 },
             ),
             patch(
-                "evaluator.core.holistic_evaluator.evaluate_etva_judge",
+                "evaluator.modules.core.holistic_evaluator.evaluate_etva_judge",
                 return_value={
                     "status": "available",
                     "backend": "qwen2_vl_2b_awq_http",
@@ -944,14 +944,14 @@ class HolisticEvaluatorTests(unittest.TestCase):
                     "warnings": [],
                 },
             ),
-            patch("evaluator.core.holistic_evaluator.etva_service_available", return_value=True),
-            patch("evaluator.core.holistic_evaluator.clear_viclip_cache"),
+            patch("evaluator.modules.core.holistic_evaluator.etva_service_available", return_value=True),
+            patch("evaluator.modules.core.holistic_evaluator.clear_viclip_cache"),
             patch(
-                "evaluator.core.holistic_evaluator.evaluate_temporal",
+                "evaluator.modules.core.holistic_evaluator.evaluate_temporal",
                 return_value=categories["temporal"],
             ),
             patch(
-                "evaluator.core.holistic_evaluator.evaluate_aesthetics",
+                "evaluator.modules.core.holistic_evaluator.evaluate_aesthetics",
                 return_value=categories["aesthetics"],
             ),
         ]

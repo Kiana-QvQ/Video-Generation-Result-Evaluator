@@ -13,8 +13,8 @@ from types import SimpleNamespace
 import numpy as np
 from fastapi.testclient import TestClient
 
-from evaluator.core.media import concatenate_videos, find_ffmpeg
-from evaluator.core.video_metrics import probe_video
+from evaluator.modules.core.media import concatenate_videos, find_ffmpeg
+from evaluator.modules.core.video_metrics import probe_video
 import web_app
 from web_app import _json_safe, app
 

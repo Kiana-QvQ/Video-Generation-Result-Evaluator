@@ -116,7 +116,7 @@ def inspect_wangxing_redesign(
         )
     )
 
-    from evaluator.core.paths import resolve_profile
+    from ..core.paths import resolve_profile
 
     identity_path = resolve_profile(
         "wangxing_identity_profile.json",
@@ -148,7 +148,7 @@ def inspect_wangxing_redesign(
         path=source_path,
         schema="wangxing_source_profile_v1",
     )
-    from evaluator.wangxing.wangxing_specialization import (
+    from .wangxing_specialization import (
         SPECIALIZATION_EVALUATOR_VERSION,
     )
 
@@ -228,7 +228,7 @@ def inspect_wangxing_redesign(
                 "complete"
                 if "most_compatible_profiles" in inspect.getsource(
                     __import__(
-                        "evaluator.wangxing.wangxing_specialization",
+                        "evaluator.modules.wangxing.wangxing_specialization",
                         fromlist=["score_expression_profile"],
                     ).score_expression_profile
                 )
@@ -343,7 +343,7 @@ def inspect_wangxing_redesign(
             )
         )
 
-    authenticity_layer = root / "evaluator/forensics/seedance_authenticity.py"
+    authenticity_layer = root / "evaluator/modules/forensics/seedance_authenticity.py"
     authenticity_source = (
         authenticity_layer.read_text(encoding="utf-8-sig")
         if authenticity_layer.is_file()
@@ -399,13 +399,13 @@ def inspect_wangxing_redesign(
         )
 
     specialization_source = (
-        root / "evaluator/wangxing_specialization.py"
+        root / "evaluator/modules/wangxing/wangxing_specialization.py"
     ).read_text(encoding="utf-8-sig")
-    holistic_source = (root / "evaluator/holistic_evaluator.py").read_text(
-        encoding="utf-8-sig"
-    )
+    holistic_source = (
+        root / "evaluator/modules/core/holistic_evaluator.py"
+    ).read_text(encoding="utf-8-sig")
     web_source = (root / "web_app.py").read_text(encoding="utf-8-sig")
-    from evaluator.wangxing.wangxing_specialization import (
+    from .wangxing_specialization import (
         evaluate_specialization,
     )
 
@@ -487,10 +487,10 @@ def inspect_wangxing_redesign(
             "forensics.window_evidence",
             "complete"
             if "window_records" in (
-                root / "evaluator/forensics/facial_motion.py"
+                root / "evaluator/modules/forensics/facial_motion.py"
             ).read_text(encoding="utf-8-sig")
             and "window_records" in (
-                root / "evaluator/forensics/texture_detail.py"
+                root / "evaluator/modules/forensics/texture_detail.py"
             ).read_text(encoding="utf-8-sig")
             else "missing",
             "Both branches expose window-level evidence records.",

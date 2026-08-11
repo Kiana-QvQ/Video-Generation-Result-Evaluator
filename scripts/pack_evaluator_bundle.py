@@ -20,7 +20,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from evaluator.core.paths import (  # noqa: E402
+from evaluator.modules.core.paths import (  # noqa: E402
     PACKAGE_ROOT,
     PROFILE_FILES,
     PROFILES_DIR,
@@ -54,9 +54,21 @@ RUNTIME_CALIBRATOR_KEYS = (
     "intercept",
 )
 RUNTIME_CALIBRATOR_NUMERIC_KEYS = ("mean", "scale", "slope", "intercept")
+ALLOWED_TOP_LEVEL = frozenset(
+    {
+        "__init__.py",
+        "detail_expression_metrics.py",
+        "README.md",
+        "modules",
+    }
+)
 REQUIRED_PACKAGE_FILES = (
+    "__init__.py",
     "detail_expression_metrics.py",
-    "core/detail_expression_runtime.py",
+    "README.md",
+    "modules/__init__.py",
+    "modules/core/detail_expression_runtime.py",
+    "modules/core/paths.py",
 )
 
 
@@ -156,6 +168,18 @@ def _validate_package_layout(package_root: Path) -> None:
             "Bundle is missing required public-entrypoint files:\n- "
             + "\n- ".join(missing)
         )
+    unexpected = sorted(
+        path.name
+        for path in package_root.iterdir()
+        if path.name not in ALLOWED_TOP_LEVEL
+        and path.name != "__pycache__"
+    )
+    if unexpected:
+        raise SystemExit(
+            "evaluator/ top-level must only contain "
+            f"{sorted(ALLOWED_TOP_LEVEL)}. Unexpected:\n- "
+            + "\n- ".join(unexpected)
+        )
 
 
 def _validate_profile_assets(profiles_dir: Path) -> None:
@@ -203,9 +227,9 @@ def _validate_profile_assets(profiles_dir: Path) -> None:
 
 def _verify_manifest(package_root: Path) -> dict[str, bool]:
     _validate_package_layout(package_root)
-    profiles_dir = package_root / "assets" / "profiles"
+    profiles_dir = package_root / "modules" / "assets" / "profiles"
     _validate_profile_assets(profiles_dir)
-    manifest_path = package_root / "assets" / "MANIFEST.json"
+    manifest_path = package_root / "modules" / "assets" / "MANIFEST.json"
     manifest = _read_json(manifest_path)
     entries = manifest.get("profiles")
     if not isinstance(entries, dict):
@@ -237,7 +261,7 @@ def _verify_manifest(package_root: Path) -> dict[str, bool]:
 
 
 def _prune_staged_profile_assets(package_root: Path) -> None:
-    profiles_dir = package_root / "assets" / "profiles"
+    profiles_dir = package_root / "modules" / "assets" / "profiles"
     allowed = set(PROFILE_FILES.values())
     for path in profiles_dir.glob("*.json"):
         if path.name not in allowed:
@@ -390,54 +414,48 @@ def build_bundle(output: Path) -> Path:
     staging = _safe_staging_path(staging)
     _remove_existing_path(staging)
     staging.mkdir(parents=True)
+    # Zip / folder root is exactly ``evaluator/`` with the allowed top-level
+    # entries. Collaborators unzip and get one package folder.
     shutil.copytree(
         PACKAGE_ROOT,
         staging / "evaluator",
-        ignore=shutil.ignore_patterns("__pycache__", "*.pyc", ".pytest_cache"),
+        ignore=shutil.ignore_patterns(
+            "__pycache__",
+            "*.pyc",
+            ".pytest_cache",
+            ".cache",
+        ),
     )
     bundle_package_root = staging / "evaluator"
     _prune_staged_profile_assets(bundle_package_root)
+    _validate_package_layout(bundle_package_root)
     _verify_manifest(bundle_package_root)
-    readme = staging / "README_BUNDLE.md"
-    readme.write_text(
-        (
-            "# Evaluator collaborator bundle\n\n"
-            "- Entry for yellow-box metrics: "
-            "`evaluator/detail_expression_metrics.py`\n"
-            "- Bundled profiles: `evaluator/assets/profiles/`\n"
-            "- Includes the original AU emotion profile for automatic "
-            "emotion classification\n"
-            "- Runtime authenticity calibrator is both embedded in "
-            "`forensics_profiles.json` and mirrored as "
-            "`forensics_authenticity_calibrator.json` (payload only, "
-            "not the full calibration report)\n"
-            "- Does not include `web/`, `web_app.py`, or repo-root "
-            "`backends/` (ViCLIP/ETVA/VBench)\n"
-            "- Resolve profiles via `evaluator.core.paths.resolve_profile` / "
-            "`profile_path`\n"
-        ),
-        encoding="utf-8",
-    )
     if output.suffix.lower() == ".zip":
         if output.exists():
             _remove_existing_path(output)
-        archive = shutil.make_archive(str(staging), "zip", root_dir=staging)
+        # Archive so extracting yields ``evaluator/`` directly.
+        archive = shutil.make_archive(
+            str(staging),
+            "zip",
+            root_dir=staging,
+            base_dir="evaluator",
+        )
         try:
             _verify_archive(Path(archive))
         finally:
             shutil.rmtree(staging)
         return Path(archive)
-    return staging
+    return staging / "evaluator"
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Sync evaluator/assets/profiles and optionally build a zip."
+        description="Sync evaluator/modules/assets/profiles and optionally build a zip."
     )
     parser.add_argument(
         "--sync-only",
         action="store_true",
-        help="Only refresh evaluator/assets/profiles from the repo.",
+        help="Only refresh evaluator/modules/assets/profiles from the repo.",
     )
     parser.add_argument(
         "--output",
@@ -457,10 +475,9 @@ def main() -> int:
         return 0
     path = build_bundle(PROJECT_ROOT / args.output)
     print(f"Wrote {path}")
-    bundle_root = path.parent / "evaluator" if path.is_dir() else None
     verification = (
-        _verify_manifest(bundle_root)
-        if bundle_root is not None
+        _verify_manifest(path)
+        if path.is_dir()
         else _verify_archive(path)
     )
     print(json.dumps(verification, indent=2))

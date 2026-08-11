@@ -6,7 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from evaluator.core.model_profile import get_recommended_model
+from evaluator.modules.core.model_profile import get_recommended_model
 from backends.vbench_runner import _ensure_dino_compat_source, discover_vbench
 
 

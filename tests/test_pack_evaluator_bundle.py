@@ -8,7 +8,7 @@ import zipfile
 from pathlib import Path
 from unittest.mock import patch
 
-import evaluator.core.paths as paths
+import evaluator.modules.core.paths as paths
 import scripts.pack_evaluator_bundle as pack
 
 
@@ -56,7 +56,7 @@ class EvaluatorBundleTests(unittest.TestCase):
             real_root = Path(__file__).resolve().parents[1]
 
             shutil.copytree(real_root / "evaluator", package_root)
-            (package_root / "assets" / "profiles" / "stale.json").write_text(
+            (package_root / "modules" / "assets" / "profiles" / "stale.json").write_text(
                 "{}\n",
                 encoding="utf-8",
             )
@@ -73,12 +73,12 @@ class EvaluatorBundleTests(unittest.TestCase):
                 patch.object(
                     pack,
                     "PROFILES_DIR",
-                    package_root / "assets" / "profiles",
+                    package_root / "modules" / "assets" / "profiles",
                 ),
                 patch.object(
                     paths,
                     "PROFILES_DIR",
-                    package_root / "assets" / "profiles",
+                    package_root / "modules" / "assets" / "profiles",
                 ),
             ):
                 archive = pack.build_bundle(output)
@@ -88,18 +88,18 @@ class EvaluatorBundleTests(unittest.TestCase):
             with zipfile.ZipFile(archive) as handle:
                 names = set(handle.namelist())
                 self.assertIn(
-                    "evaluator/assets/profiles/original_emotion_au_profile.json",
+                    "evaluator/modules/assets/profiles/original_emotion_au_profile.json",
                     names,
                 )
                 self.assertNotIn(
-                    "evaluator/assets/profiles/stale.json",
+                    "evaluator/modules/assets/profiles/stale.json",
                     names,
                 )
                 manifest = json.loads(
-                    handle.read("evaluator/assets/MANIFEST.json")
+                    handle.read("evaluator/modules/assets/MANIFEST.json")
                 )
                 source_profile = handle.read(
-                    "evaluator/assets/profiles/wangxing_source_profile.json"
+                    "evaluator/modules/assets/profiles/wangxing_source_profile.json"
                 )
             self.assertIn("original_emotion_au_profile", manifest["profiles"])
             self.assertEqual(
@@ -114,6 +114,18 @@ class EvaluatorBundleTests(unittest.TestCase):
     def test_bundle_output_cannot_overwrite_evaluator_source(self) -> None:
         with self.assertRaises(SystemExit):
             pack._safe_staging_path(pack.PACKAGE_ROOT / "build")
+
+    def test_package_layout_rejects_extra_root_files(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            package_root = Path(directory) / "evaluator"
+            shutil.copytree(pack.PACKAGE_ROOT, package_root)
+            (package_root / "unexpected.tmp").write_text(
+                "temporary",
+                encoding="utf-8",
+            )
+
+            with self.assertRaises(SystemExit):
+                pack._validate_package_layout(package_root)
 
 
 if __name__ == "__main__":

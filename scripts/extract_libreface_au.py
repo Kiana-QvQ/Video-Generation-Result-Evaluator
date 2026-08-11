@@ -13,7 +13,7 @@ import sys
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
-from evaluator.wangxing.au_dataset import (  # noqa: E402
+from evaluator.modules.wangxing.au_dataset import (  # noqa: E402
     DEFAULT_MIN_AU_ROWS,
     DEFAULT_MIN_FRAME_COVERAGE,
     validate_au_csv,

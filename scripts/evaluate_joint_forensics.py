@@ -12,12 +12,12 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from evaluator.forensics.joint_model import (  # noqa: E402
+from evaluator.modules.forensics.joint_model import (  # noqa: E402
     MODALITIES,
     JointForensicsModel,
     load_feature_npz,
 )
-from evaluator.core.paths import project_path  # noqa: E402
+from evaluator.modules.core.paths import project_path  # noqa: E402
 
 
 def _device(value: str) -> torch.device:

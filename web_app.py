@@ -29,21 +29,21 @@ from fastapi.staticfiles import StaticFiles
 from fastapi import FastAPI
 from pydantic import BaseModel, Field
 
-from evaluator.core.holistic_evaluator import (
+from evaluator.modules.core.holistic_evaluator import (
     WEIGHTS,
     evaluate_all,
     get_model_inventory,
     get_model_recommendation,
 )
-from evaluator.core.evaluation_lock import serialized_evaluation
-from evaluator.core.hardware_policy import resolve_policy
-from evaluator.core.media import concatenate_videos, transcode_video_for_browser
-from evaluator.core.paths import resolve_profile
-from evaluator.core.runtime import OUTPUT_DIR, PROJECT_ROOT
+from evaluator.modules.core.evaluation_lock import serialized_evaluation
+from evaluator.modules.core.hardware_policy import resolve_policy
+from evaluator.modules.core.media import concatenate_videos, transcode_video_for_browser
+from evaluator.modules.core.paths import resolve_profile
+from evaluator.modules.core.runtime import OUTPUT_DIR, PROJECT_ROOT
 from backends.subst import cleanup_project_subst_mappings
-from evaluator.core.video_metrics import is_video_path, probe_video
-from evaluator.forensics import analyze_forensics
-from evaluator.wangxing.wangxing_specialization import (
+from evaluator.modules.core.video_metrics import is_video_path, probe_video
+from evaluator.modules.forensics import analyze_forensics
+from evaluator.modules.wangxing.wangxing_specialization import (
     EXPRESSION_DISPLAY_NAMES,
     SPECIALIZATION_EVALUATOR_VERSION,
 )

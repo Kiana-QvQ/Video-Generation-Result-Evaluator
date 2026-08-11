@@ -11,9 +11,9 @@ import numpy as np
 
 import web_app
 from backends.etva_judge import _parse_result
-from evaluator.core.model_profile import get_recommended_model
+from evaluator.modules.core.model_profile import get_recommended_model
 from backends.vbench_runner import _matching_score
-from evaluator.core.video_metrics import _read_frames
+from evaluator.modules.core.video_metrics import _read_frames
 
 
 class SafetyGuardTests(unittest.TestCase):

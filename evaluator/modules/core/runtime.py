@@ -5,10 +5,13 @@ import shutil
 from pathlib import Path
 from uuid import uuid4
 
+from .paths import WORKSPACE_ROOT
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-MODEL_CACHE_DIR = PROJECT_ROOT / "model_cache"
-OUTPUT_DIR = PROJECT_ROOT / "outputs"
+# Workspace that contains the ``evaluator`` package (relative layout).
+PROJECT_ROOT = WORKSPACE_ROOT
+# Keep caches beside the package, not inside the shipped folder tree.
+MODEL_CACHE_DIR = WORKSPACE_ROOT / "model_cache"
+OUTPUT_DIR = WORKSPACE_ROOT / "outputs"
 
 
 PYIQA_CHECKPOINTS = {

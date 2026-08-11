@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 from importlib import metadata
 
-from evaluator.core.runtime import MODEL_CACHE_DIR, PROJECT_ROOT
+from evaluator.modules.core.runtime import MODEL_CACHE_DIR, PROJECT_ROOT
 
 
 VBENCH_DIMENSIONS = [

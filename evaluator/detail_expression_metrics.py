@@ -1,21 +1,25 @@
 # -*- coding: utf-8 -*-
 """质感/细节与人脸表情/肌肉运动的独立评分入口。
 
-公开接口与协作方约定的四参数签名保持一致。两个公开函数已接到本包
-王兴专项（表情/肌肉 + 动态质感细节）实现，并读取 ``assets/profiles``，
-**不是**普通五项评分，也不是固定占位分。
+公开接口与协作方约定的四参数签名保持一致。两个公开函数不调用旧版
+``main.py`` 实现，而是调用 ``modules/core/detail_expression_runtime.py``
+中的真实王兴专项评分，并读取包内 ``modules/assets/profiles``。
 
-两项指标对应的专项原理：
+两项指标的计算原理：
 
-1. ``质感和细节``（王兴动态质感雷达综合）：
-   - forensics 纹理分支：高频/光流残差/微时序自然度与真人域拟合；
-   - 与网页王兴专项「质感与细节」五维综合一致。
-2. ``人脸表情与肌肉运动``（王兴表情雷达综合）：
-   - 表情画像符合度 + forensics 面部运动（AU 动力学/共激活/关键点）；
-   - 完整链路需要 AU CSV；与网页王兴专项「表情与肌肉」五维综合一致。
+1. ``质感和细节``：
+   - 对人脸区域或整帧计算纹理、高频和光流时序特征；
+   - 结合 forensics 画像中的真人域证据、时序稳定和细节清晰度；
+   - 最终按王兴专项五维雷达口径得到综合分。
+2. ``人脸表情与肌肉运动``：
+   - 使用 AU 表格提取表情动作和连续帧运动特征；
+   - 优先使用 Face Mesh 肌肉几何、关键点覆盖和 AU 关系；
+   - 结合表情 profile 符合度、动态自然度和时序连贯性；
+   - 缺少 AU CSV 时返回 ``partial``，不会伪造完整专项分数。
 
-``max_frames`` 用于限制本模块实际参与评分的最多帧数。若调用方已按同一
-参数完成采样，可直接传入带 ``frames`` 的采样对象，避免二次降采样。
+``max_frames`` 用于限制本模块实际参与评分的最多帧数。正常情况下
+调用方已经使用同一个参数完成视频采样，传入带 ``frames`` 的对象时不会
+重复读取视频；传入路径时则由本入口按相同上限采样。
 
 仅有「视频地址 + 处理帧率」时可用::
 
@@ -28,7 +32,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field, is_dataclass, replace
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
-from .core.detail_expression_runtime import (
+from .modules.core.detail_expression_runtime import (
     PreparedVideo,
     prepare_video_input,
     score_detail_quality,
@@ -47,7 +51,11 @@ def prepare_generated_video(
     au_csv: str | None = None,
     expected_class: str | None = None,
 ) -> PreparedVideo:
-    """把视频地址（与可选 AU / 处理帧率）整理成公开函数可接收的输入。"""
+    """把视频地址、处理帧率和可选 AU 路径整理成入口输入对象。
+
+    ``max_frames`` 只控制预采样对象中的帧数；公开评分函数仍保持原有
+    四参数调用方式。
+    """
 
     payload: Dict[str, Any] = {
         "path": path,
@@ -244,7 +252,7 @@ def _legacy_compute_face_expression_metric(
 # ============================================================================
 #
 # 下面两个函数是协作方 / main.py 应调用的入口。旧实现保留为 _legacy_*，
-# 方便对照；真实分数由王兴专项 runtime 计算（不再返回固定占位分）。
+# 方便对照；真实分数由 ``modules/core/detail_expression_runtime.py`` 计算。
 
 DETAIL_PLACEHOLDER_SCORE = 0.75  # 历史占位常量，现仅作兼容保留，不参与打分
 FACE_EXPRESSION_PLACEHOLDER_SCORE = 0.72
@@ -252,7 +260,10 @@ FACE_EXPRESSION_PLACEHOLDER_SCORE = 0.72
 
 @dataclass
 class MetricResult:
-    """与 main.py 兼容的指标结果对象。"""
+    """与 main.py 兼容的指标结果对象。
+
+    ``score`` 保持 0 到 1 的内部比例；``score_0_100`` 供页面直接展示。
+    """
 
     name: str
     score: Optional[float]
@@ -396,14 +407,21 @@ def compute_detail_metric(
     reference_images: Optional[Sequence[Any]],
     max_frames: Optional[int],
 ) -> MetricResult:
-    """计算“质感和细节”（王兴专项动态质感综合分）。
+    """计算“质感和细节”王兴专项综合分。
 
     参数含义：
-    - ``generated_video``：生成视频采样对象 / 路径 /
-      ``{"path", "sample_fps", "au_csv"}``。
-    - ``reference_video``：可选参考视频采样对象，没有时传 ``None``。
-    - ``reference_images``：可选参考图片序列，没有时传 ``None`` 或空列表。
+    - ``generated_video``：生成视频路径、采样对象，或包含 ``path`` /
+      ``sample_fps`` / ``au_csv`` 的字典。
+    - ``reference_video``：保留的可选参考视频参数，没有时传 ``None``。
+    - ``reference_images``：保留的可选参考图片序列，没有时传 ``None``。
     - ``max_frames``：最多参与计算的采样帧数，至少为 2。
+
+    返回值：
+    - ``MetricResult.score``：真实专项分数，范围为 0 到 1；
+    - ``MetricResult.details``：纹理五维分项、采样信息、profile 和警告。
+
+    当前专项按网页王兴质感雷达口径计算。参考视频和图片参数保留用于
+    调用兼容及详情记录，不作为当前专项的帧级参考对齐输入。
     """
 
     max_frames = _validate_max_frames(max_frames)
@@ -439,17 +457,17 @@ def compute_face_expression_metric(
     reference_images: Optional[Sequence[Any]],
     max_frames: Optional[int],
 ) -> MetricResult:
-    """计算“人脸表情与肌肉运动”（王兴专项表情/肌肉综合分）。
+    """计算“人脸表情与肌肉运动”王兴专项综合分。
 
     参数含义：
-    - ``generated_video``：生成视频采样对象 / 路径 /
-      ``{"path", "sample_fps", "au_csv"}``。
-    - ``reference_video``：可选表演参考视频采样对象，没有时传 ``None``。
-    - ``reference_images``：可选人物参考图片序列，没有时传 ``None`` 或空列表。
+    - ``generated_video``：生成视频路径、采样对象，或包含 ``path`` /
+      ``sample_fps`` / ``au_csv`` 的字典。
+    - ``reference_video``：保留的可选表演参考视频参数，没有时传 ``None``。
+    - ``reference_images``：保留的可选人物参考图片序列，没有时传 ``None``。
     - ``max_frames``：最多参与计算的采样帧数，至少为 2。
 
-    有 AU CSV 时走完整专项五维；无 AU 时部分维度可能为空，``details.warning``
-    会说明。
+    有 AU CSV 时走完整专项五维；无 AU 时部分维度为空并返回 ``partial``，
+    ``details.warning`` 会说明缺失原因。参考参数不参与当前专项的帧级对齐。
     """
 
     max_frames = _validate_max_frames(max_frames)

@@ -7,7 +7,7 @@ Seedance-like evidence. It deliberately keeps two branches independent.
 
 ### Facial Motion
 
-`evaluator/forensics/facial_motion.py` reads AU and Face Mesh CSV files and
+`evaluator/modules/forensics/facial_motion.py` reads AU and Face Mesh CSV files and
 extracts:
 
 - AU intensity summaries, velocity, acceleration, and jerk;
@@ -22,7 +22,7 @@ does not claim to identify the source.
 
 ### Texture Detail
 
-`evaluator/forensics/texture_detail.py` reads RGB frames or a video path and
+`evaluator/modules/forensics/texture_detail.py` reads RGB frames or a video path and
 extracts:
 
 - local high-frequency and Laplacian detail;

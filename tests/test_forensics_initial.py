@@ -9,7 +9,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from evaluator.forensics import (
+from evaluator.modules.forensics import (
     analyze_forensics,
     apply_probability_calibrator,
     build_two_domain_facial_motion_profile,

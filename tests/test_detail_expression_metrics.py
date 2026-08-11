@@ -8,7 +8,7 @@ from unittest.mock import patch
 import numpy as np
 
 import evaluator.detail_expression_metrics as public_api
-import evaluator.core.detail_expression_runtime as runtime
+import evaluator.modules.core.detail_expression_runtime as runtime
 
 
 class DetailExpressionMetricsTests(unittest.TestCase):

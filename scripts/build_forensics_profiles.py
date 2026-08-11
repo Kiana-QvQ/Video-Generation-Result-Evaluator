@@ -10,13 +10,13 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from evaluator.forensics import (
+from evaluator.modules.forensics import (
     build_texture_detail_profile,
     build_two_domain_facial_motion_profile,
     extract_texture_detail_features,
 )
-from evaluator.forensics.holdout import holdout_paths
-from evaluator.core.paths import project_path
+from evaluator.modules.forensics.holdout import holdout_paths
+from evaluator.modules.core.paths import project_path
 
 VIDEO_SUFFIXES = {
     ".avi",

@@ -1,30 +1,25 @@
-# Evaluator package（协作交付）
+# Evaluator 协作包
 
-面向合作方的可独立使用目录。网页 `web/` / `web_app.py` **不是**本包依赖。
-
-## 目录
+发给对方时，**整份 `evaluator/` 文件夹**即可。解压后顶层应是：
 
 ```text
 evaluator/
 ├── __init__.py
-├── detail_expression_metrics.py   # 黄框两项：以合作方文件为准
+├── detail_expression_metrics.py   # 公开入口（黄框两项）
 ├── README.md
-├── assets/
-│   ├── MANIFEST.json
-│   └── profiles/                  # 已打包的画像 / 校准器
-├── forensics/
-├── wangxing/
-└── core/
+└── modules/                       # 合并实现目录
+    ├── assets/                    # 画像与校准器
+    ├── core/
+    ├── forensics/
+    └── wangxing/
 ```
 
-> 仓库根目录的 `backends/`（ViCLIP / ETVA / VBench / subst）**不属于**本协作包；本仓网页与五项综合评估仍会使用它。
+不要打散文件；不要只拷 `detail_expression_metrics.py`。  
+`__pycache__` 可不发送。仓库根的 `backends/`、`web/` **不属于**本包。
 
-`detail_expression_metrics.py` 依赖包内的
-`core/detail_expression_runtime.py`；发送整个 `evaluator/` 目录时必须保留该文件。
+## 使用（相对路径）
 
-## 黄框两项
-
-以 `detail_expression_metrics.py` 为**对方可直接调用的公开入口**（不依赖网页评估流程）。内部已接到本包 `forensics` / `wangxing` 与 `assets/profiles`：
+把 **`evaluator` 的上一级目录** 加入 `PYTHONPATH`：
 
 ```python
 from evaluator.detail_expression_metrics import (
@@ -33,90 +28,41 @@ from evaluator.detail_expression_metrics import (
     compute_face_expression_metric,
 )
 
-# 方式 A：视频地址 + 处理帧率（sample_fps）+ 最大帧数
 video = prepare_generated_video(
     r"candidate.mp4",
     sample_fps=8,
     max_frames=24,
-    au_csv=r"candidate.csv",  # 可选；表情肌肉完整链路需要 AU
+    au_csv=r"candidate.csv",  # 表情肌肉完整链路建议提供
 )
 detail = compute_detail_metric(video, None, None, 24)
 expression = compute_face_expression_metric(video, None, None, 24)
-
-# 方式 B：直接传路径或字典
-detail = compute_detail_metric(
-    {"path": r"candidate.mp4", "sample_fps": 8, "au_csv": r"candidate.csv"},
-    None,
-    None,
-    24,
-)
-
 print(detail.name, detail.score, detail.status)
 print(expression.name, expression.score, expression.status)
 ```
 
-中间处理：按 `sample_fps` / `max_frames` 从视频均匀时间采样，使用王兴专项 profile 和 forensics 画像，按网页同样的五维雷达分项做简单平均。`MetricResult.score` 保持 0-1，`MetricResult.score_0_100` 与 `details["composite_score_0_100"]` 是网页使用的 0-100 综合分。
+画像从包内 `modules/assets/profiles/` 用相对路径解析
+（`evaluator.modules.core.paths.profile_path`），不依赖本机盘符绝对路径。
 
-表情与肌肉动态的完整五维结果需要调用方提供 AU CSV：
+## 打 zip
 
-```python
-result = compute_face_expression_metric(
-    {
-        "path": "candidate.mp4",
-        "au_csv": "candidate.csv",
-        "sample_fps": 8,
-    },
-    None,
-    None,
-    16,
-)
-print(result.score_0_100)
-print(result.details["dimensions"])
-```
-## Profile 解析
-
-路径工具会按候选依次解析：已存在的绝对路径 → 已存在的仓库相对路径（如 `data/...`）→ `evaluator/assets/profiles/<文件名>` → 其它回退：
-
-```python
-from evaluator.core.paths import profile_path, resolve_profile, verify_bundled_profiles
-
-expression = profile_path("wangxing_expression_profile", required=True)
-print(verify_bundled_profiles())
+```powershell
+python scripts/pack_evaluator_bundle.py --output outputs/evaluator.zip
 ```
 
-已同步进 `assets/profiles/` 的文件：
+解压得到名为 `evaluator` 的文件夹，内容即上表结构。
 
-| 文件 | 用途 |
-|------|------|
-| `wangxing_expression_profile.json` | 表情画像 |
-| `wangxing_identity_profile.json` | 身份画像 |
-| `wangxing_source_profile.json` | 来源画像 |
-| `wangxing_au_profile.json` | AU 画像 |
-| `original_emotion_au_profile.json` | 原始情绪 AU 画像（自动情绪分类） |
-| `forensics_profiles.json` | 真伪双域画像 + 内嵌运行时校准器 |
-| `forensics_authenticity_calibrator.json` | 运行时校准器 payload（与上者内嵌字段一致；不是完整校准报告） |
-| `holdout_split.json` | hold-out 清单 |
-| `model_profile.json` | 模型推荐配置 |
-
-说明：推理时读 `forensics_profiles.json` 里的 `authenticity_calibrator` 即可；独立校准器文件只放 Platt 参数，便于核对，不含 holdout 样本明细。
-
-刷新包内副本：
+刷新画像副本：
 
 ```powershell
 python scripts/pack_evaluator_bundle.py --sync-only
 ```
 
-打完整协作包（含 evaluator + assets）：
+## 模块职责
 
-```powershell
-python scripts/pack_evaluator_bundle.py --output outputs/evaluator_bundle.zip
-```
-
-## 边界
-
-| 模块 | 职责 |
+| 路径 | 职责 |
 |------|------|
-| `detail_expression_metrics` | 黄框公开入口（调用本包算法出分） |
-| `wangxing/` | 王兴身份/表情 AU 专项 |
-| `forensics/` | 真拍 vs AI |
-| `core/` | 五项评估与视频 IO |
+| `detail_expression_metrics.py` | 黄框公开入口 |
+| `modules/wangxing/` | 王兴身份与表情 AU 专项 |
+| `modules/forensics/` | 真拍 vs AI 证据分支 |
+| `modules/core/` | 路径、视频采样与专项 runtime |
+| `modules/assets/profiles/` | 打包画像与校准器 |

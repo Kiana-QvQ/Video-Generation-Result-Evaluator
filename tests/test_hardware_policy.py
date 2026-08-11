@@ -4,7 +4,7 @@ import os
 import unittest
 from unittest.mock import patch
 
-from evaluator.core.hardware_policy import resolve_policy
+from evaluator.modules.core.hardware_policy import resolve_policy
 
 
 class HardwarePolicyTests(unittest.TestCase):
@@ -40,7 +40,10 @@ class HardwarePolicyTests(unittest.TestCase):
         self.assertLessEqual(resolve_policy("cpu").etva_frames, 4)
 
     def test_critical_free_vram_reduces_etva_window_budget(self) -> None:
-        with patch("evaluator.hardware_policy._cuda_info", return_value=(True, 8.0, 0.5)):
+        with patch(
+            "evaluator.modules.core.hardware_policy._cuda_info",
+            return_value=(True, 8.0, 0.5),
+        ):
             policy = resolve_policy("auto")
 
         self.assertEqual(policy.memory_pressure, "critical")

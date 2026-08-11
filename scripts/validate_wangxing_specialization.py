@@ -15,9 +15,9 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from evaluator.core.holistic_evaluator import _FaceDetector, _IdentityBackend
-from evaluator.core.paths import project_path
-from evaluator.wangxing.wangxing_specialization import (
+from evaluator.modules.core.holistic_evaluator import _FaceDetector, _IdentityBackend
+from evaluator.modules.core.paths import project_path
+from evaluator.modules.wangxing.wangxing_specialization import (
     _expression_class_from_path,
     build_expression_profile,
     evaluate_identity_profile,

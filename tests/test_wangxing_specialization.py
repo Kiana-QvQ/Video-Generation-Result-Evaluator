@@ -8,7 +8,7 @@ from unittest.mock import patch
 import cv2
 import numpy as np
 
-from evaluator.wangxing.wangxing_specialization import (
+from evaluator.modules.wangxing.wangxing_specialization import (
     _fit_logistic_calibrator,
     _identity_calibration_metrics,
     _weighted_prototype,
@@ -142,7 +142,7 @@ class WangxingSpecializationTests(unittest.TestCase):
         profile = {"classes": classes}
 
         with patch(
-            "evaluator.wangxing_specialization.extract_sequence_features",
+            "evaluator.modules.wangxing.wangxing_specialization.extract_sequence_features",
             return_value=(
                 np.zeros(feature_count, dtype=np.float32),
                 quality,

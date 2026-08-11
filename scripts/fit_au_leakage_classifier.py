@@ -9,8 +9,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from evaluator.wangxing.au_compliance import fit_leakage_classifier
-from evaluator.core.paths import project_path
+from evaluator.modules.wangxing.au_compliance import fit_leakage_classifier
+from evaluator.modules.core.paths import project_path
 
 
 def _csv_files(root: Path) -> list[Path]:
