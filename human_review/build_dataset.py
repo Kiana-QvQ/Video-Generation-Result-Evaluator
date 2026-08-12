@@ -10,10 +10,14 @@ import json
 import mimetypes
 import re
 import shutil
+import subprocess
 from collections import Counter
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+
+import cv2
+import numpy as np
 
 from database import ReviewDatabase
 
@@ -21,11 +25,13 @@ from database import ReviewDatabase
 ROOT_DIR = Path(__file__).resolve().parent
 PROJECT_DIR = ROOT_DIR.parent
 DEFAULT_RAW_ROOT = ROOT_DIR / "data" / "raw_archive" / "experiments_20260811"
-DEFAULT_OUTPUT_DIR = ROOT_DIR / "data" / "datasets" / "performance_v3"
+DEFAULT_OUTPUT_DIR = ROOT_DIR / "data" / "datasets" / "performance_v6"
 DEFAULT_DB = ROOT_DIR / "data" / "review.sqlite3"
 DEFAULT_FORENSICS_MANIFEST = PROJECT_DIR / "data" / "forensics" / "forensics_manifest.json"
 DEFAULT_TARGET_TASK_COUNT = 80
 DEFAULT_CONTROL_COUNT = 8
+DEFAULT_MAX_VIDEO_SECONDS = 10
+DEFAULT_MAX_VIDEO_WIDTH = 720
 
 KNOWN_MODELS = (
     ("seedance", "seedance_2_0"),
@@ -70,6 +76,42 @@ def detect_media_type(path: Path) -> str | None:
             return None
         return "video/mp4"
     return None
+
+
+def probe_video(path: Path) -> dict[str, Any]:
+    try:
+        result = subprocess.run(
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-show_entries",
+                "format=duration:stream=width,height",
+                "-of",
+                "json",
+                str(path),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=True,
+        )
+        payload = json.loads(result.stdout or "{}")
+        stream = next(
+            (
+                item
+                for item in payload.get("streams", [])
+                if item.get("width") and item.get("height")
+            ),
+            {},
+        )
+        return {
+            "duration": float(payload.get("format", {}).get("duration") or 0),
+            "width": int(stream.get("width") or 0),
+            "height": int(stream.get("height") or 0),
+        }
+    except (OSError, subprocess.SubprocessError, ValueError, json.JSONDecodeError):
+        return {"duration": 0.0, "width": 0, "height": 0}
 
 
 def infer_model_name(value: str) -> str | None:
@@ -135,6 +177,8 @@ class DatasetBuilder:
         per_ip_quota: int,
         target_task_count: int,
         control_count: int,
+        max_video_seconds: int,
+        max_video_width: int,
         forensics_manifest: Path | None,
     ) -> None:
         self.raw_root = raw_root.resolve()
@@ -144,6 +188,8 @@ class DatasetBuilder:
         self.per_ip_quota = per_ip_quota
         self.target_task_count = target_task_count
         self.control_count = control_count
+        self.max_video_seconds = max_video_seconds
+        self.max_video_width = max_video_width
         self.forensics_manifest = (
             forensics_manifest.resolve() if forensics_manifest else None
         )
@@ -155,14 +201,21 @@ class DatasetBuilder:
         self.tasks: list[dict[str, Any]] = []
         self.skipped_batches: list[dict[str, Any]] = []
         self.seen_hashes: dict[str, str] = {}
+        self.signature_cache: dict[str, np.ndarray | None] = {}
 
-    def asset(self, path: Path, role: str) -> str:
+    def asset(
+        self,
+        path: Path,
+        role: str,
+        clip_seconds: float | None = None,
+    ) -> str:
         path = path.resolve()
         media_type = detect_media_type(path)
         if not media_type:
             raise ValueError(f"Unsupported media asset: {path}")
         file_hash = sha256_file(path)
-        existing = self.seen_hashes.get(file_hash)
+        clip_key = f"{file_hash}:{round(clip_seconds or 0, 3)}"
+        existing = self.seen_hashes.get(clip_key)
         if existing:
             return existing
         asset_id = f"asset_{len(self.assets) + 1:06d}"
@@ -173,10 +226,16 @@ class DatasetBuilder:
             "original_name": path.name,
             "sha256": file_hash,
             "size_bytes": path.stat().st_size,
-            "metadata": {"role": role},
+            "metadata": {
+                "role": role,
+                "clip_seconds": round(clip_seconds, 3)
+                if clip_seconds
+                else None,
+                "probe": probe_video(path) if media_type == "video/mp4" else None,
+            },
         }
         self.assets[asset_id] = record
-        self.seen_hashes[file_hash] = asset_id
+        self.seen_hashes[clip_key] = asset_id
         return asset_id
 
     def _asset_ref(
@@ -266,8 +325,24 @@ class DatasetBuilder:
             modality = "image_to_video"
 
         candidate_records: list[dict[str, Any]] = []
+        candidate_probes = {
+            path: probe_video(path)
+            for path in unique_candidates
+        }
+        common_duration = min(
+            [
+                probe["duration"]
+                for probe in candidate_probes.values()
+                if probe["duration"] > 0
+            ]
+            + [float(self.max_video_seconds)]
+        )
         for path in unique_candidates:
-            asset_id = self.asset(path, "candidate")
+            asset_id = self.asset(
+                path,
+                "candidate",
+                clip_seconds=common_duration,
+            )
             model_id = infer_model_name(path.stem) or prompt_model
             candidate_records.append(
                 {
@@ -325,26 +400,63 @@ class DatasetBuilder:
             return
 
         generated = generated[: min(count, len(generated))]
-        real_by_expression: dict[str, list[dict[str, Any]]] = {}
-        for record in real:
-            expression = str(record.get("expression_class") or "unknown")
-            real_by_expression.setdefault(expression, []).append(record)
-        real_pool = [
-            record
-            for expression in sorted(real_by_expression)
-            for record in real_by_expression[expression]
-        ]
-        if not real_pool:
+        if not real:
             return
 
+        used_real_ids: set[str] = set()
         for index, generated_record in enumerate(generated):
-            real_record = real_pool[index % len(real_pool)]
             generated_path = Path(generated_record["video_path"])
+            generated_probe = probe_video(generated_path)
+            candidates_by_metadata = sorted(
+                [
+                    record
+                    for record in real
+                    if record.get("sample_id") not in used_real_ids
+                ],
+                key=lambda record: self._pair_cost(
+                    generated_probe,
+                    record,
+                    None,
+                    None,
+                ),
+            )
+            candidates_for_layout = candidates_by_metadata[:8] or real
+            generated_signature = self._video_signature(generated_path)
+            real_signatures = {
+                str(record.get("sample_id")): self._video_signature(
+                    Path(record["video_path"]),
+                )
+                for record in candidates_for_layout
+            }
+            real_record = min(
+                candidates_for_layout,
+                key=lambda record: self._pair_cost(
+                    generated_probe,
+                    record,
+                    generated_signature,
+                    real_signatures.get(str(record.get("sample_id"))),
+                ),
+            )
+            used_real_ids.add(str(real_record.get("sample_id")))
             real_path = Path(real_record["video_path"])
             if not generated_path.is_file() or not real_path.is_file():
                 continue
-            generated_asset = self.asset(generated_path, "ai_candidate")
-            real_asset = self.asset(real_path, "real_candidate")
+            real_probe = probe_video(real_path)
+            clip_seconds = min(
+                generated_probe["duration"] or self.max_video_seconds,
+                real_probe["duration"] or self.max_video_seconds,
+                float(self.max_video_seconds),
+            )
+            generated_asset = self.asset(
+                generated_path,
+                "ai_candidate",
+                clip_seconds=clip_seconds,
+            )
+            real_asset = self.asset(
+                real_path,
+                "real_candidate",
+                clip_seconds=clip_seconds,
+            )
             case_id = f"anchor_{index + 1:03d}"
             self.tasks.append(
                 {
@@ -377,9 +489,102 @@ class DatasetBuilder:
                         "generated_sample_id": generated_record.get("sample_id"),
                         "real_sample_id": real_record.get("sample_id"),
                         "real_expression": real_record.get("expression_class"),
+                        "pair_duration_seconds": round(clip_seconds, 3),
+                        "pairing_method": "frame_layout_duration",
+                        "frame_layout_cost": round(
+                            self._frame_layout_cost(
+                                generated_signature,
+                                real_signatures.get(
+                                    str(real_record.get("sample_id")),
+                                ),
+                            ),
+                            5,
+                        ),
                     },
                 }
             )
+
+    def _video_signature(self, path: Path) -> np.ndarray | None:
+        key = str(path.resolve())
+        if key in self.signature_cache:
+            return self.signature_cache[key]
+        capture = cv2.VideoCapture(str(path))
+        if not capture.isOpened():
+            self.signature_cache[key] = None
+            return None
+        frame_count = int(capture.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+        if frame_count <= 0:
+            capture.release()
+            self.signature_cache[key] = None
+            return None
+        signatures: list[np.ndarray] = []
+        for ratio in (0.08, 0.5, 0.92):
+            capture.set(
+                cv2.CAP_PROP_POS_FRAMES,
+                min(frame_count - 1, max(0, int(frame_count * ratio))),
+            )
+            ok, frame = capture.read()
+            if not ok or frame is None:
+                continue
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            gray = cv2.resize(gray, (48, 64), interpolation=cv2.INTER_AREA)
+            gray = cv2.normalize(gray, None, 0.0, 1.0, cv2.NORM_MINMAX)
+            edges = cv2.Canny((gray * 255).astype(np.uint8), 40, 100)
+            edges = edges.astype(np.float32) / 255.0
+            signatures.append(
+                np.concatenate(
+                    [
+                        gray.reshape(-1).astype(np.float32),
+                        edges.reshape(-1),
+                    ],
+                ),
+            )
+        capture.release()
+        result = np.stack(signatures) if signatures else None
+        self.signature_cache[key] = result
+        return result
+
+    @staticmethod
+    def _frame_layout_cost(
+        generated_signature: np.ndarray | None,
+        real_signature: np.ndarray | None,
+    ) -> float:
+        if generated_signature is None or real_signature is None:
+            return 0.5
+        distances = [
+            float(np.mean((generated_frame - real_frame) ** 2))
+            for generated_frame in generated_signature
+            for real_frame in real_signature
+        ]
+        return min(distances) if distances else 0.5
+
+    @staticmethod
+    def _pair_cost(
+        generated_probe: dict[str, Any],
+        real_record: dict[str, Any],
+        generated_signature: np.ndarray | None,
+        real_signature: np.ndarray | None,
+    ) -> float:
+        real_probe = real_record.get("video", {})
+        generated_duration = generated_probe.get("duration") or 5.0
+        real_duration = float(real_probe.get("duration_seconds") or 5.0)
+        generated_ratio = generated_probe.get("width", 0) / max(
+            generated_probe.get("height", 1),
+            1,
+        )
+        real_ratio = float(real_probe.get("width", 0)) / max(
+            float(real_probe.get("height", 1)),
+            1,
+        )
+        frame_cost = DatasetBuilder._frame_layout_cost(
+            generated_signature,
+            real_signature,
+        )
+        return (
+            frame_cost * 18
+            + abs(generated_duration - real_duration) * 0.5
+            + abs(generated_ratio - real_ratio) * 8
+        )
 
     def _build_controls(self, count: int) -> None:
         records = self._load_forensics_records()
@@ -461,7 +666,57 @@ class DatasetBuilder:
                 source.suffix.lower() or ".bin",
             )
             target = asset_dir / f"{asset['asset_id']}{extension}"
-            if not target.exists():
+            if target.exists():
+                target.unlink()
+            if asset["media_type"] == "video/mp4":
+                temp_target = target.with_name(f".{target.name}.tmp.mp4")
+                try:
+                    subprocess.run(
+                        [
+                            "ffmpeg",
+                            "-hide_banner",
+                            "-loglevel",
+                            "error",
+                            "-y",
+                            "-i",
+                            str(source),
+                            "-t",
+                            str(
+                                asset.get("metadata", {}).get("clip_seconds")
+                                or self.max_video_seconds
+                            ),
+                            "-map",
+                            "0:v:0?",
+                            "-map",
+                            "0:a?",
+                            "-vf",
+                            f"scale={self.max_video_width}:-2",
+                            "-c:v",
+                            "libx264",
+                            "-preset",
+                            "ultrafast",
+                            "-crf",
+                            "28",
+                            "-c:a",
+                            "aac",
+                            "-b:a",
+                            "96k",
+                            "-movflags",
+                            "+faststart",
+                            str(temp_target),
+                        ],
+                        check=True,
+                        timeout=90,
+                    )
+                    temp_target.replace(target)
+                except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+                    if temp_target.exists():
+                        temp_target.unlink()
+                    try:
+                        target.hardlink_to(source)
+                    except (OSError, NotImplementedError):
+                        shutil.copy2(source, target)
+            else:
                 try:
                     target.hardlink_to(source)
                 except (OSError, NotImplementedError):
@@ -524,6 +779,8 @@ class DatasetBuilder:
             ),
             "raw_root": str(self.raw_root),
             "skipped_batch_count": len(self.skipped_batches),
+            "max_video_seconds": self.max_video_seconds,
+            "max_video_width": self.max_video_width,
         }
         (self.output_dir / "dataset.json").write_text(
             json.dumps(dataset, ensure_ascii=False, indent=2),
@@ -566,7 +823,7 @@ def main() -> None:
     parser.add_argument("--raw-root", type=Path, default=DEFAULT_RAW_ROOT)
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
     parser.add_argument("--db", type=Path, default=DEFAULT_DB)
-    parser.add_argument("--dataset-id", default="performance_v3")
+    parser.add_argument("--dataset-id", default="performance_v5")
     parser.add_argument("--per-ip-quota", type=int, default=80)
     parser.add_argument(
         "--target-task-count",
@@ -577,6 +834,16 @@ def main() -> None:
         "--control-count",
         type=int,
         default=DEFAULT_CONTROL_COUNT,
+    )
+    parser.add_argument(
+        "--max-video-seconds",
+        type=int,
+        default=DEFAULT_MAX_VIDEO_SECONDS,
+    )
+    parser.add_argument(
+        "--max-video-width",
+        type=int,
+        default=DEFAULT_MAX_VIDEO_WIDTH,
     )
     parser.add_argument(
         "--forensics-manifest",
@@ -593,6 +860,8 @@ def main() -> None:
         per_ip_quota=max(0, args.per_ip_quota),
         target_task_count=max(1, args.target_task_count),
         control_count=max(0, args.control_count),
+        max_video_seconds=max(1, args.max_video_seconds),
+        max_video_width=max(320, args.max_video_width),
         forensics_manifest=args.forensics_manifest,
     )
     summary = builder.build()

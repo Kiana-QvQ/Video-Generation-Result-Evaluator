@@ -60,22 +60,6 @@
             </div>
           </div>
 
-          <div id="context-card" class="context-card">
-            <div class="context-label">
-              <span class="context-index">01</span>
-              <span>CONDITION / 参考内容</span>
-            </div>
-            <div class="context-body">
-              <div id="prompt-block" class="prompt-block">
-                <span>TEXT CONDITION</span>
-                <p id="prompt-text">等待任务数据...</p>
-              </div>
-              <div id="reference-strip" class="reference-strip">
-                <div class="reference-empty">此题没有额外参考内容</div>
-              </div>
-            </div>
-          </div>
-
           <div id="message-panel" class="message-panel is-hidden" role="status"></div>
 
           <div id="compare-grid" class="compare-grid">
@@ -94,6 +78,8 @@
                 <video
                   id="video-a"
                   playsinline
+                  autoplay
+                  muted
                   controls
                   preload="metadata"
                   aria-label="候选视频 A"
@@ -104,8 +90,8 @@
                 </div>
                 <div class="video-empty">
                   <span class="empty-mark">A</span>
-                  <strong>等待视频</strong>
-                  <small>请在任务清单中配置媒体路径</small>
+                  <strong>视频加载中</strong>
+                  <small>如果长时间未显示，将提示具体错误</small>
                 </div>
               </div>
               <div class="candidate-foot">
@@ -114,14 +100,20 @@
               </div>
             </article>
 
-            <div class="spine">
-              <div class="spine-line"></div>
-              <div class="spine-core">
-                <span>READ</span>
-                <strong>HUMAN<br />SIGNAL</strong>
-                <small>动作 / 表情 / 重心 / 连续性</small>
+            <div id="context-card" class="context-card">
+              <div class="context-label">
+                <span class="context-index">01</span>
+                <span>CONDITION / 参考内容</span>
               </div>
-              <div class="spine-line"></div>
+              <div class="context-body">
+                <div id="prompt-block" class="prompt-block">
+                  <span>TEXT CONDITION</span>
+                  <p id="prompt-text">等待任务数据...</p>
+                </div>
+                <div id="reference-strip" class="reference-strip">
+                  <div class="reference-empty">本题未提供参考内容</div>
+                </div>
+              </div>
             </div>
 
             <article class="candidate-card" data-candidate="B">
@@ -139,6 +131,8 @@
                 <video
                   id="video-b"
                   playsinline
+                  autoplay
+                  muted
                   controls
                   preload="metadata"
                   aria-label="候选视频 B"
@@ -149,8 +143,8 @@
                 </div>
                 <div class="video-empty">
                   <span class="empty-mark">B</span>
-                  <strong>等待视频</strong>
-                  <small>请在任务清单中配置媒体路径</small>
+                  <strong>视频加载中</strong>
+                  <small>如果长时间未显示，将提示具体错误</small>
                 </div>
               </div>
               <div class="candidate-foot">
@@ -182,9 +176,12 @@
             </div>
             <div class="decision-footer">
               <span id="response-clock">观看时间 00:00</span>
-              <button id="submit-vote" class="submit-button" type="button" disabled>
-                <span>提交并进入下一题</span>
-                <b>↗</b>
+              <span class="auto-next-note">选择后自动进入下一题</span>
+              <button id="previous-task" class="previous-button" type="button" disabled>
+                返回上一题
+              </button>
+              <button id="next-task" class="next-button is-hidden" type="button">
+                继续下一题
               </button>
             </div>
           </section>

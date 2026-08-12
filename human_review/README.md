@@ -33,10 +33,12 @@ python server.py --port 5001
 ```powershell
 python human_review/build_dataset.py `
   --raw-root human_review\data\raw_archive\experiments_20260811 `
-  --output-dir human_review\data\datasets\performance_v3 `
+  --output-dir human_review\data\datasets\performance_v6 `
   --db human_review\data\review.sqlite3 `
-  --dataset-id performance_v3 `
-  --per-ip-quota 80
+  --dataset-id performance_v6 `
+  --per-ip-quota 80 `
+  --max-video-seconds 10 `
+  --max-video-width 720
 ```
 
 构建器会输出 `dataset.json`、`assets.jsonl`、`tasks.jsonl` 和跳过批次清单，
@@ -98,7 +100,7 @@ python human_review/server.py --port 5001
 ```powershell
 $env:HUMAN_REVIEW_MANIFEST = "D:\path\to\tasks.jsonl"
 $env:HUMAN_REVIEW_DB = "D:\path\to\review.sqlite3"
-$env:HUMAN_REVIEW_DATASET = "performance_v3"
+$env:HUMAN_REVIEW_DATASET = "performance_v6"
 python human_review/server.py --port 5001
 ```
 

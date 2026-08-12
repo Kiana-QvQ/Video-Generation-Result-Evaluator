@@ -1,9 +1,13 @@
+const MAX_VIDEO_SECONDS = 10;
+
 const state = {
   sessionId: getOrCreateSessionId(),
   task: null,
   selectedChoice: null,
   startedAt: null,
   submitting: false,
+  reviewed: false,
+  history: [],
 };
 
 const progressCurrent = document.querySelector("#progress-current");
@@ -22,7 +26,8 @@ const messagePanel = document.querySelector("#message-panel");
 const compareGrid = document.querySelector("#compare-grid");
 const decisionPanel = document.querySelector(".decision-panel");
 const choiceButtons = [...document.querySelectorAll(".choice-button")];
-const submitVoteButton = document.querySelector("#submit-vote");
+const previousTaskButton = document.querySelector("#previous-task");
+const nextTaskButton = document.querySelector("#next-task");
 const responseClock = document.querySelector("#response-clock");
 const sessionState = document.querySelector("#session-state");
 const completePanel = document.querySelector("#complete-panel");
@@ -32,6 +37,7 @@ const modalityLabels = {
   text_to_video: "TEXT TO VIDEO",
   image_to_video: "IMAGE TO VIDEO",
   multi_reference: "MULTI REFERENCE",
+  reference_material: "REFERENCE MATERIAL",
 };
 
 function getOrCreateSessionId() {
@@ -79,7 +85,11 @@ function resetMedia(videoId, asset) {
   const video = document.querySelector(`#${videoId}`);
   const frame = video.closest(".video-frame");
   const empty = frame.querySelector(".video-empty");
+  if (video._reviewCleanup) video._reviewCleanup();
+
   video.pause();
+  video.autoplay = true;
+  video.muted = true;
   video.removeAttribute("src");
   video.removeAttribute("poster");
   video.load();
@@ -87,24 +97,44 @@ function resetMedia(videoId, asset) {
   empty.classList.remove("is-hidden");
 
   if (!asset?.url) return;
+
   video.src = asset.url;
   if (asset.poster) video.poster = asset.poster;
-  video.addEventListener(
-    "loadeddata",
-    () => {
-      frame.classList.add("has-media");
-      empty.classList.add("is-hidden");
-    },
-    { once: true },
-  );
-  video.addEventListener(
-    "error",
-    () => {
-      frame.classList.add("media-error");
-      empty.classList.remove("is-hidden");
-    },
-    { once: true },
-  );
+
+  const enforceLimit = () => {
+    if (video.currentTime >= MAX_VIDEO_SECONDS) {
+      video.currentTime = MAX_VIDEO_SECONDS;
+      video.pause();
+    }
+  };
+  const onLoadedMetadata = () => {
+    video.currentTime = 0;
+    video.play().catch(() => {});
+  };
+  const onLoadedData = () => {
+    frame.classList.add("has-media");
+    empty.classList.add("is-hidden");
+  };
+  const onError = () => {
+    frame.classList.add("media-error");
+    empty.classList.remove("is-hidden");
+    empty.querySelector("strong").textContent = "视频无法播放";
+    empty.querySelector("small").textContent =
+      "当前素材编码或文件不可用，请联系管理员";
+  };
+
+  video.addEventListener("loadedmetadata", onLoadedMetadata);
+  video.addEventListener("loadeddata", onLoadedData, { once: true });
+  video.addEventListener("timeupdate", enforceLimit);
+  video.addEventListener("seeking", enforceLimit);
+  video.addEventListener("error", onError, { once: true });
+  video._reviewCleanup = () => {
+    video.removeEventListener("loadedmetadata", onLoadedMetadata);
+    video.removeEventListener("loadeddata", onLoadedData);
+    video.removeEventListener("timeupdate", enforceLimit);
+    video.removeEventListener("seeking", enforceLimit);
+    video.removeEventListener("error", onError);
+  };
   video.load();
 }
 
@@ -133,8 +163,7 @@ function showReveal(revealNode, source) {
 
 function renderReferences(references) {
   if (!references?.length) {
-    referenceStrip.innerHTML =
-      '<div class="reference-empty">此题没有额外参考内容</div>';
+    referenceStrip.innerHTML = "";
     return;
   }
 
@@ -142,7 +171,9 @@ function renderReferences(references) {
     .map((reference, index) => {
       const label = escapeHtml(
         reference.label ||
-          (reference.type === "video" ? `参考视频 ${index + 1}` : `参考图 ${index + 1}`),
+          (reference.type === "video"
+            ? `参考视频 ${index + 1}`
+            : `参考内容 ${index + 1}`),
       );
       let media;
       if (reference.type === "video") {
@@ -164,45 +195,66 @@ function renderReferences(references) {
     .join("");
 }
 
-function renderTask(task) {
+function renderTask(task, options = {}) {
   state.task = task;
-  state.selectedChoice = null;
-  state.startedAt = performance.now();
+  state.reviewed = Boolean(options.reviewed);
+  state.selectedChoice = options.choice || null;
+  state.startedAt = state.reviewed ? null : performance.now();
+
   taskTitle.textContent = task.prompt
     ? "按条件比较两段表演"
     : "比较两段人物表演";
   taskId.textContent = `TASK ${task.task_id}`;
   modalityChip.textContent = modalityLabels[task.modality] || "VIDEO REVIEW";
+
   const hasPrompt = Boolean(String(task.prompt || "").trim());
   const hasReferences = Boolean(task.references?.length);
   contextCard.classList.toggle("is-hidden", !hasPrompt && !hasReferences);
+  compareGrid.classList.toggle("has-context", hasPrompt || hasReferences);
   promptBlock.classList.toggle("is-hidden", !hasPrompt);
   contextBody.classList.toggle("reference-only", !hasPrompt && hasReferences);
-  promptText.textContent = task.prompt || "";
+  promptText.textContent = task.prompt || "本题未提供文字提示词。";
+
   renderReferences(task.references);
   resetMedia("video-a", task.candidates?.A);
   resetMedia("video-b", task.candidates?.B);
   resetReveal();
+  if (options.reveal) {
+    showReveal(revealA, options.reveal.A);
+    showReveal(revealB, options.reveal.B);
+  }
+
   choiceButtons.forEach((button) => {
-    button.classList.remove("is-selected");
-    button.disabled = false;
+    button.classList.toggle(
+      "is-selected",
+      button.dataset.choice === state.selectedChoice,
+    );
+    button.disabled = state.reviewed;
   });
-  submitVoteButton.disabled = true;
-  submitVoteButton.classList.remove("is-loading");
-  responseClock.textContent = "观看时间 00:00";
+
+  previousTaskButton.disabled = state.history.length === 0 || state.submitting;
+  nextTaskButton.classList.toggle("is-hidden", !state.reviewed);
+  responseClock.textContent = state.reviewed
+    ? "已完成本题"
+    : "观看时间 00:00";
   decisionPanel.classList.remove("is-disabled");
   completePanel.classList.add("is-hidden");
   compareGrid.classList.remove("is-hidden");
   setMessage("");
-  sessionState.textContent = "SESSION ACTIVE";
+  sessionState.textContent = state.reviewed
+    ? "REVIEWED / BACK"
+    : "SESSION ACTIVE";
 }
 
 function renderComplete(progress) {
   updateProgress(progress);
   state.task = null;
+  state.reviewed = false;
   compareGrid.classList.add("is-hidden");
   decisionPanel.classList.add("is-disabled");
   completePanel.classList.remove("is-hidden");
+  previousTaskButton.disabled = true;
+  nextTaskButton.classList.add("is-hidden");
   taskTitle.textContent = "本轮评测已完成";
   taskId.textContent = "NO PENDING TASK";
   modalityChip.textContent = "COMPLETE";
@@ -233,21 +285,15 @@ async function fetchNextTask() {
   }
 }
 
-function selectChoice(choice) {
-  if (!state.task || state.submitting) return;
+async function selectChoice(choice) {
+  if (!state.task || state.submitting || state.reviewed) return;
   state.selectedChoice = choice;
+  state.submitting = true;
   choiceButtons.forEach((button) => {
     button.classList.toggle("is-selected", button.dataset.choice === choice);
+    button.disabled = true;
   });
-  submitVoteButton.disabled = false;
-}
 
-async function submitVote() {
-  if (!state.task || !state.selectedChoice || state.submitting) return;
-  state.submitting = true;
-  submitVoteButton.disabled = true;
-  submitVoteButton.classList.add("is-loading");
-  submitVoteButton.querySelector("span").textContent = "正在记录...";
   const responseMs = Math.round(performance.now() - state.startedAt);
   try {
     const response = await fetch("/api/review/vote", {
@@ -258,28 +304,48 @@ async function submitVote() {
       },
       body: JSON.stringify({
         task_id: state.task.task_id,
-        choice: state.selectedChoice,
+        choice,
         response_ms: responseMs,
       }),
     });
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error || "投票记录失败");
+
     updateProgress(payload.progress);
-    showReveal(revealA, payload.progress?.reveal?.A);
-    showReveal(revealB, payload.progress?.reveal?.B);
-    submitVoteButton.querySelector("span").textContent = "已记录，结果揭示中...";
-    submitVoteButton.classList.remove("is-loading");
-    await new Promise((resolve) => window.setTimeout(resolve, 1700));
+    const reveal = payload.progress?.reveal || {};
+    state.history.push({
+      task: JSON.parse(JSON.stringify(state.task)),
+      choice,
+      reveal,
+    });
+    showReveal(revealA, reveal.A);
+    showReveal(revealB, reveal.B);
+    responseClock.textContent = "已记录，结果揭示中...";
+    await new Promise((resolve) => window.setTimeout(resolve, 950));
     state.submitting = false;
-    submitVoteButton.querySelector("span").textContent = "提交并进入下一题";
     await fetchNextTask();
   } catch (error) {
     state.submitting = false;
-    submitVoteButton.disabled = false;
-    submitVoteButton.classList.remove("is-loading");
-    submitVoteButton.querySelector("span").textContent = "提交并进入下一题";
+    choiceButtons.forEach((button) => {
+      button.disabled = false;
+    });
     setMessage(error.message || "投票记录失败，请重试。", "error");
   }
+}
+
+function showPreviousTask() {
+  if (state.submitting || !state.history.length) return;
+  const previous = state.history.pop();
+  renderTask(previous.task, {
+    reviewed: true,
+    choice: previous.choice,
+    reveal: previous.reveal,
+  });
+}
+
+function continueToNextTask() {
+  if (state.submitting || !state.reviewed) return;
+  fetchNextTask();
 }
 
 function restartReview() {
@@ -293,7 +359,8 @@ function restartReview() {
 choiceButtons.forEach((button) => {
   button.addEventListener("click", () => selectChoice(button.dataset.choice));
 });
-submitVoteButton.addEventListener("click", submitVote);
+previousTaskButton.addEventListener("click", showPreviousTask);
+nextTaskButton.addEventListener("click", continueToNextTask);
 restartButton.addEventListener("click", restartReview);
 
 window.addEventListener("keydown", (event) => {
@@ -304,14 +371,10 @@ window.addEventListener("keydown", (event) => {
     event.preventDefault();
     selectChoice(choice);
   }
-  if (event.key === "Enter" && state.selectedChoice) {
-    event.preventDefault();
-    submitVote();
-  }
 });
 
 window.setInterval(() => {
-  if (state.startedAt && state.task && !state.submitting) {
+  if (state.startedAt && state.task && !state.submitting && !state.reviewed) {
     responseClock.textContent = `观看时间 ${formatDuration(
       (performance.now() - state.startedAt) / 1000,
     )}`;
