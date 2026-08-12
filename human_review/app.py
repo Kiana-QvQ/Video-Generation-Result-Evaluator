@@ -7,7 +7,6 @@ import os
 import re
 import secrets
 import sqlite3
-import uuid
 from ipaddress import ip_address
 from pathlib import Path
 from typing import Any
@@ -58,11 +57,6 @@ class ReviewStore:
             self.dataset_id = selected["dataset_id"]
             return
 
-        active = self.database.get_active_dataset()
-        if active and self.database.count_dataset_tasks(active["dataset_id"]) > 0:
-            self.dataset_id = active["dataset_id"]
-            return
-
         raise RuntimeError(
             f"Review dataset {self.dataset_id!r} is not available. "
             "Build performance_v8 before starting the review service."
@@ -101,7 +95,6 @@ class ReviewStore:
         completed = self.database.count_votes(
             self.dataset_id,
             reviewer_hash,
-            round_id,
         )
         return {
             "current": min(completed + 1, target) if target else 0,
@@ -218,16 +211,20 @@ class ReviewStore:
                 candidate.get("asset_id", ""),
                 self.dataset_id,
             )
-            if not asset or asset["media_type"] != "video/mp4":
+            if (
+                not asset
+                or asset["media_type"] != "video/mp4"
+                or not Path(asset["source_path"]).is_file()
+            ):
                 raise ValueError(
-                    f"Candidate {candidate.get('candidate_id')} is not a video asset."
+                    f"Candidate {candidate.get('candidate_id')} is not an available video asset."
                 )
         for reference in task.get("references", []):
             asset_id = reference.get("asset_id")
             if not asset_id or asset_id in candidate_ids:
                 raise ValueError("Reference assets must be separate from candidates.")
             asset = self.database.get_asset(asset_id, self.dataset_id)
-            if not asset:
+            if not asset or not Path(asset["source_path"]).is_file():
                 raise ValueError(f"Reference asset {asset_id} does not exist.")
             expected_prefix = {
                 "image": "image/",
@@ -239,11 +236,10 @@ class ReviewStore:
                     f"Reference asset {asset_id} has an invalid media type."
                 )
             poster_id = reference.get("poster_asset_id")
-            if poster_id and not self.database.get_asset(
-                poster_id,
-                self.dataset_id,
-            ):
-                raise ValueError(f"Reference poster {poster_id} does not exist.")
+            if poster_id:
+                poster = self.database.get_asset(poster_id, self.dataset_id)
+                if not poster or not Path(poster["source_path"]).is_file():
+                    raise ValueError(f"Reference poster {poster_id} does not exist.")
 
     @staticmethod
     def _validate_reviewable_task(task: dict[str, Any]) -> None:
@@ -284,7 +280,6 @@ class ReviewStore:
             own_votes = self.database.get_unvoted_tasks(
                 self.dataset_id,
                 reviewer_hash,
-                round_id,
             )
             allowed_ids = {task["task_id"] for task in own_votes}
             if requested["task_id"] in allowed_ids:
@@ -296,17 +291,17 @@ class ReviewStore:
         candidates = self.database.get_unvoted_tasks(
             self.dataset_id,
             reviewer_hash,
-            round_id,
         )
         valid_candidates: list[dict[str, Any]] = []
         for candidate in candidates:
             try:
                 self._validate_reviewable_task(candidate)
+                self._validate_task_assets(candidate)
             except ValueError:
                 continue
             valid_candidates.append(candidate)
         if not valid_candidates:
-            return None
+            raise ValueError("No valid reviewable tasks are available.")
         model_candidates = [
             candidate
             for candidate in valid_candidates
@@ -398,6 +393,8 @@ class ReviewStore:
 
     def media(self, asset_id: str, dataset_id: str | None = None) -> Any:
         selected_dataset = dataset_id or self.dataset_id
+        if selected_dataset != self.dataset_id:
+            return jsonify({"error": "Dataset not available"}), 404
         asset = self.database.get_asset(asset_id, selected_dataset)
         if not asset:
             return jsonify({"error": "Asset not found"}), 404
@@ -443,28 +440,20 @@ def create_app(
             return "legacy"
         return raw_round
 
-    @app.after_request
-    def attach_session_cookie(response: Any) -> Any:
-        # The cookie is only a UI convenience. Duplicate prevention is IP-based.
-        response.set_cookie(
-            "review_session_id",
-            request.cookies.get("review_session_id") or uuid.uuid4().hex,
-            httponly=False,
-            samesite="Lax",
-        )
-        return response
-
     @app.get("/")
     def index() -> Any:
         return app.send_static_file("index.html")
 
     @app.get("/api/review/next")
     def get_next_task() -> Any:
-        task = store.next_task(
-            reviewer_hash(),
-            reviewer_round(),
-            request.args.get("task_id"),
-        )
+        try:
+            task = store.next_task(
+                reviewer_hash(),
+                reviewer_round(),
+                request.args.get("task_id"),
+            )
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 503
         payload = {
             "task": task,
             "progress": store.progress(reviewer_hash(), reviewer_round()),
@@ -520,7 +509,6 @@ def create_app(
             {
                 "status": "ok",
                 "dataset_id": store.dataset_id,
-                "database": str(store.database.path),
                 "ip_deduplication": True,
                 "task_count": store.database.count_dataset_tasks(store.dataset_id),
             }
@@ -531,6 +519,3 @@ def create_app(
         return store.media(asset_id, dataset_id)
 
     return app
-
-
-app = create_app()

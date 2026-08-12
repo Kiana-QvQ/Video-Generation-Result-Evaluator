@@ -1,14 +1,12 @@
 const MAX_VIDEO_SECONDS = 10;
 
 const state = {
-  sessionId: getOrCreateSessionId(),
   roundId: getOrCreateRoundId(),
   task: null,
   selectedChoice: null,
   startedAt: null,
   submitting: false,
   reviewed: false,
-  history: [],
 };
 
 const progressCurrent = document.querySelector("#progress-current");
@@ -27,11 +25,9 @@ const messagePanel = document.querySelector("#message-panel");
 const compareGrid = document.querySelector("#compare-grid");
 const decisionPanel = document.querySelector(".decision-panel");
 const choiceButtons = [...document.querySelectorAll(".choice-button")];
-const previousTaskButton = document.querySelector("#previous-task");
 const responseClock = document.querySelector("#response-clock");
 const sessionState = document.querySelector("#session-state");
 const completePanel = document.querySelector("#complete-panel");
-const restartButton = document.querySelector("#restart-review");
 const decisionQuestion = document.querySelector("#decision-question");
 const decisionHint = document.querySelector("#decision-hint");
 
@@ -41,15 +37,6 @@ const modalityLabels = {
   multi_reference: "MULTI REFERENCE",
   reference_material: "REFERENCE MATERIAL",
 };
-
-function getOrCreateSessionId() {
-  const key = "human-signal-session";
-  const existing = window.localStorage.getItem(key);
-  if (existing) return existing;
-  const value = `browser-${crypto.randomUUID?.() ?? `${Date.now()}-${Math.random()}`}`;
-  window.localStorage.setItem(key, value);
-  return value;
-}
 
 function getOrCreateRoundId() {
   const key = "human-signal-round";
@@ -273,7 +260,6 @@ function renderTask(task, options = {}) {
     button.disabled = state.reviewed;
   });
 
-  previousTaskButton.disabled = state.history.length === 0 || state.submitting;
   responseClock.textContent = state.reviewed
     ? "已完成本题"
     : "观看时间 00:00";
@@ -293,7 +279,6 @@ function renderComplete(progress) {
   compareGrid.classList.add("is-hidden");
   decisionPanel.classList.add("is-disabled");
   completePanel.classList.remove("is-hidden");
-  previousTaskButton.disabled = true;
   taskTitle.textContent = "本轮评测已完成";
   taskId.textContent = "NO PENDING TASK";
   modalityChip.textContent = "COMPLETE";
@@ -309,7 +294,6 @@ async function fetchNextTask() {
   try {
     const response = await fetch(`/api/review/next${query}`, {
       headers: {
-        "X-Review-Session": state.sessionId,
         "X-Review-Round": state.roundId,
       },
     });
@@ -347,7 +331,6 @@ async function selectChoice(choice) {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "X-Review-Session": state.sessionId,
         "X-Review-Round": state.roundId,
       },
       body: JSON.stringify({
@@ -361,11 +344,6 @@ async function selectChoice(choice) {
 
     updateProgress(payload.progress);
     const reveal = payload.progress?.reveal || {};
-    state.history.push({
-      task: JSON.parse(JSON.stringify(state.task)),
-      choice,
-      reveal,
-    });
     showReveal(revealB, reveal.B, "B");
     showReveal(revealA, reveal.A, "A");
     responseClock.textContent = "已记录，约 2 秒后进入下一题";
@@ -391,36 +369,9 @@ async function selectChoice(choice) {
   }
 }
 
-function showPreviousTask() {
-  if (state.submitting || !state.history.length) return;
-  const previous = state.history.pop();
-  renderTask(previous.task, {
-    reviewed: true,
-    choice: previous.choice,
-    reveal: previous.reveal,
-  });
-}
-
-async function restartReview() {
-  restartButton.disabled = true;
-  state.roundId = `round-${
-    crypto.randomUUID?.() ?? `${Date.now()}-${Math.random()}`
-  }`;
-  window.sessionStorage.setItem("human-signal-round", state.roundId);
-  state.history = [];
-  state.task = null;
-  state.reviewed = false;
-  state.selectedChoice = null;
-  state.submitting = false;
-  await fetchNextTask();
-  restartButton.disabled = false;
-}
-
 choiceButtons.forEach((button) => {
   button.addEventListener("click", () => selectChoice(button.dataset.choice));
 });
-previousTaskButton.addEventListener("click", showPreviousTask);
-restartButton.addEventListener("click", restartReview);
 
 window.addEventListener("keydown", (event) => {
   if (event.target.matches("input, textarea, select, video")) return;

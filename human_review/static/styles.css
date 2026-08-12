@@ -1163,25 +1163,6 @@ body {
   color: var(--coral-soft);
 }
 
-.previous-button {
-  padding: 7px 11px;
-  border: 1px solid rgba(32, 42, 40, 0.22);
-  border-radius: 6px;
-  background: transparent;
-  color: var(--paper);
-  font: 12px var(--mono);
-  letter-spacing: 0.04em;
-}
-
-.previous-button:hover:not(:disabled) {
-  background: rgba(231, 101, 88, 0.1);
-}
-
-.previous-button:disabled {
-  cursor: not-allowed;
-  opacity: 0.35;
-}
-
 .complete-panel,
 .guidance-list article {
   background: var(--ink-raised);

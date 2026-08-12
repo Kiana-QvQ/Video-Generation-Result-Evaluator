@@ -70,6 +70,8 @@ class HumanReviewTests(unittest.TestCase):
             page = client.get("/")
             self.assertEqual(page.status_code, 200)
             self.assertNotIn('id="next-task"', page.get_data(as_text=True))
+            self.assertNotIn('id="previous-task"', page.get_data(as_text=True))
+            self.assertNotIn('id="restart-review"', page.get_data(as_text=True))
             self.assertIn("展示结果约 2 秒，自动进入下一题", page.get_data(as_text=True))
 
             first = client.get(
@@ -102,8 +104,73 @@ class HumanReviewTests(unittest.TestCase):
                 "/api/review/next",
                 headers={"X-Review-Round": "round-b"},
             )
-            self.assertIsNotNone(restarted.get_json()["task"])
-            self.assertEqual(restarted.get_json()["progress"]["current"], 1)
+            self.assertIsNone(restarted.get_json()["task"])
+            self.assertTrue(restarted.get_json()["progress"]["done"])
+
+            duplicate = client.post(
+                "/api/review/vote",
+                json={"task_id": task["task_id"], "choice": "B"},
+                headers={"X-Review-Round": "round-b"},
+            )
+            self.assertEqual(duplicate.status_code, 400)
+
+    def test_media_endpoint_only_serves_active_dataset(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            app = self._create_app(directory)
+            client = app.test_client()
+
+            denied = client.get("/media/asset/archived_dataset/asset-a")
+            self.assertEqual(denied.status_code, 404)
+
+            allowed = client.get("/media/asset/test_review/asset-a")
+            try:
+                self.assertEqual(allowed.status_code, 200)
+                self.assertEqual(allowed.data, b"fake-a")
+            finally:
+                allowed.close()
+
+    def test_replacing_vote_free_dataset_removes_stale_assets(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            db = ReviewDatabase(root / "review.sqlite3", ip_secret="test-secret")
+            first_video = root / "first.mp4"
+            second_video = root / "second.mp4"
+            first_video.write_bytes(b"first")
+            second_video.write_bytes(b"second")
+
+            bundle = {
+                "dataset_id": "replaceable",
+                "name": "Replaceable",
+                "version": "v1",
+                "per_ip_quota": 1,
+            }
+            db.replace_dataset_bundle(
+                bundle,
+                [
+                    {
+                        "dataset_id": "replaceable",
+                        "asset_id": "old-asset",
+                        "source_path": str(first_video),
+                        "media_type": "video/mp4",
+                    }
+                ],
+                [],
+            )
+            db.replace_dataset_bundle(
+                bundle,
+                [
+                    {
+                        "dataset_id": "replaceable",
+                        "asset_id": "new-asset",
+                        "source_path": str(second_video),
+                        "media_type": "video/mp4",
+                    }
+                ],
+                [],
+            )
+
+            self.assertIsNone(db.get_asset("old-asset", "replaceable"))
+            self.assertIsNotNone(db.get_asset("new-asset", "replaceable"))
 
 
 if __name__ == "__main__":

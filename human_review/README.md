@@ -15,16 +15,19 @@
 在项目根目录运行：
 
 ```powershell
-python human_review/server.py --host 0.0.0.0 --port 5001
+python human_review/server.py --host 127.0.0.1 --port 5001
 ```
 
 浏览器打开 `http://127.0.0.1:5001`。
 
-也可以直接在 `human_review` 目录运行：
+也可以直接在 `human_review` 目录运行，默认只监听本机：
 
 ```powershell
 python server.py --port 5001
 ```
+
+如需局域网访问，必须显式指定 `--host`，并在反向代理或访问控制后使用；
+该服务不适合作为未鉴权的公网服务直接暴露。
 
 ## 数据
 
@@ -93,8 +96,8 @@ python human_review/build_dataset.py `
 - 任务 ID 和时间
 - IP 的 HMAC 哈希
 
-同一个 `dataset_id + task_id + ip_hash` 只能写入一次。浏览器清除 Cookie
-不会绕过这个限制。
+同一个 `dataset_id + task_id + ip_hash` 只能写入一次。
+`round_id` 只用于记录浏览器轮次和 A/B 展示随机化，不能绕过重复评分限制。
 
 每个数据集可以配置 `per_ip_quota`。当前 `performance_v8` 有 58 道可投票题，
 其中包含 1 道 LTX2.3 vs Seedance 2.0；控制题和 1 道

@@ -68,7 +68,7 @@ CREATE TABLE IF NOT EXISTS review_votes (
     displayed_b_candidate TEXT NOT NULL,
     response_ms INTEGER,
     created_at TEXT NOT NULL,
-    UNIQUE (dataset_id, task_id, ip_hash, round_id),
+    UNIQUE (dataset_id, task_id, ip_hash),
     FOREIGN KEY (dataset_id, task_id)
         REFERENCES tasks(dataset_id, task_id)
 );
@@ -160,6 +160,12 @@ class ReviewDatabase:
                     ON review_votes(dataset_id, task_id)
                 """
             )
+            connection.execute(
+                """
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_votes_reviewer_task_unique
+                    ON review_votes(dataset_id, task_id, ip_hash)
+                """
+            )
             columns = {
                 row["name"]
                 for row in connection.execute("PRAGMA table_info(tasks)")
@@ -195,6 +201,10 @@ class ReviewDatabase:
 
             connection.execute(
                 "DELETE FROM tasks WHERE dataset_id = ?",
+                (dataset_id,),
+            )
+            connection.execute(
+                "DELETE FROM assets WHERE dataset_id = ?",
                 (dataset_id,),
             )
             connection.execute(
@@ -384,7 +394,6 @@ class ReviewDatabase:
         self,
         dataset_id: str,
         ip_hash: str,
-        round_id: str = "legacy",
         limit: int | None = None,
     ) -> list[dict[str, Any]]:
         query = """
@@ -392,8 +401,7 @@ class ReviewDatabase:
             FROM tasks t
             LEFT JOIN review_votes v
               ON v.dataset_id = t.dataset_id
-             AND v.task_id = t.task_id
-             AND v.round_id = ?
+              AND v.task_id = t.task_id
             WHERE t.dataset_id = ?
               AND t.status IN ('ready', 'active')
               AND t.control_type IS NULL
@@ -403,7 +411,6 @@ class ReviewDatabase:
                   WHERE own_vote.dataset_id = t.dataset_id
                     AND own_vote.task_id = t.task_id
                     AND own_vote.ip_hash = ?
-                    AND own_vote.round_id = ?
               )
             GROUP BY t.dataset_id, t.task_id
             ORDER BY
@@ -411,7 +418,7 @@ class ReviewDatabase:
                 vote_count ASC,
                 t.task_id ASC
         """
-        params: list[Any] = [round_id, dataset_id, ip_hash, round_id]
+        params: list[Any] = [dataset_id, ip_hash]
         if limit:
             query += " LIMIT ?"
             params.append(limit)
@@ -423,7 +430,6 @@ class ReviewDatabase:
         self,
         dataset_id: str,
         ip_hash: str,
-        round_id: str = "legacy",
     ) -> int:
         with self.connect() as connection:
             row = connection.execute(
@@ -431,7 +437,6 @@ class ReviewDatabase:
                 SELECT COUNT(*) AS count FROM review_votes
                 WHERE dataset_id = ?
                   AND ip_hash = ?
-                  AND round_id = ?
                   AND task_id IN (
                       SELECT task_id
                       FROM tasks
@@ -440,7 +445,7 @@ class ReviewDatabase:
                         AND control_type IS NULL
                   )
                 """,
-                (dataset_id, ip_hash, round_id, dataset_id),
+                (dataset_id, ip_hash, dataset_id),
             ).fetchone()
         return int(row["count"])
 

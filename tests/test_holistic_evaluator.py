@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 import cv2
 import numpy as np
+import pytest
 
 import evaluator.modules.core.runtime as runtime
 from backends.etva_judge import (
@@ -372,7 +373,7 @@ class HolisticEvaluatorTests(unittest.TestCase):
             self.assertFalse((root / "hub" / "checkpoints" / "missing.pth").exists())
 
     def test_maniqa_creation_disables_redundant_timm_download(self) -> None:
-        import timm
+        timm = pytest.importorskip("timm")
 
         original_create_model = timm.create_model
         calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
