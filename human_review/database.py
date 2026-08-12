@@ -44,6 +44,10 @@ CREATE TABLE IF NOT EXISTS tasks (
     references_json TEXT NOT NULL DEFAULT '[]',
     candidates_json TEXT NOT NULL,
     control_type TEXT,
+    task_type TEXT NOT NULL DEFAULT 'ai_real_anchor',
+    question TEXT NOT NULL DEFAULT '',
+    reveal_mode TEXT NOT NULL DEFAULT 'origin',
+    show_context INTEGER NOT NULL DEFAULT 0,
     metadata_json TEXT NOT NULL DEFAULT '{}',
     PRIMARY KEY (dataset_id, task_id),
     FOREIGN KEY (dataset_id) REFERENCES datasets(dataset_id)
@@ -119,6 +123,19 @@ class ReviewDatabase:
     def initialize(self) -> None:
         with self.connect() as connection:
             connection.executescript("PRAGMA journal_mode=WAL;\n" + SCHEMA)
+            columns = {
+                row["name"]
+                for row in connection.execute("PRAGMA table_info(tasks)")
+            }
+            migrations = {
+                "task_type": "ALTER TABLE tasks ADD COLUMN task_type TEXT NOT NULL DEFAULT 'ai_real_anchor'",
+                "question": "ALTER TABLE tasks ADD COLUMN question TEXT NOT NULL DEFAULT ''",
+                "reveal_mode": "ALTER TABLE tasks ADD COLUMN reveal_mode TEXT NOT NULL DEFAULT 'origin'",
+                "show_context": "ALTER TABLE tasks ADD COLUMN show_context INTEGER NOT NULL DEFAULT 0",
+            }
+            for column, statement in migrations.items():
+                if column not in columns:
+                    connection.execute(statement)
 
     def activate_dataset(self, dataset: dict[str, Any]) -> None:
         dataset_id = str(dataset["dataset_id"])
@@ -148,6 +165,23 @@ class ReviewDatabase:
                     dataset.get("created_at", utc_now()),
                     json.dumps(dataset.get("metadata", {}), ensure_ascii=False),
                 ),
+            )
+
+    def prepare_dataset_rebuild(self, dataset_id: str) -> None:
+        """Clear generated task rows only when no votes would be lost."""
+
+        with self.connect() as connection:
+            vote_count = connection.execute(
+                "SELECT COUNT(*) AS count FROM review_votes WHERE dataset_id = ?",
+                (dataset_id,),
+            ).fetchone()["count"]
+            if vote_count:
+                raise RuntimeError(
+                    f"Refusing to rebuild {dataset_id}: it already has votes."
+                )
+            connection.execute(
+                "DELETE FROM tasks WHERE dataset_id = ?",
+                (dataset_id,),
             )
 
     def upsert_asset(self, asset: dict[str, Any]) -> None:
@@ -184,8 +218,9 @@ class ReviewDatabase:
                 INSERT INTO tasks (
                     dataset_id, task_id, case_id, status, modality,
                     prompt, references_json, candidates_json,
-                    control_type, metadata_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    control_type, task_type, question, reveal_mode,
+                    show_context, metadata_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(dataset_id, task_id) DO UPDATE SET
                     case_id = excluded.case_id,
                     status = excluded.status,
@@ -194,6 +229,10 @@ class ReviewDatabase:
                     references_json = excluded.references_json,
                     candidates_json = excluded.candidates_json,
                     control_type = excluded.control_type,
+                    task_type = excluded.task_type,
+                    question = excluded.question,
+                    reveal_mode = excluded.reveal_mode,
+                    show_context = excluded.show_context,
                     metadata_json = excluded.metadata_json
                 """,
                 (
@@ -206,6 +245,10 @@ class ReviewDatabase:
                     json.dumps(task.get("references", []), ensure_ascii=False),
                     json.dumps(task["candidates"], ensure_ascii=False),
                     task.get("control_type"),
+                    task.get("task_type", "ai_real_anchor"),
+                    task.get("question", ""),
+                    task.get("reveal_mode", "origin"),
+                    int(bool(task.get("show_context", False))),
                     json.dumps(task.get("metadata", {}), ensure_ascii=False),
                 ),
             )
@@ -261,6 +304,10 @@ class ReviewDatabase:
             "references": json.loads(row["references_json"]),
             "candidates": json.loads(row["candidates_json"]),
             "control_type": row["control_type"],
+            "task_type": row["task_type"],
+            "question": row["question"],
+            "reveal_mode": row["reveal_mode"],
+            "show_context": bool(row["show_context"]),
             "metadata": json.loads(row["metadata_json"]),
         }
 

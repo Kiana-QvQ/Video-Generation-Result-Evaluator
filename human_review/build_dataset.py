@@ -25,8 +25,10 @@ from database import ReviewDatabase
 ROOT_DIR = Path(__file__).resolve().parent
 PROJECT_DIR = ROOT_DIR.parent
 DEFAULT_RAW_ROOT = ROOT_DIR / "data" / "raw_archive" / "experiments_20260811"
-DEFAULT_OUTPUT_DIR = ROOT_DIR / "data" / "datasets" / "performance_v6"
+DEFAULT_OUTPUT_DIR = ROOT_DIR / "data" / "datasets" / "performance_v7"
 DEFAULT_DB = ROOT_DIR / "data" / "review.sqlite3"
+DEFAULT_REUSE_ASSETS_DIR = ROOT_DIR / "data" / "datasets" / "performance_v6"
+DEFAULT_BASELINE_DATASET_DIR = ROOT_DIR / "data" / "datasets" / "performance_v6"
 DEFAULT_FORENSICS_MANIFEST = PROJECT_DIR / "data" / "forensics" / "forensics_manifest.json"
 DEFAULT_TARGET_TASK_COUNT = 80
 DEFAULT_CONTROL_COUNT = 8
@@ -115,11 +117,22 @@ def probe_video(path: Path) -> dict[str, Any]:
 
 
 def infer_model_name(value: str) -> str | None:
-    lowered = value.strip().lower()
-    for marker, model_id in KNOWN_MODELS:
+    lowered = re.sub(r"[^a-z0-9]+", "", value.strip().lower())
+    for marker, model_id in sorted(
+        KNOWN_MODELS,
+        key=lambda item: len(re.sub(r"[^a-z0-9]+", "", item[0])),
+        reverse=True,
+    ):
+        marker = re.sub(r"[^a-z0-9]+", "", marker.lower())
         if marker in lowered:
             return model_id
     return None
+
+
+def canonical_model_id(model_id: str | None) -> str | None:
+    if not model_id:
+        return None
+    return infer_model_name(model_id) or model_id
 
 
 def parse_prompt(txt_path: Path | None) -> tuple[str, str, str | None]:
@@ -180,6 +193,8 @@ class DatasetBuilder:
         max_video_seconds: int,
         max_video_width: int,
         forensics_manifest: Path | None,
+        reuse_assets_dir: Path | None = None,
+        baseline_dataset_dir: Path | None = None,
     ) -> None:
         self.raw_root = raw_root.resolve()
         self.output_dir = output_dir.resolve()
@@ -202,6 +217,131 @@ class DatasetBuilder:
         self.skipped_batches: list[dict[str, Any]] = []
         self.seen_hashes: dict[str, str] = {}
         self.signature_cache: dict[str, np.ndarray | None] = {}
+        self.reuse_assets_by_key = self._load_reuse_assets(reuse_assets_dir)
+        self.asset_reuse_paths: dict[str, Path] = {}
+        self.baseline_anchor_count = self._load_baseline_anchor_count(
+            baseline_dataset_dir,
+        )
+        self.candidate_source_names = self._load_candidate_source_names()
+        self.candidate_manifest_models = self._load_candidate_manifest_models()
+
+    @staticmethod
+    def _load_reuse_assets(
+        assets_dir: Path | None,
+    ) -> dict[tuple[str, float | None], Path]:
+        if not assets_dir:
+            return {}
+        manifest = assets_dir / "assets.jsonl"
+        if not manifest.exists():
+            return {}
+        reuse: dict[tuple[str, float | None], Path] = {}
+        try:
+            rows = (
+                json.loads(line)
+                for line in manifest.read_text(encoding="utf-8-sig").splitlines()
+                if line.strip()
+            )
+            for asset in rows:
+                source = Path(asset.get("normalized_path", ""))
+                if not source.is_file():
+                    continue
+                metadata = asset.get("metadata") or {}
+                clip_seconds = metadata.get("clip_seconds")
+                clip_key = round(float(clip_seconds), 3) if clip_seconds else None
+                sha256 = str(asset.get("sha256") or "")
+                if sha256:
+                    reuse[(sha256, clip_key)] = source
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+            return {}
+        return reuse
+
+    @staticmethod
+    def _load_baseline_anchor_count(dataset_dir: Path | None) -> int | None:
+        if not dataset_dir:
+            return None
+        manifest = dataset_dir / "tasks.jsonl"
+        if not manifest.exists():
+            return None
+        try:
+            count = 0
+            for line in manifest.read_text(encoding="utf-8-sig").splitlines():
+                if not line.strip():
+                    continue
+                task = json.loads(line)
+                if task.get("metadata", {}).get("source_kind") == "ai_real_anchor":
+                    count += 1
+            return count or None
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+            return None
+
+    def _load_candidate_source_names(self) -> dict[str, str]:
+        try:
+            self.raw_root.iterdir()
+        except OSError:
+            return {}
+        names: dict[str, str] = {}
+        for batch in self.raw_root.iterdir():
+            if not batch.is_dir():
+                continue
+            batch_manifest = batch / "rename_manifest.json"
+            if not batch_manifest.exists():
+                continue
+            try:
+                batch_payload = json.loads(
+                    batch_manifest.read_text(encoding="utf-8-sig"),
+                )
+            except (OSError, json.JSONDecodeError):
+                continue
+            for item in batch_payload.get("files", []):
+                if item.get("role") != "candidate":
+                    continue
+                normalized_path = item.get("normalized_path")
+                original_name = item.get("original_name")
+                if normalized_path and original_name:
+                    names[str(Path(normalized_path).resolve())] = str(original_name)
+        return names
+
+    def _load_candidate_manifest_models(self) -> dict[str, str]:
+        models: dict[str, str] = {}
+        try:
+            batches = list(self.raw_root.iterdir())
+        except OSError:
+            return models
+        for batch in batches:
+            if not batch.is_dir():
+                continue
+            manifest = batch / "rename_manifest.json"
+            if not manifest.exists():
+                continue
+            try:
+                payload = json.loads(manifest.read_text(encoding="utf-8-sig"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            for item in payload.get("files", []):
+                if item.get("role") != "candidate":
+                    continue
+                normalized_path = item.get("normalized_path")
+                model_id = canonical_model_id(item.get("model_id"))
+                if normalized_path and model_id:
+                    models[str(Path(normalized_path).resolve())] = model_id
+        return models
+
+    def _candidate_source_name(self, path: Path) -> str:
+        return self.candidate_source_names.get(str(path.resolve()), path.name)
+
+    def _candidate_manifest_model(self, path: Path) -> str | None:
+        return self.candidate_manifest_models.get(str(path.resolve()))
+
+    @staticmethod
+    def _candidate_compare_key(source_name: str) -> str:
+        stem = Path(source_name).stem.lower()
+        stem = re.sub(
+            r"(ltx2?\.?3|ltx|seedance2?\.?0|seedance|4k|gen)",
+            "",
+            stem,
+        )
+        stem = re.sub(r"[^a-z0-9]+", "", stem)
+        return stem
 
     def asset(
         self,
@@ -236,6 +376,13 @@ class DatasetBuilder:
         }
         self.assets[asset_id] = record
         self.seen_hashes[clip_key] = asset_id
+        reuse_key = (
+            file_hash,
+            round(float(clip_seconds), 3) if clip_seconds else None,
+        )
+        reuse_path = self.reuse_assets_by_key.get(reuse_key)
+        if reuse_path:
+            self.asset_reuse_paths[asset_id] = reuse_path
         return asset_id
 
     def _asset_ref(
@@ -343,7 +490,12 @@ class DatasetBuilder:
                 "candidate",
                 clip_seconds=common_duration,
             )
-            model_id = infer_model_name(path.stem) or prompt_model
+            model_id = canonical_model_id(
+                self._candidate_manifest_model(path)
+                or infer_model_name(self._candidate_source_name(path))
+                or infer_model_name(path.stem)
+                or prompt_model,
+            )
             candidate_records.append(
                 {
                     "candidate_id": (
@@ -353,14 +505,109 @@ class DatasetBuilder:
                     "origin_type": "ai",
                     "asset_id": asset_id,
                     "variant": path.stem,
+                    "reveal_label": (
+                        "LTX2.3"
+                        if model_id == "ltx2_3"
+                        else "Seedance 2.0"
+                        if model_id == "seedance_2_0"
+                        else None
+                    ),
+                    "_source_name": self._candidate_source_name(path),
+                    "_compare_key": self._candidate_compare_key(
+                        self._candidate_source_name(path),
+                    ),
                 }
             )
 
         case_id = f"raw_{stable_slug(batch.name)}"
         focus = focus_for_prompt(prompt)
-        for left, right in itertools.combinations(candidate_records, 2):
+        model_comparison_pairs = self._model_comparison_pairs(candidate_records)
+        for left, right in model_comparison_pairs:
             pair_key = f"{left['candidate_id']}_vs_{right['candidate_id']}"
             pair_hash = hashlib.sha1(pair_key.encode("utf-8")).hexdigest()[:12]
+            self.tasks.append(
+                {
+                    "dataset_id": self.dataset_id,
+                    "task_id": f"{case_id}__model_pair_{pair_hash}",
+                    "case_id": case_id,
+                    "status": "ready",
+                    "modality": modality,
+                    "prompt": prompt,
+                    "question": (
+                        "在相同 Prompt 和参考内容下，"
+                        "哪个视频中的人物表演更自然、更像真人？"
+                    ),
+                    "task_type": "model_comparison",
+                    "reveal_mode": "model",
+                    "show_context": True,
+                    "references": references,
+                    "candidates": [
+                        self._public_candidate(left),
+                        self._public_candidate(right),
+                    ],
+                    "metadata": {
+                        "source_batch": str(batch),
+                        "prompt_source": prompt_source,
+                        "prompt_model": prompt_model,
+                        "focus": focus,
+                        "source_kind": "model_comparison",
+                        "comparison_key": left.get("_compare_key"),
+                    },
+                }
+            )
+
+        comparison_ids = {
+            candidate["candidate_id"]
+            for pair in model_comparison_pairs
+            for candidate in pair
+        }
+        for left, right in itertools.combinations(candidate_records, 2):
+            if (
+                left["candidate_id"] in comparison_ids
+                and right["candidate_id"] in comparison_ids
+                and left.get("model_id") != right.get("model_id")
+            ):
+                continue
+            pair_key = f"{left['candidate_id']}_vs_{right['candidate_id']}"
+            pair_hash = hashlib.sha1(pair_key.encode("utf-8")).hexdigest()[:12]
+            if left.get("model_id") != right.get("model_id"):
+                manual_task = {
+                    "dataset_id": self.dataset_id,
+                    "task_id": f"{case_id}__pair_{pair_hash}",
+                    "case_id": case_id,
+                    "status": "needs_manual_review",
+                    "modality": modality,
+                    "prompt": prompt,
+                    "question": "哪个视频中的人物表演更像真人？",
+                    "task_type": "model_comparison",
+                    "reveal_mode": "model",
+                    "show_context": True,
+                    "references": references,
+                    "candidates": [
+                        self._public_candidate(left),
+                        self._public_candidate(right),
+                    ],
+                    "metadata": {
+                        "source_batch": str(batch),
+                        "prompt_source": prompt_source,
+                        "prompt_model": prompt_model,
+                        "focus": focus,
+                        "source_kind": "needs_manual_review",
+                        "review_reason": "cross_model_pair_requires_manual_review",
+                    },
+                }
+                self.tasks.append(manual_task)
+                self.skipped_batches.append(
+                    {
+                        "batch": str(batch),
+                        "reason": "cross_model_pair_requires_manual_review",
+                        "candidates": [
+                            left.get("_source_name"),
+                            right.get("_source_name"),
+                        ],
+                    }
+                )
+                continue
             task = {
                 "dataset_id": self.dataset_id,
                 "task_id": f"{case_id}__pair_{pair_hash}",
@@ -368,8 +615,15 @@ class DatasetBuilder:
                 "status": "ready",
                 "modality": modality,
                 "prompt": prompt,
+                "question": "哪个视频中的人物表演更像真人？",
+                "task_type": "ai_real_anchor",
+                "reveal_mode": "origin",
+                "show_context": True,
                 "references": references,
-                "candidates": [left, right],
+                "candidates": [
+                    self._public_candidate(left),
+                    self._public_candidate(right),
+                ],
                 "metadata": {
                     "source_batch": str(batch),
                     "prompt_source": prompt_source,
@@ -379,6 +633,40 @@ class DatasetBuilder:
                 },
             }
             self.tasks.append(task)
+
+    @staticmethod
+    def _public_candidate(candidate: dict[str, Any]) -> dict[str, Any]:
+        return {
+            key: value
+            for key, value in candidate.items()
+            if not key.startswith("_")
+        }
+
+    @staticmethod
+    def _model_comparison_pairs(
+        candidate_records: list[dict[str, Any]],
+    ) -> list[tuple[dict[str, Any], dict[str, Any]]]:
+        by_key: dict[str, list[dict[str, Any]]] = {}
+        for candidate in candidate_records:
+            model_id = candidate.get("model_id")
+            compare_key = candidate.get("_compare_key")
+            if not model_id or not compare_key:
+                continue
+            by_key.setdefault(str(compare_key), []).append(candidate)
+
+        pairs: list[tuple[dict[str, Any], dict[str, Any]]] = []
+        for candidates in by_key.values():
+            by_model: dict[str, list[dict[str, Any]]] = {}
+            for candidate in candidates:
+                by_model.setdefault(str(candidate["model_id"]), []).append(candidate)
+            if len(by_model) != 2 or any(len(items) != 1 for items in by_model.values()):
+                continue
+            left, right = sorted(
+                (items[0] for items in by_model.values()),
+                key=lambda item: str(item["model_id"]),
+            )
+            pairs.append((left, right))
+        return pairs
 
     def _load_forensics_records(self) -> list[dict[str, Any]]:
         if not self.forensics_manifest or not self.forensics_manifest.exists():
@@ -466,6 +754,10 @@ class DatasetBuilder:
                     "status": "ready",
                     "modality": "reference_material",
                     "prompt": "",
+                    "question": "哪个视频中的人物表演更像真人？",
+                    "task_type": "ai_real_anchor",
+                    "reveal_mode": "origin",
+                    "show_context": False,
                     "references": [],
                     "candidates": [
                         {
@@ -639,6 +931,10 @@ class DatasetBuilder:
                     "status": "ready",
                     "modality": "reference_material",
                     "prompt": "请比较两段视频中人物表演的真人感。",
+                    "question": "哪个视频中的人物表演更像真人？",
+                    "task_type": "control",
+                    "reveal_mode": "origin",
+                    "show_context": False,
                     "references": [],
                     "candidates": [candidate_a, candidate_b],
                     "control_type": "duplicate",
@@ -668,6 +964,16 @@ class DatasetBuilder:
             target = asset_dir / f"{asset['asset_id']}{extension}"
             if target.exists():
                 target.unlink()
+            reused_source = self.asset_reuse_paths.get(asset["asset_id"])
+            if reused_source and reused_source.is_file():
+                try:
+                    target.hardlink_to(reused_source)
+                except (OSError, NotImplementedError):
+                    shutil.copy2(reused_source, target)
+                asset["raw_source_path"] = asset["source_path"]
+                asset["normalized_path"] = str(target.resolve())
+                asset["source_path"] = str(target.resolve())
+                continue
             if asset["media_type"] == "video/mp4":
                 temp_target = target.with_name(f".{target.name}.tmp.mp4")
                 try:
@@ -763,20 +1069,39 @@ class DatasetBuilder:
         self._materialize_assets()
         self._write_case_directories()
         version = self.dataset_id.rsplit("_", 1)[-1]
+        reviewable_task_count = sum(
+            1
+            for task in self.tasks
+            if task.get("status") in {"ready", "active"}
+        )
         dataset = {
             "dataset_id": self.dataset_id,
             "version": version,
             "name": f"Human Performance Review {version}",
             "created_at": utc_now(),
             "per_ip_quota": self.per_ip_quota,
-            "task_count": len(self.tasks),
+            "task_count": reviewable_task_count,
+            "total_task_count": len(self.tasks),
             "asset_count": len(self.assets),
             "content_task_count": len(
-                [task for task in self.tasks if not task.get("control_type")]
+                [
+                    task
+                    for task in self.tasks
+                    if not task.get("control_type")
+                    and task.get("status") in {"ready", "active"}
+                ]
             ),
             "control_task_count": len(
                 [task for task in self.tasks if task.get("control_type")]
             ),
+            "manual_review_task_count": len(
+                [
+                    task
+                    for task in self.tasks
+                    if task.get("status") == "needs_manual_review"
+                ]
+            ),
+            "requested_task_count": self.target_task_count,
             "raw_root": str(self.raw_root),
             "skipped_batch_count": len(self.skipped_batches),
             "max_video_seconds": self.max_video_seconds,
@@ -797,6 +1122,7 @@ class DatasetBuilder:
             encoding="utf-8",
         )
 
+        self.database.prepare_dataset_rebuild(self.dataset_id)
         self.database.activate_dataset(dataset)
         for asset in self.assets.values():
             self.database.upsert_asset(asset)
@@ -808,13 +1134,22 @@ class DatasetBuilder:
         for batch in sorted(self.raw_root.iterdir()):
             if batch.is_dir():
                 self._build_batch(batch)
-        content_target = max(0, self.target_task_count - self.control_count)
-        raw_tasks = list(self.tasks)
-        if len(raw_tasks) < content_target:
-            self._build_anchor_tasks(content_target - len(raw_tasks))
-        self.tasks = self.tasks[:content_target]
+        reviewable_content_count = sum(
+            1
+            for task in self.tasks
+            if not task.get("control_type")
+            and task.get("status") in {"ready", "active"}
+        )
+        anchor_count = self.baseline_anchor_count
+        if anchor_count is None:
+            anchor_count = max(
+                0,
+                self.target_task_count
+                - self.control_count
+                - reviewable_content_count,
+            )
+        self._build_anchor_tasks(anchor_count)
         self._build_controls(self.control_count)
-        self.tasks = self.tasks[: self.target_task_count]
         return self.write_outputs()
 
 
@@ -823,7 +1158,7 @@ def main() -> None:
     parser.add_argument("--raw-root", type=Path, default=DEFAULT_RAW_ROOT)
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
     parser.add_argument("--db", type=Path, default=DEFAULT_DB)
-    parser.add_argument("--dataset-id", default="performance_v5")
+    parser.add_argument("--dataset-id", default="performance_v7")
     parser.add_argument("--per-ip-quota", type=int, default=80)
     parser.add_argument(
         "--target-task-count",
@@ -850,6 +1185,18 @@ def main() -> None:
         type=Path,
         default=DEFAULT_FORENSICS_MANIFEST,
     )
+    parser.add_argument(
+        "--reuse-assets-from",
+        type=Path,
+        default=DEFAULT_REUSE_ASSETS_DIR,
+        help="Reuse normalized media from a previous dataset when hashes match.",
+    )
+    parser.add_argument(
+        "--baseline-dataset-dir",
+        type=Path,
+        default=DEFAULT_BASELINE_DATASET_DIR,
+        help="Preserve the baseline anchor-task count from an earlier dataset.",
+    )
     args = parser.parse_args()
 
     builder = DatasetBuilder(
@@ -863,6 +1210,8 @@ def main() -> None:
         max_video_seconds=max(1, args.max_video_seconds),
         max_video_width=max(320, args.max_video_width),
         forensics_manifest=args.forensics_manifest,
+        reuse_assets_dir=args.reuse_assets_from,
+        baseline_dataset_dir=args.baseline_dataset_dir,
     )
     summary = builder.build()
     print(json.dumps(summary, ensure_ascii=False, indent=2))

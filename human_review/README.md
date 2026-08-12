@@ -33,16 +33,27 @@ python server.py --port 5001
 ```powershell
 python human_review/build_dataset.py `
   --raw-root human_review\data\raw_archive\experiments_20260811 `
-  --output-dir human_review\data\datasets\performance_v6 `
+  --output-dir human_review\data\datasets\performance_v7 `
   --db human_review\data\review.sqlite3 `
-  --dataset-id performance_v6 `
+  --dataset-id performance_v7 `
   --per-ip-quota 80 `
   --max-video-seconds 10 `
   --max-video-width 720
 ```
 
 构建器会输出 `dataset.json`、`assets.jsonl`、`tasks.jsonl` 和跳过批次清单，
-同时把任务和媒体索引写入 SQLite。原始素材不会被移动或复制。
+同时把任务和媒体索引写入 SQLite。默认会尝试从 `performance_v6` 复用哈希一致的标准化媒体，
+避免重复转码；原始素材不会被移动或复制。
+
+任务类型由任务自身字段决定，不由前端猜测：
+
+- `ai_real_anchor`：只判断人物表演的真人感；投票后揭示 `AI 生成 / 实拍`。
+- `model_comparison`：只接收同一案例、同一 Prompt、同一参考内容下的明确跨模型配对；
+  投票前显示 Prompt 和参考素材，投票后揭示具体模型名。
+- `control`：重复视频控制题，不参与模型排名。
+
+无法证明比较条件一致的跨模型候选会写入 `skipped_batches.json` 的
+`cross_model_pair_requires_manual_review`，不会自动进入投票。
 
 示例：
 
@@ -86,7 +97,8 @@ python human_review/build_dataset.py `
 同一个 `dataset_id + task_id + ip_hash` 只能写入一次。浏览器清除 Cookie
 不会绕过这个限制。
 
-每个数据集可以配置 `per_ip_quota`，当前第一批默认允许每个 IP 完成全部 80 道题。
+每个数据集可以配置 `per_ip_quota`。当前 `performance_v7` 有 79 道可投票题，
+另有 1 道 `needs_manual_review` 记录不会被服务分发；`80` 只是配额上限。
 
 如果你的媒体不放在 `human_review/assets/`，可以配置媒体根目录：
 
@@ -100,7 +112,7 @@ python human_review/server.py --port 5001
 ```powershell
 $env:HUMAN_REVIEW_MANIFEST = "D:\path\to\tasks.jsonl"
 $env:HUMAN_REVIEW_DB = "D:\path\to\review.sqlite3"
-$env:HUMAN_REVIEW_DATASET = "performance_v6"
+$env:HUMAN_REVIEW_DATASET = "performance_v7"
 python human_review/server.py --port 5001
 ```
 

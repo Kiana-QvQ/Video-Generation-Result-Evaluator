@@ -556,6 +556,14 @@ em {
   color: var(--cyan);
 }
 
+.source-reveal.is-model {
+  border-color: var(--lime);
+}
+
+.source-reveal.is-model strong {
+  color: var(--lime);
+}
+
 .source-reveal.is-unknown strong {
   color: var(--lime);
 }

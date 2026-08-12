@@ -32,6 +32,8 @@ const responseClock = document.querySelector("#response-clock");
 const sessionState = document.querySelector("#session-state");
 const completePanel = document.querySelector("#complete-panel");
 const restartButton = document.querySelector("#restart-review");
+const decisionQuestion = document.querySelector("#decision-question");
+const decisionHint = document.querySelector("#decision-hint");
 
 const modalityLabels = {
   text_to_video: "TEXT TO VIDEO",
@@ -141,22 +143,27 @@ function resetMedia(videoId, asset) {
 function resetReveal() {
   for (const reveal of [revealA, revealB]) {
     reveal.classList.add("is-hidden");
-    reveal.classList.remove("is-ai", "is-real", "is-unknown");
+    reveal.classList.remove("is-ai", "is-real", "is-model", "is-unknown");
     reveal.querySelector("strong").textContent = "";
   }
 }
 
 function showReveal(revealNode, source) {
   if (!source) return;
+  const revealMode = source.reveal_mode || "origin";
   const originType = source.origin_type || "unknown";
   revealNode.classList.remove("is-hidden");
   revealNode.classList.add(
-    originType === "ai"
-      ? "is-ai"
-      : originType === "real"
-        ? "is-real"
-        : "is-unknown",
+    revealMode === "model"
+      ? "is-model"
+      : originType === "ai"
+        ? "is-ai"
+        : originType === "real"
+          ? "is-real"
+          : "is-unknown",
   );
+  revealNode.querySelector("span").textContent =
+    revealMode === "model" ? "REVEALED MODEL" : "REVEALED SOURCE";
   revealNode.querySelector("strong").textContent =
     source.label || "来源未标注";
 }
@@ -201,19 +208,30 @@ function renderTask(task, options = {}) {
   state.selectedChoice = options.choice || null;
   state.startedAt = state.reviewed ? null : performance.now();
 
-  taskTitle.textContent = task.prompt
-    ? "按条件比较两段表演"
-    : "比较两段人物表演";
+  const taskType = task.task_type || "ai_real_anchor";
+  const hasContext = Boolean(task.show_context);
+  taskTitle.textContent =
+    taskType === "model_comparison"
+      ? "同一条件下比较模型表现"
+      : task.prompt
+        ? "按条件比较两段表演"
+        : "比较两段人物表演";
   taskId.textContent = `TASK ${task.task_id}`;
   modalityChip.textContent = modalityLabels[task.modality] || "VIDEO REVIEW";
 
-  const hasPrompt = Boolean(String(task.prompt || "").trim());
-  const hasReferences = Boolean(task.references?.length);
+  const hasPrompt = hasContext && Boolean(String(task.prompt || "").trim());
+  const hasReferences = hasContext && Boolean(task.references?.length);
   contextCard.classList.toggle("is-hidden", !hasPrompt && !hasReferences);
   compareGrid.classList.toggle("has-context", hasPrompt || hasReferences);
   promptBlock.classList.toggle("is-hidden", !hasPrompt);
   contextBody.classList.toggle("reference-only", !hasPrompt && hasReferences);
   promptText.textContent = task.prompt || "本题未提供文字提示词。";
+  decisionQuestion.textContent =
+    task.question || "哪个视频中的人物表演更像真人？";
+  decisionHint.textContent =
+    taskType === "model_comparison"
+      ? "只比较人物表演质量；请不要根据画面风格、文件名或品牌偏好作答。"
+      : "如果差异不明显，或视频无法判断，请选择第三项。";
 
   renderReferences(task.references);
   resetMedia("video-a", task.candidates?.A);

@@ -28,7 +28,7 @@ DATA_DIR = ROOT_DIR / "data"
 DEFAULT_DB = DATA_DIR / "review.sqlite3"
 LEGACY_MANIFEST = DATA_DIR / "tasks.jsonl"
 LEGACY_MEDIA_ROOT = ROOT_DIR / "assets"
-DEFAULT_DATASET_ID = "performance_v6"
+DEFAULT_DATASET_ID = "performance_v7"
 DEFAULT_IP_SECRET = "human-review-local-v1"
 CHOICES = {"A", "B", "tie_or_unrateable"}
 READY_STATUSES = {"ready", "active"}
@@ -240,16 +240,28 @@ class ReviewStore:
                 "height": candidate.get("height"),
             }
 
+        show_context = bool(task.get("show_context", False))
         return {
             "task_id": task["task_id"],
             "modality": task.get("modality", "multi_reference"),
             "mode": task.get("mode", "random"),
-            "prompt": task.get("prompt", ""),
+            "prompt": task.get("prompt", "") if show_context else "",
+            "question": task.get(
+                "question",
+                "哪个视频中的人物表演更像真人？",
+            ),
+            "task_type": task.get("task_type", "ai_real_anchor"),
+            "reveal_mode": task.get("reveal_mode", "origin"),
+            "show_context": bool(task.get("show_context", False)),
             "focus": task.get("metadata", {}).get("focus", "overall_human_realism"),
-            "references": [
-                self._public_reference(reference)
-                for reference in task.get("references", [])
-            ],
+            "references": (
+                [
+                    self._public_reference(reference)
+                    for reference in task.get("references", [])
+                ]
+                if show_context
+                else []
+            ),
             "candidates": public_candidates,
             "_displayed_candidates": {
                 "A": candidates[0]["candidate_id"],
@@ -315,13 +327,21 @@ class ReviewStore:
             self.ip_secret,
         ):
             candidates.reverse()
-        reveal = {
-            label: {
-                "origin_type": candidate.get("origin_type", "unknown"),
-                "label": self._origin_label(candidate.get("origin_type")),
-            }
-            for label, candidate in zip(("A", "B"), candidates)
-        }
+        reveal_mode = task.get("reveal_mode", "origin")
+        reveal = {}
+        for label, candidate in zip(("A", "B"), candidates):
+            if reveal_mode == "model":
+                reveal[label] = {
+                    "reveal_mode": "model",
+                    "label": candidate.get("reveal_label")
+                    or self._model_label(candidate.get("model_id")),
+                }
+            else:
+                reveal[label] = {
+                    "reveal_mode": "origin",
+                    "origin_type": candidate.get("origin_type", "unknown"),
+                    "label": self._origin_label(candidate.get("origin_type")),
+                }
         try:
             self.database.insert_vote(
                 {
@@ -347,6 +367,13 @@ class ReviewStore:
             "ai": "AI 生成",
             "real": "实拍",
         }.get(origin_type or "unknown", "来源未标注")
+
+    @staticmethod
+    def _model_label(model_id: str | None) -> str:
+        return {
+            "ltx2_3": "LTX2.3",
+            "seedance_2_0": "Seedance 2.0",
+        }.get(model_id or "", model_id or "模型未标注")
 
     def media(self, asset_id: str) -> Any:
         asset = self.database.get_asset(asset_id)
