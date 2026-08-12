@@ -6,7 +6,6 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
-import re
 import secrets
 import sqlite3
 from contextlib import contextmanager
@@ -137,97 +136,6 @@ class ReviewDatabase:
     def initialize(self) -> None:
         with self.connect() as connection:
             connection.executescript("PRAGMA journal_mode=WAL;\n" + SCHEMA)
-            asset_columns = {
-                row["name"]
-                for row in connection.execute("PRAGMA table_info(assets)")
-            }
-            if "dataset_id" not in asset_columns:
-                connection.execute("ALTER TABLE assets RENAME TO assets_legacy")
-                connection.execute(
-                    """
-                    CREATE TABLE assets (
-                        dataset_id TEXT NOT NULL,
-                        asset_id TEXT NOT NULL,
-                        source_path TEXT NOT NULL,
-                        media_type TEXT NOT NULL,
-                        original_name TEXT NOT NULL,
-                        sha256 TEXT,
-                        size_bytes INTEGER,
-                        metadata_json TEXT NOT NULL DEFAULT '{}',
-                        PRIMARY KEY (dataset_id, asset_id),
-                        FOREIGN KEY (dataset_id) REFERENCES datasets(dataset_id)
-                    )
-                    """
-                )
-                legacy_assets = connection.execute(
-                    """
-                    SELECT asset_id, source_path, media_type, original_name,
-                           sha256, size_bytes, metadata_json
-                    FROM assets_legacy
-                    """
-                ).fetchall()
-                for asset in legacy_assets:
-                    connection.execute(
-                        """
-                        INSERT OR IGNORE INTO assets (
-                            dataset_id, asset_id, source_path, media_type,
-                            original_name, sha256, size_bytes, metadata_json
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                        """,
-                        (
-                            self._dataset_id_from_path(asset["source_path"]),
-                            asset["asset_id"],
-                            asset["source_path"],
-                            asset["media_type"],
-                            asset["original_name"],
-                            asset["sha256"],
-                            asset["size_bytes"],
-                            asset["metadata_json"],
-                        ),
-                    )
-
-            vote_columns = {
-                row["name"]
-                for row in connection.execute("PRAGMA table_info(review_votes)")
-            }
-            if "round_id" not in vote_columns:
-                connection.execute("DROP INDEX IF EXISTS idx_votes_dataset_ip")
-                connection.execute("DROP INDEX IF EXISTS idx_votes_task")
-                connection.execute(
-                    "ALTER TABLE review_votes RENAME TO review_votes_legacy"
-                )
-                connection.execute(
-                    """
-                    CREATE TABLE review_votes (
-                        vote_id TEXT PRIMARY KEY,
-                        dataset_id TEXT NOT NULL,
-                        task_id TEXT NOT NULL,
-                        ip_hash TEXT NOT NULL,
-                        round_id TEXT NOT NULL DEFAULT 'legacy',
-                        choice TEXT NOT NULL,
-                        displayed_a_candidate TEXT NOT NULL,
-                        displayed_b_candidate TEXT NOT NULL,
-                        response_ms INTEGER,
-                        created_at TEXT NOT NULL,
-                        UNIQUE (dataset_id, task_id, ip_hash, round_id),
-                        FOREIGN KEY (dataset_id, task_id)
-                            REFERENCES tasks(dataset_id, task_id)
-                    )
-                    """
-                )
-                connection.execute(
-                    """
-                    INSERT INTO review_votes (
-                        vote_id, dataset_id, task_id, ip_hash, round_id,
-                        choice, displayed_a_candidate, displayed_b_candidate,
-                        response_ms, created_at
-                    )
-                    SELECT vote_id, dataset_id, task_id, ip_hash, 'legacy',
-                           choice, displayed_a_candidate, displayed_b_candidate,
-                           response_ms, created_at
-                    FROM review_votes_legacy
-                    """
-                )
             connection.execute(
                 """
                 CREATE INDEX IF NOT EXISTS idx_assets_dataset
@@ -265,58 +173,6 @@ class ReviewDatabase:
             for column, statement in migrations.items():
                 if column not in columns:
                     connection.execute(statement)
-
-    @staticmethod
-    def _dataset_id_from_path(source_path: str) -> str:
-        match = re.search(r"[\\/]datasets[\\/]([^\\/]+)", str(source_path))
-        return match.group(1) if match else "legacy"
-
-    def activate_dataset(self, dataset: dict[str, Any]) -> None:
-        dataset_id = str(dataset["dataset_id"])
-        with self.connect() as connection:
-            connection.execute(
-                "UPDATE datasets SET status = 'archived' WHERE dataset_id <> ?",
-                (dataset_id,),
-            )
-            connection.execute(
-                """
-                INSERT INTO datasets (
-                    dataset_id, name, version, status,
-                    per_ip_quota, created_at, metadata_json
-                ) VALUES (?, ?, ?, 'active', ?, ?, ?)
-                ON CONFLICT(dataset_id) DO UPDATE SET
-                    name = excluded.name,
-                    version = excluded.version,
-                    status = 'active',
-                    per_ip_quota = excluded.per_ip_quota,
-                    metadata_json = excluded.metadata_json
-                """,
-                (
-                    dataset_id,
-                    dataset.get("name", dataset_id),
-                    dataset.get("version", "v1"),
-                    dataset.get("per_ip_quota"),
-                    dataset.get("created_at", utc_now()),
-                    json.dumps(dataset.get("metadata", {}), ensure_ascii=False),
-                ),
-            )
-
-    def prepare_dataset_rebuild(self, dataset_id: str) -> None:
-        """Clear generated task rows only when no votes would be lost."""
-
-        with self.connect() as connection:
-            vote_count = connection.execute(
-                "SELECT COUNT(*) AS count FROM review_votes WHERE dataset_id = ?",
-                (dataset_id,),
-            ).fetchone()["count"]
-            if vote_count:
-                raise RuntimeError(
-                    f"Refusing to rebuild {dataset_id}: it already has votes."
-                )
-            connection.execute(
-                "DELETE FROM tasks WHERE dataset_id = ?",
-                (dataset_id,),
-            )
 
     def replace_dataset_bundle(
         self,
@@ -437,122 +293,14 @@ class ReviewDatabase:
                 ],
             )
 
-    def upsert_assets(
-        self,
-        dataset_id: str,
-        assets: list[dict[str, Any]],
-    ) -> None:
-        with self.connect() as connection:
-            connection.executemany(
-                """
-                INSERT INTO assets (
-                    dataset_id, asset_id, source_path, media_type,
-                    original_name, sha256, size_bytes, metadata_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(dataset_id, asset_id) DO UPDATE SET
-                    source_path = excluded.source_path,
-                    media_type = excluded.media_type,
-                    original_name = excluded.original_name,
-                    sha256 = excluded.sha256,
-                    size_bytes = excluded.size_bytes,
-                    metadata_json = excluded.metadata_json
-                """,
-                [
-                    (
-                        dataset_id,
-                        asset["asset_id"],
-                        asset["source_path"],
-                        asset.get("media_type", "application/octet-stream"),
-                        asset.get(
-                            "original_name",
-                            Path(asset["source_path"]).name,
-                        ),
-                        asset.get("sha256"),
-                        asset.get("size_bytes"),
-                        json.dumps(
-                            asset.get("metadata", {}),
-                            ensure_ascii=False,
-                        ),
-                    )
-                    for asset in assets
-                ],
-            )
-
-    def upsert_asset(self, asset: dict[str, Any]) -> None:
-        with self.connect() as connection:
-            connection.execute(
-                """
-                INSERT INTO assets (
-                    dataset_id, asset_id, source_path, media_type, original_name,
-                    sha256, size_bytes, metadata_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(dataset_id, asset_id) DO UPDATE SET
-                    source_path = excluded.source_path,
-                    media_type = excluded.media_type,
-                    original_name = excluded.original_name,
-                    sha256 = excluded.sha256,
-                    size_bytes = excluded.size_bytes,
-                    metadata_json = excluded.metadata_json
-                """,
-                (
-                    asset.get("dataset_id", "legacy"),
-                    asset["asset_id"],
-                    asset["source_path"],
-                    asset.get("media_type", "application/octet-stream"),
-                    asset.get("original_name", Path(asset["source_path"]).name),
-                    asset.get("sha256"),
-                    asset.get("size_bytes"),
-                    json.dumps(asset.get("metadata", {}), ensure_ascii=False),
-                ),
-            )
-
-    def upsert_task(self, task: dict[str, Any]) -> None:
-        with self.connect() as connection:
-            connection.execute(
-                """
-                INSERT INTO tasks (
-                    dataset_id, task_id, case_id, status, modality,
-                    prompt, references_json, candidates_json,
-                    control_type, task_type, question, reveal_mode,
-                    show_context, metadata_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(dataset_id, task_id) DO UPDATE SET
-                    case_id = excluded.case_id,
-                    status = excluded.status,
-                    modality = excluded.modality,
-                    prompt = excluded.prompt,
-                    references_json = excluded.references_json,
-                    candidates_json = excluded.candidates_json,
-                    control_type = excluded.control_type,
-                    task_type = excluded.task_type,
-                    question = excluded.question,
-                    reveal_mode = excluded.reveal_mode,
-                    show_context = excluded.show_context,
-                    metadata_json = excluded.metadata_json
-                """,
-                (
-                    task["dataset_id"],
-                    task["task_id"],
-                    task.get("case_id", task["task_id"]),
-                    task.get("status", "ready"),
-                    task.get("modality", "multi_reference"),
-                    task.get("prompt", ""),
-                    json.dumps(task.get("references", []), ensure_ascii=False),
-                    json.dumps(task["candidates"], ensure_ascii=False),
-                    task.get("control_type"),
-                    task.get("task_type", "ai_real_anchor"),
-                    task.get("question", ""),
-                    task.get("reveal_mode", "origin"),
-                    int(bool(task.get("show_context", False))),
-                    json.dumps(task.get("metadata", {}), ensure_ascii=False),
-                ),
-            )
-
     def get_active_dataset(self, dataset_id: str | None = None) -> sqlite3.Row | None:
         with self.connect() as connection:
             if dataset_id:
                 return connection.execute(
-                    "SELECT * FROM datasets WHERE dataset_id = ?",
+                    """
+                    SELECT * FROM datasets
+                    WHERE dataset_id = ? AND status = 'active'
+                    """,
                     (dataset_id,),
                 ).fetchone()
             return connection.execute(

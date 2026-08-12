@@ -27,8 +27,8 @@ PROJECT_DIR = ROOT_DIR.parent
 DEFAULT_RAW_ROOT = ROOT_DIR / "data" / "raw_archive" / "experiments_20260811"
 DEFAULT_OUTPUT_DIR = ROOT_DIR / "data" / "datasets" / "performance_v8"
 DEFAULT_DB = ROOT_DIR / "data" / "review.sqlite3"
-DEFAULT_REUSE_ASSETS_DIR = ROOT_DIR / "data" / "datasets" / "performance_v6"
-DEFAULT_BASELINE_DATASET_DIR = ROOT_DIR / "data" / "datasets" / "performance_v6"
+DEFAULT_REUSE_ASSETS_DIR = None
+DEFAULT_BASELINE_DATASET_DIR = None
 DEFAULT_FORENSICS_MANIFEST = PROJECT_DIR / "data" / "forensics" / "forensics_manifest.json"
 DEFAULT_TARGET_TASK_COUNT = 80
 DEFAULT_CONTROL_COUNT = 8
@@ -1204,13 +1204,13 @@ def main() -> None:
         "--reuse-assets-from",
         type=Path,
         default=DEFAULT_REUSE_ASSETS_DIR,
-        help="Reuse normalized media from a previous dataset when hashes match.",
+        help="Optionally reuse normalized media from another dataset when hashes match.",
     )
     parser.add_argument(
         "--baseline-dataset-dir",
         type=Path,
         default=DEFAULT_BASELINE_DATASET_DIR,
-        help="Preserve the baseline anchor-task count from an earlier dataset.",
+        help="Optionally preserve the anchor-task count from another dataset.",
     )
     args = parser.parse_args()
 

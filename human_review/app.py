@@ -3,8 +3,6 @@
 
 from __future__ import annotations
 
-import json
-import mimetypes
 import os
 import re
 import secrets
@@ -27,8 +25,6 @@ ROOT_DIR = Path(__file__).resolve().parent
 STATIC_DIR = ROOT_DIR / "static"
 DATA_DIR = ROOT_DIR / "data"
 DEFAULT_DB = DATA_DIR / "review.sqlite3"
-LEGACY_MANIFEST = DATA_DIR / "tasks.jsonl"
-LEGACY_MEDIA_ROOT = ROOT_DIR / "assets"
 DEFAULT_DATASET_ID = "performance_v8"
 DEFAULT_IP_SECRET = "human-review-local-v1"
 CHOICES = {"A", "B", "tie_or_unrateable"}
@@ -49,24 +45,6 @@ def normalize_ip(raw_ip: str | None) -> str:
         return raw_ip[:128]
 
 
-def detect_mime(path: Path, fallback: str | None = None) -> str:
-    guessed = mimetypes.guess_type(path.name)[0]
-    if guessed and guessed != "application/octet-stream":
-        return guessed
-    try:
-        with path.open("rb") as handle:
-            header = handle.read(32)
-    except OSError:
-        return fallback or "application/octet-stream"
-    if b"ftyp" in header:
-        return "video/mp4"
-    if header.startswith(b"\x89PNG"):
-        return "image/png"
-    if header.startswith(b"\xff\xd8\xff"):
-        return "image/jpeg"
-    return fallback or "application/octet-stream"
-
-
 class ReviewStore:
     def __init__(self, db_path: Path, dataset_id: str) -> None:
         ip_secret = os.getenv("HUMAN_REVIEW_IP_SECRET", DEFAULT_IP_SECRET)
@@ -85,76 +63,10 @@ class ReviewStore:
             self.dataset_id = active["dataset_id"]
             return
 
-        self._import_legacy_manifest()
-
-    def _import_legacy_manifest(self) -> None:
-        if not LEGACY_MANIFEST.exists():
-            self.dataset_id = "empty"
-            return
-        dataset_id = "demo_v1"
-        dataset = {
-            "dataset_id": dataset_id,
-            "name": "Legacy Demo Dataset",
-            "version": "v1",
-            "per_ip_quota": None,
-            "metadata": {"source": str(LEGACY_MANIFEST)},
-        }
-        self.database.activate_dataset(dataset)
-        try:
-            tasks = [
-                json.loads(line)
-                for line in LEGACY_MANIFEST.read_text(encoding="utf-8").splitlines()
-                if line.strip()
-            ]
-        except json.JSONDecodeError:
-            self.dataset_id = "empty"
-            return
-
-        for task in tasks:
-            task["dataset_id"] = dataset_id
-            for collection_name in ("references", "candidates"):
-                collection = task.get(collection_name, [])
-                for asset in collection:
-                    path_value = (
-                        asset.get("path")
-                        or asset.get("video_path")
-                        or asset.get("image_path")
-                    )
-                    if not path_value:
-                        continue
-                    source = (LEGACY_MEDIA_ROOT / path_value).resolve()
-                    asset_id = f"legacy_{uuid.uuid5(uuid.NAMESPACE_URL, str(source)).hex}"
-                    asset["asset_id"] = asset_id
-                    self.database.upsert_asset(
-                        {
-                            "dataset_id": dataset_id,
-                            "asset_id": asset_id,
-                            "source_path": str(source),
-                            "media_type": detect_mime(source),
-                            "original_name": source.name,
-                            "metadata": {"legacy_path": path_value},
-                        }
-                    )
-                    if asset.get("poster"):
-                        poster_source = (LEGACY_MEDIA_ROOT / asset["poster"]).resolve()
-                        poster_id = (
-                            f"legacy_{uuid.uuid5(uuid.NAMESPACE_URL, str(poster_source)).hex}"
-                        )
-                        asset["poster_asset_id"] = poster_id
-                        self.database.upsert_asset(
-                            {
-                                "dataset_id": dataset_id,
-                                "asset_id": poster_id,
-                                "source_path": str(poster_source),
-                                "media_type": detect_mime(
-                                    poster_source,
-                                    "image/svg+xml",
-                                ),
-                                "original_name": poster_source.name,
-                            }
-                        )
-            self.database.upsert_task(task)
-        self.dataset_id = dataset_id
+        raise RuntimeError(
+            f"Review dataset {self.dataset_id!r} is not available. "
+            "Build performance_v8 before starting the review service."
+        )
 
     @property
     def ip_secret(self) -> str:
@@ -617,10 +529,6 @@ def create_app(
     @app.get("/media/asset/<dataset_id>/<asset_id>")
     def media_asset(dataset_id: str, asset_id: str) -> Any:
         return store.media(asset_id, dataset_id)
-
-    @app.get("/media/asset/<asset_id>")
-    def media_asset_legacy(asset_id: str) -> Any:
-        return store.media(asset_id)
 
     return app
 

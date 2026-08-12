@@ -42,8 +42,7 @@ python human_review/build_dataset.py `
 ```
 
 构建器会输出 `dataset.json`、`assets.jsonl`、`tasks.jsonl` 和跳过批次清单，
-同时把任务和媒体索引写入 SQLite。默认会尝试从 `performance_v6` 复用哈希一致的标准化媒体，
-避免重复转码；原始素材不会被移动或复制。
+同时把任务和媒体索引写入 SQLite。原始素材不会被移动或复制。
 
 任务类型由任务自身字段决定，不由前端猜测：
 
@@ -101,21 +100,9 @@ python human_review/build_dataset.py `
 其中包含 1 道 LTX2.3 vs Seedance 2.0；控制题和 1 道
 `needs_manual_review` 记录不会被服务分发。
 
-如果你的媒体不放在 `human_review/assets/`，可以配置媒体根目录：
-
-```powershell
-$env:HUMAN_REVIEW_ASSET_ROOT = "D:\path\to\your\video-assets"
-python human_review/server.py --port 5001
-```
-
-也可以指定任务清单和数据库：
-
-```powershell
-$env:HUMAN_REVIEW_MANIFEST = "D:\path\to\tasks.jsonl"
-$env:HUMAN_REVIEW_DB = "D:\path\to\review.sqlite3"
-$env:HUMAN_REVIEW_DATASET = "performance_v8"
-python human_review/server.py --port 5001
-```
+当前服务只使用 `performance_v8` 数据集和
+`human_review/data/review.sqlite3` 数据库。若要切换数据库或数据集，
+通过 `HUMAN_REVIEW_DB` 和 `HUMAN_REVIEW_DATASET` 显式配置。
 
 如果服务位于可信反向代理之后，再显式开启代理 IP 读取：
 
@@ -134,7 +121,7 @@ GET  /api/review/next
 GET  /api/review/progress
 POST /api/review/vote
 GET  /api/review/health
-GET  /media/asset/<asset-id>
+GET  /media/asset/<dataset-id>/<asset-id>
 ```
 
 投票请求：
