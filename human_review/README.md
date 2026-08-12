@@ -15,19 +15,31 @@
 在项目根目录运行：
 
 ```powershell
-python human_review/server.py --host 127.0.0.1 --port 5001
+python human_review/server.py --host 0.0.0.0 --port 5001
 ```
 
 浏览器打开 `http://127.0.0.1:5001`。
 
-也可以直接在 `human_review` 目录运行，默认只监听本机：
+默认监听所有网卡，因此同一局域网内的其他设备可以访问：
+
+```text
+http://<运行服务电脑的局域网IP>:5001
+```
+
+也可以直接在 `human_review` 目录运行：
 
 ```powershell
 python server.py --port 5001
 ```
 
-如需局域网访问，必须显式指定 `--host`，并在反向代理或访问控制后使用；
-该服务不适合作为未鉴权的公网服务直接暴露。
+如果只允许本机访问，显式指定：
+
+```powershell
+python human_review/server.py --host 127.0.0.1 --port 5001
+```
+
+该服务默认没有登录鉴权，不要直接暴露到公网；公网部署应放在带鉴权、
+HTTPS 和访问控制的反向代理后面。
 
 ## 数据
 
@@ -39,7 +51,7 @@ python human_review/build_dataset.py `
   --output-dir human_review\data\datasets\performance_v8 `
   --db human_review\data\review.sqlite3 `
   --dataset-id performance_v8 `
-  --per-ip-quota 80 `
+  --per-reviewer-quota 80 `
   --max-video-seconds 10 `
   --max-video-width 720
 ```
@@ -94,12 +106,15 @@ python human_review/build_dataset.py `
 - 选择结果
 - 响应时长
 - 任务 ID 和时间
-- IP 的 HMAC 哈希
+- 浏览器评测身份的 HMAC 哈希
+- IP 的 HMAC 哈希审计字段
 
-同一个 `dataset_id + task_id + ip_hash` 只能写入一次。
-`round_id` 只用于记录浏览器轮次和 A/B 展示随机化，不能绕过重复评分限制。
+同一个 `dataset_id + task_id + reviewer_id_hash` 只能写入一次。
+`round_id` 只用于记录浏览器轮次；A/B 展示顺序固定绑定浏览器身份，
+不能通过新轮次绕过重复评分限制。
 
-每个数据集可以配置 `per_ip_quota`。当前 `performance_v8` 有 58 道可投票题，
+每个数据集可以配置 `per_reviewer_quota`。当前 `performance_v8` 有 58 道可投票题，
+旧数据库中的 `per_ip_quota` 仅作为兼容字段，不再按 IP 限制不同用户。
 其中包含 1 道 LTX2.3 vs Seedance 2.0；控制题和 1 道
 `needs_manual_review` 记录不会被服务分发。
 
@@ -116,6 +131,12 @@ python human_review/server.py --port 5001
 ```
 
 不要在不可信代理环境中开启 `HUMAN_REVIEW_TRUST_PROXY_HEADERS`。
+
+服务通过 HttpOnly Cookie 为每个浏览器分配独立评测身份。同一局域网内的不同
+浏览器拥有不同进度和评分记录；IP 只保存为不可逆审计哈希。清除 Cookie、
+更换浏览器或使用隐私窗口会被视为新的评测身份，因此正式统计应通过登录、
+邀请链接或上游访问控制限制身份数量。使用 HTTPS 部署时，设置
+`HUMAN_REVIEW_COOKIE_SECURE=true`。
 
 ## 接口
 

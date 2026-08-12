@@ -15,9 +15,14 @@ from urllib.parse import quote
 from flask import Flask, g, jsonify, request, send_file
 
 try:
-    from .database import ReviewDatabase, deterministic_swap, hash_ip
+    from .database import (
+        ReviewDatabase,
+        deterministic_swap,
+        hash_ip,
+        hash_reviewer_id,
+    )
 except ImportError:
-    from database import ReviewDatabase, deterministic_swap, hash_ip
+    from database import ReviewDatabase, deterministic_swap, hash_ip, hash_reviewer_id
 
 
 ROOT_DIR = Path(__file__).resolve().parent
@@ -26,6 +31,8 @@ DATA_DIR = ROOT_DIR / "data"
 DEFAULT_DB = DATA_DIR / "review.sqlite3"
 DEFAULT_DATASET_ID = "performance_v8"
 DEFAULT_IP_SECRET = "human-review-local-v1"
+REVIEWER_COOKIE = "human_review_reviewer_id"
+REVIEWER_COOKIE_MAX_AGE = 60 * 60 * 24 * 365
 CHOICES = {"A", "B", "tie_or_unrateable"}
 READY_STATUSES = {"ready", "active"}
 
@@ -66,8 +73,11 @@ class ReviewStore:
     def ip_secret(self) -> str:
         return self.database.ip_secret
 
-    def reviewer_hash(self, client_ip: str) -> str:
+    def ip_hash(self, client_ip: str) -> str:
         return hash_ip(normalize_ip(client_ip), self.ip_secret)
+
+    def reviewer_id_hash(self, reviewer_id: str) -> str:
+        return hash_reviewer_id(reviewer_id, self.ip_secret)
 
     def client_ip(self) -> str:
         trust_proxy = parse_bool(
@@ -85,16 +95,23 @@ class ReviewStore:
 
     def progress(
         self,
-        reviewer_hash: str,
+        reviewer_id_hash: str,
         round_id: str = "legacy",
     ) -> dict[str, Any]:
         dataset = self.dataset_row()
         total = self.database.count_dataset_tasks(self.dataset_id)
-        quota = int(dataset["per_ip_quota"]) if dataset and dataset["per_ip_quota"] else 0
+        quota_value = (
+            dataset["per_reviewer_quota"]
+            if dataset and dataset["per_reviewer_quota"] is not None
+            else dataset["per_ip_quota"]
+            if dataset
+            else None
+        )
+        quota = int(quota_value) if quota_value else 0
         target = min(total, quota) if quota else total
         completed = self.database.count_votes(
             self.dataset_id,
-            reviewer_hash,
+            reviewer_id_hash,
         )
         return {
             "current": min(completed + 1, target) if target else 0,
@@ -134,7 +151,7 @@ class ReviewStore:
     def _public_task(
         self,
         task: dict[str, Any],
-        reviewer_hash: str,
+        reviewer_id_hash: str,
         round_id: str = "legacy",
     ) -> dict[str, Any]:
         candidates = list(task["candidates"])
@@ -143,7 +160,7 @@ class ReviewStore:
         self._validate_reviewable_task(task)
         self._validate_task_assets(task)
         if deterministic_swap(
-            reviewer_hash,
+            reviewer_id_hash,
             self.dataset_id,
             task["task_id"],
             self.ip_secret,
@@ -264,11 +281,11 @@ class ReviewStore:
 
     def next_task(
         self,
-        reviewer_hash: str,
+        reviewer_id_hash: str,
         round_id: str = "legacy",
         requested_task_id: str | None = None,
     ) -> dict[str, Any] | None:
-        progress = self.progress(reviewer_hash, round_id)
+        progress = self.progress(reviewer_id_hash, round_id)
         if progress["done"]:
             return None
         requested = (
@@ -279,18 +296,22 @@ class ReviewStore:
         if requested and requested.get("status") in READY_STATUSES:
             own_votes = self.database.get_unvoted_tasks(
                 self.dataset_id,
-                reviewer_hash,
+                reviewer_id_hash,
             )
             allowed_ids = {task["task_id"] for task in own_votes}
             if requested["task_id"] in allowed_ids:
                 try:
-                    return self._public_task(requested, reviewer_hash, round_id)
+                    return self._public_task(
+                        requested,
+                        reviewer_id_hash,
+                        round_id,
+                    )
                 except ValueError:
                     pass
 
         candidates = self.database.get_unvoted_tasks(
             self.dataset_id,
-            reviewer_hash,
+            reviewer_id_hash,
         )
         valid_candidates: list[dict[str, Any]] = []
         for candidate in candidates:
@@ -311,17 +332,18 @@ class ReviewStore:
         # Keep model-comparison tasks visible instead of burying them in the
         # random low-vote window.
         chosen = secrets.choice(pool[: min(5, len(pool))])
-        return self._public_task(chosen, reviewer_hash, round_id)
+        return self._public_task(chosen, reviewer_id_hash, round_id)
 
     def record_vote(
         self,
-        reviewer_hash: str,
+        reviewer_id_hash: str,
+        ip_hash: str,
         task_id: str,
         choice: str,
         response_ms: int | None,
         round_id: str = "legacy",
     ) -> dict[str, Any]:
-        progress = self.progress(reviewer_hash, round_id)
+        progress = self.progress(reviewer_id_hash, round_id)
         if progress["done"]:
             raise ValueError("This reviewer has completed the current dataset quota.")
         if choice not in CHOICES:
@@ -335,7 +357,7 @@ class ReviewStore:
         if len(candidates) != 2:
             raise ValueError("Task must contain exactly two candidates.")
         if deterministic_swap(
-            reviewer_hash,
+            reviewer_id_hash,
             self.dataset_id,
             task_id,
             self.ip_secret,
@@ -362,7 +384,8 @@ class ReviewStore:
                 {
                     "dataset_id": self.dataset_id,
                     "task_id": task_id,
-                    "ip_hash": reviewer_hash,
+                    "reviewer_id_hash": reviewer_id_hash,
+                    "ip_hash": ip_hash,
                     "round_id": round_id,
                     "choice": choice,
                     "displayed_a_candidate": candidates[0]["candidate_id"],
@@ -371,9 +394,11 @@ class ReviewStore:
                 }
             )
         except sqlite3.IntegrityError as exc:
-            raise ValueError("This task has already been reviewed for this IP.") from exc
+            raise ValueError(
+                "This task has already been reviewed by this browser."
+            ) from exc
         return {
-            **self.progress(reviewer_hash, round_id),
+            **self.progress(reviewer_id_hash, round_id),
             "reveal": reveal,
         }
 
@@ -425,10 +450,23 @@ def create_app(
     )
     app.extensions["review_store"] = store
 
-    def reviewer_hash() -> str:
-        if not hasattr(g, "reviewer_hash"):
-            g.reviewer_hash = store.reviewer_hash(store.client_ip())
-        return g.reviewer_hash
+    def reviewer_id() -> str:
+        if not hasattr(g, "reviewer_id"):
+            candidate = request.cookies.get(REVIEWER_COOKIE, "")
+            if not re.fullmatch(r"[A-Za-z0-9_-]{32,128}", candidate):
+                candidate = secrets.token_urlsafe(32)
+            g.reviewer_id = candidate
+        return g.reviewer_id
+
+    def reviewer_id_hash() -> str:
+        if not hasattr(g, "reviewer_id_hash"):
+            g.reviewer_id_hash = store.reviewer_id_hash(reviewer_id())
+        return g.reviewer_id_hash
+
+    def reviewer_ip_hash() -> str:
+        if not hasattr(g, "reviewer_ip_hash"):
+            g.reviewer_ip_hash = store.ip_hash(store.client_ip())
+        return g.reviewer_ip_hash
 
     def reviewer_round() -> str:
         raw_round = (
@@ -440,6 +478,22 @@ def create_app(
             return "legacy"
         return raw_round
 
+    @app.after_request
+    def attach_reviewer_cookie(response: Any) -> Any:
+        response.set_cookie(
+            REVIEWER_COOKIE,
+            reviewer_id(),
+            max_age=REVIEWER_COOKIE_MAX_AGE,
+            httponly=True,
+            samesite="Lax",
+            secure=parse_bool(
+                os.getenv("HUMAN_REVIEW_COOKIE_SECURE"),
+                default=False,
+            ),
+            path="/",
+        )
+        return response
+
     @app.get("/")
     def index() -> Any:
         return app.send_static_file("index.html")
@@ -448,7 +502,7 @@ def create_app(
     def get_next_task() -> Any:
         try:
             task = store.next_task(
-                reviewer_hash(),
+                reviewer_id_hash(),
                 reviewer_round(),
                 request.args.get("task_id"),
             )
@@ -456,7 +510,7 @@ def create_app(
             return jsonify({"error": str(exc)}), 503
         payload = {
             "task": task,
-            "progress": store.progress(reviewer_hash(), reviewer_round()),
+            "progress": store.progress(reviewer_id_hash(), reviewer_round()),
             "dataset_id": store.dataset_id,
             "round_id": reviewer_round(),
         }
@@ -470,7 +524,7 @@ def create_app(
             {
                 "dataset_id": store.dataset_id,
                 "round_id": reviewer_round(),
-                **store.progress(reviewer_hash(), reviewer_round()),
+                **store.progress(reviewer_id_hash(), reviewer_round()),
             }
         )
 
@@ -487,7 +541,8 @@ def create_app(
                 else None
             )
             progress = store.record_vote(
-                reviewer_hash(),
+                reviewer_id_hash(),
+                reviewer_ip_hash(),
                 task_id,
                 choice,
                 response_ms,
@@ -509,7 +564,8 @@ def create_app(
             {
                 "status": "ok",
                 "dataset_id": store.dataset_id,
-                "ip_deduplication": True,
+                "reviewer_deduplication": True,
+                "ip_audit_hash": True,
                 "task_count": store.database.count_dataset_tasks(store.dataset_id),
             }
         )

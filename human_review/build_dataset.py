@@ -187,7 +187,7 @@ class DatasetBuilder:
         output_dir: Path,
         db_path: Path,
         dataset_id: str,
-        per_ip_quota: int,
+        per_reviewer_quota: int,
         target_task_count: int,
         control_count: int,
         max_video_seconds: int,
@@ -200,7 +200,7 @@ class DatasetBuilder:
         self.output_dir = output_dir.resolve()
         self.db_path = db_path.resolve()
         self.dataset_id = dataset_id
-        self.per_ip_quota = per_ip_quota
+        self.per_reviewer_quota = per_reviewer_quota
         self.target_task_count = target_task_count
         self.control_count = control_count
         self.max_video_seconds = max_video_seconds
@@ -1095,7 +1095,8 @@ class DatasetBuilder:
             "version": version,
             "name": f"Human Performance Review {version}",
             "created_at": utc_now(),
-            "per_ip_quota": self.per_ip_quota,
+            "per_reviewer_quota": self.per_reviewer_quota,
+            "per_ip_quota": self.per_reviewer_quota,
             "task_count": reviewable_task_count,
             "total_task_count": len(self.tasks),
             "asset_count": len(self.assets),
@@ -1174,7 +1175,14 @@ def main() -> None:
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
     parser.add_argument("--db", type=Path, default=DEFAULT_DB)
     parser.add_argument("--dataset-id", default="performance_v8")
-    parser.add_argument("--per-ip-quota", type=int, default=80)
+    parser.add_argument(
+        "--per-reviewer-quota",
+        "--per-ip-quota",
+        dest="per_reviewer_quota",
+        type=int,
+        default=80,
+        help="每个浏览器评测身份的最大评分数量；--per-ip-quota 仅为旧参数别名。",
+    )
     parser.add_argument(
         "--target-task-count",
         type=int,
@@ -1219,7 +1227,7 @@ def main() -> None:
         output_dir=args.output_dir,
         db_path=args.db,
         dataset_id=args.dataset_id,
-        per_ip_quota=max(0, args.per_ip_quota),
+        per_reviewer_quota=max(0, args.per_reviewer_quota),
         target_task_count=max(1, args.target_task_count),
         control_count=max(0, args.control_count),
         max_video_seconds=max(1, args.max_video_seconds),

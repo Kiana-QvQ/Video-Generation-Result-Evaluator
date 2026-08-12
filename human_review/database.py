@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS datasets (
     name TEXT NOT NULL,
     version TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'active',
+    per_reviewer_quota INTEGER,
     per_ip_quota INTEGER,
     created_at TEXT NOT NULL,
     metadata_json TEXT NOT NULL DEFAULT '{}'
@@ -61,6 +62,7 @@ CREATE TABLE IF NOT EXISTS review_votes (
     vote_id TEXT PRIMARY KEY,
     dataset_id TEXT NOT NULL,
     task_id TEXT NOT NULL,
+    reviewer_id_hash TEXT NOT NULL,
     ip_hash TEXT NOT NULL,
     round_id TEXT NOT NULL DEFAULT 'legacy',
     choice TEXT NOT NULL,
@@ -68,7 +70,7 @@ CREATE TABLE IF NOT EXISTS review_votes (
     displayed_b_candidate TEXT NOT NULL,
     response_ms INTEGER,
     created_at TEXT NOT NULL,
-    UNIQUE (dataset_id, task_id, ip_hash),
+    UNIQUE (dataset_id, task_id, reviewer_id_hash),
     FOREIGN KEY (dataset_id, task_id)
         REFERENCES tasks(dataset_id, task_id)
 );
@@ -90,16 +92,27 @@ def hash_ip(ip_address: str, secret: str) -> str:
     ).hexdigest()
 
 
+def hash_reviewer_id(reviewer_id: str, secret: str) -> str:
+    """Create a stable, non-reversible browser identity key."""
+
+    return hmac.new(
+        secret.encode("utf-8"),
+        reviewer_id.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+
+
 def deterministic_swap(
-    ip_hash: str,
+    reviewer_id_hash: str,
     dataset_id: str,
     task_id: str,
     secret: str,
     round_id: str = "legacy",
 ) -> bool:
+    del round_id
     digest = hmac.new(
         secret.encode("utf-8"),
-        f"{ip_hash}:{dataset_id}:{task_id}:{round_id}".encode("utf-8"),
+        f"{reviewer_id_hash}:{dataset_id}:{task_id}".encode("utf-8"),
         hashlib.sha256,
     ).digest()
     return bool(digest[0] & 1)
@@ -136,6 +149,27 @@ class ReviewDatabase:
     def initialize(self) -> None:
         with self.connect() as connection:
             connection.executescript("PRAGMA journal_mode=WAL;\n" + SCHEMA)
+            dataset_columns = {
+                row["name"]
+                for row in connection.execute("PRAGMA table_info(datasets)")
+            }
+            if "per_reviewer_quota" not in dataset_columns:
+                connection.execute(
+                    "ALTER TABLE datasets ADD COLUMN per_reviewer_quota INTEGER"
+                )
+                connection.execute(
+                    """
+                    UPDATE datasets
+                    SET per_reviewer_quota = per_ip_quota
+                    WHERE per_reviewer_quota IS NULL
+                    """
+                )
+            vote_columns = {
+                row["name"]
+                for row in connection.execute("PRAGMA table_info(review_votes)")
+            }
+            if "reviewer_id_hash" not in vote_columns:
+                self._migrate_vote_identity(connection)
             connection.execute(
                 """
                 CREATE INDEX IF NOT EXISTS idx_assets_dataset
@@ -163,7 +197,7 @@ class ReviewDatabase:
             connection.execute(
                 """
                 CREATE UNIQUE INDEX IF NOT EXISTS idx_votes_reviewer_task_unique
-                    ON review_votes(dataset_id, task_id, ip_hash)
+                    ON review_votes(dataset_id, task_id, reviewer_id_hash)
                 """
             )
             columns = {
@@ -179,6 +213,50 @@ class ReviewDatabase:
             for column, statement in migrations.items():
                 if column not in columns:
                     connection.execute(statement)
+
+    @staticmethod
+    def _migrate_vote_identity(connection: sqlite3.Connection) -> None:
+        """Upgrade IP-keyed votes while preserving their historical identity."""
+
+        connection.execute("DROP INDEX IF EXISTS idx_votes_dataset_ip")
+        connection.execute("DROP INDEX IF EXISTS idx_votes_task")
+        connection.execute("DROP INDEX IF EXISTS idx_votes_reviewer_task_unique")
+        connection.execute("ALTER TABLE review_votes RENAME TO review_votes_ip_legacy")
+        connection.execute(
+            """
+            CREATE TABLE review_votes (
+                vote_id TEXT PRIMARY KEY,
+                dataset_id TEXT NOT NULL,
+                task_id TEXT NOT NULL,
+                reviewer_id_hash TEXT NOT NULL,
+                ip_hash TEXT NOT NULL,
+                round_id TEXT NOT NULL DEFAULT 'legacy',
+                choice TEXT NOT NULL,
+                displayed_a_candidate TEXT NOT NULL,
+                displayed_b_candidate TEXT NOT NULL,
+                response_ms INTEGER,
+                created_at TEXT NOT NULL,
+                UNIQUE (dataset_id, task_id, reviewer_id_hash),
+                FOREIGN KEY (dataset_id, task_id)
+                    REFERENCES tasks(dataset_id, task_id)
+            )
+            """
+        )
+        connection.execute(
+            """
+            INSERT OR IGNORE INTO review_votes (
+                vote_id, dataset_id, task_id, reviewer_id_hash, ip_hash,
+                round_id, choice, displayed_a_candidate, displayed_b_candidate,
+                response_ms, created_at
+            )
+            SELECT vote_id, dataset_id, task_id, ip_hash, ip_hash,
+                   round_id, choice, displayed_a_candidate, displayed_b_candidate,
+                   response_ms, created_at
+            FROM review_votes_ip_legacy
+            ORDER BY created_at, vote_id
+            """
+        )
+        connection.execute("DROP TABLE review_votes_ip_legacy")
 
     def replace_dataset_bundle(
         self,
@@ -215,12 +293,13 @@ class ReviewDatabase:
                 """
                 INSERT INTO datasets (
                     dataset_id, name, version, status,
-                    per_ip_quota, created_at, metadata_json
-                ) VALUES (?, ?, ?, 'active', ?, ?, ?)
+                    per_reviewer_quota, per_ip_quota, created_at, metadata_json
+                ) VALUES (?, ?, ?, 'active', ?, ?, ?, ?)
                 ON CONFLICT(dataset_id) DO UPDATE SET
                     name = excluded.name,
                     version = excluded.version,
                     status = 'active',
+                    per_reviewer_quota = excluded.per_reviewer_quota,
                     per_ip_quota = excluded.per_ip_quota,
                     metadata_json = excluded.metadata_json
                 """,
@@ -228,6 +307,10 @@ class ReviewDatabase:
                     dataset_id,
                     dataset.get("name", dataset_id),
                     dataset.get("version", "v1"),
+                    dataset.get(
+                        "per_reviewer_quota",
+                        dataset.get("per_ip_quota"),
+                    ),
                     dataset.get("per_ip_quota"),
                     dataset.get("created_at", utc_now()),
                     json.dumps(dataset.get("metadata", {}), ensure_ascii=False),
@@ -393,7 +476,7 @@ class ReviewDatabase:
     def get_unvoted_tasks(
         self,
         dataset_id: str,
-        ip_hash: str,
+        reviewer_id_hash: str,
         limit: int | None = None,
     ) -> list[dict[str, Any]]:
         query = """
@@ -407,10 +490,10 @@ class ReviewDatabase:
               AND t.control_type IS NULL
               AND t.task_type IN ('ai_real_anchor', 'model_comparison')
               AND NOT EXISTS (
-                  SELECT 1 FROM review_votes own_vote
+                SELECT 1 FROM review_votes own_vote
                   WHERE own_vote.dataset_id = t.dataset_id
                     AND own_vote.task_id = t.task_id
-                    AND own_vote.ip_hash = ?
+                    AND own_vote.reviewer_id_hash = ?
               )
             GROUP BY t.dataset_id, t.task_id
             ORDER BY
@@ -418,7 +501,7 @@ class ReviewDatabase:
                 vote_count ASC,
                 t.task_id ASC
         """
-        params: list[Any] = [dataset_id, ip_hash]
+        params: list[Any] = [dataset_id, reviewer_id_hash]
         if limit:
             query += " LIMIT ?"
             params.append(limit)
@@ -429,14 +512,14 @@ class ReviewDatabase:
     def count_votes(
         self,
         dataset_id: str,
-        ip_hash: str,
+        reviewer_id_hash: str,
     ) -> int:
         with self.connect() as connection:
             row = connection.execute(
                 """
                 SELECT COUNT(*) AS count FROM review_votes
                 WHERE dataset_id = ?
-                  AND ip_hash = ?
+                  AND reviewer_id_hash = ?
                   AND task_id IN (
                       SELECT task_id
                       FROM tasks
@@ -445,7 +528,7 @@ class ReviewDatabase:
                         AND control_type IS NULL
                   )
                 """,
-                (dataset_id, ip_hash, dataset_id),
+                (dataset_id, reviewer_id_hash, dataset_id),
             ).fetchone()
         return int(row["count"])
 
@@ -454,16 +537,18 @@ class ReviewDatabase:
             connection.execute(
                 """
                 INSERT INTO review_votes (
-                    vote_id, dataset_id, task_id, ip_hash, round_id,
+                    vote_id, dataset_id, task_id, reviewer_id_hash, ip_hash,
+                    round_id,
                     choice,
                     displayed_a_candidate, displayed_b_candidate,
                     response_ms, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     vote.get("vote_id", secrets.token_hex(16)),
                     vote["dataset_id"],
                     vote["task_id"],
+                    vote["reviewer_id_hash"],
                     vote["ip_hash"],
                     vote.get("round_id", "legacy"),
                     vote["choice"],
