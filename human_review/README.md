@@ -33,9 +33,9 @@ python server.py --port 5001
 ```powershell
 python human_review/build_dataset.py `
   --raw-root human_review\data\raw_archive\experiments_20260811 `
-  --output-dir human_review\data\datasets\performance_v7 `
+  --output-dir human_review\data\datasets\performance_v8 `
   --db human_review\data\review.sqlite3 `
-  --dataset-id performance_v7 `
+  --dataset-id performance_v8 `
   --per-ip-quota 80 `
   --max-video-seconds 10 `
   --max-video-width 720
@@ -97,8 +97,9 @@ python human_review/build_dataset.py `
 同一个 `dataset_id + task_id + ip_hash` 只能写入一次。浏览器清除 Cookie
 不会绕过这个限制。
 
-每个数据集可以配置 `per_ip_quota`。当前 `performance_v7` 有 79 道可投票题，
-另有 1 道 `needs_manual_review` 记录不会被服务分发；`80` 只是配额上限。
+每个数据集可以配置 `per_ip_quota`。当前 `performance_v8` 有 58 道可投票题，
+其中包含 1 道 LTX2.3 vs Seedance 2.0；控制题和 1 道
+`needs_manual_review` 记录不会被服务分发。
 
 如果你的媒体不放在 `human_review/assets/`，可以配置媒体根目录：
 
@@ -112,7 +113,7 @@ python human_review/server.py --port 5001
 ```powershell
 $env:HUMAN_REVIEW_MANIFEST = "D:\path\to\tasks.jsonl"
 $env:HUMAN_REVIEW_DB = "D:\path\to\review.sqlite3"
-$env:HUMAN_REVIEW_DATASET = "performance_v7"
+$env:HUMAN_REVIEW_DATASET = "performance_v8"
 python human_review/server.py --port 5001
 ```
 

@@ -25,6 +25,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from evaluator.modules.core.paths import profile_path, project_path
 from evaluator.modules.forensics.authenticity_decision import metrics_from_decisions
 from evaluator.modules.forensics.fused_hard_detector import score_fused_hard_detector
+from evaluator.modules.forensics.learned_fusion_head import load_learned_head
 from evaluator.modules.forensics.seedance_authenticity import (
     fit_probability_calibrator,
 )
@@ -184,6 +185,9 @@ def cmd_evaluate(args: argparse.Namespace) -> int:
         calibrator = _load_json(calibrator_path)
     elif isinstance(forensics_profiles.get("fused_hard_calibrator"), dict):
         calibrator = forensics_profiles["fused_hard_calibrator"]
+    learned_head = None
+    if args.learned_head:
+        learned_head = load_learned_head(project_path(args.learned_head))
 
     samples: list[dict[str, Any]] = []
     for item in holdout.get("real", []):
@@ -207,10 +211,15 @@ def cmd_evaluate(args: argparse.Namespace) -> int:
             wangxing_source_profile=source_profile,
             forensics_profiles=forensics_profiles,
             fused_calibrator=calibrator,
+            learned_head=learned_head,
             include_texture=bool(args.include_texture),
             max_frames=args.max_frames,
             sample_fps=args.sample_fps,
-            hard_threshold=args.threshold,
+            hard_threshold=(
+                float(learned_head.get("threshold", args.threshold))
+                if learned_head is not None and args.use_head_threshold
+                else args.threshold
+            ),
         )
         decision = scored["hard_decision"]
         labels.append(int(sample["label_generated"]))
@@ -339,6 +348,16 @@ def build_parser() -> argparse.ArgumentParser:
     evaluate.add_argument(
         "--calibrator",
         default="outputs/forensics/fused_hard_calibrator.json",
+    )
+    evaluate.add_argument(
+        "--learned-head",
+        default="",
+        help="Optional learned fusion head JSON (preferred over weighted fuse).",
+    )
+    evaluate.add_argument(
+        "--use-head-threshold",
+        action="store_true",
+        help="When --learned-head is set, use the head's saved threshold.",
     )
     evaluate.add_argument("--threshold", type=float, default=0.5)
     evaluate.add_argument("--include-texture", action="store_true")

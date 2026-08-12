@@ -25,7 +25,7 @@ from database import ReviewDatabase
 ROOT_DIR = Path(__file__).resolve().parent
 PROJECT_DIR = ROOT_DIR.parent
 DEFAULT_RAW_ROOT = ROOT_DIR / "data" / "raw_archive" / "experiments_20260811"
-DEFAULT_OUTPUT_DIR = ROOT_DIR / "data" / "datasets" / "performance_v7"
+DEFAULT_OUTPUT_DIR = ROOT_DIR / "data" / "datasets" / "performance_v8"
 DEFAULT_DB = ROOT_DIR / "data" / "review.sqlite3"
 DEFAULT_REUSE_ASSETS_DIR = ROOT_DIR / "data" / "datasets" / "performance_v6"
 DEFAULT_BASELINE_DATASET_DIR = ROOT_DIR / "data" / "datasets" / "performance_v6"
@@ -608,6 +608,22 @@ class DatasetBuilder:
                     }
                 )
                 continue
+            if (
+                left.get("origin_type") == "ai"
+                and right.get("origin_type") == "ai"
+                and left.get("model_id") == right.get("model_id")
+            ):
+                self.skipped_batches.append(
+                    {
+                        "batch": str(batch),
+                        "reason": "same_model_ai_pair_not_reviewable",
+                        "candidates": [
+                            left.get("_source_name"),
+                            right.get("_source_name"),
+                        ],
+                    }
+                )
+                continue
             task = {
                 "dataset_id": self.dataset_id,
                 "task_id": f"{case_id}__pair_{pair_hash}",
@@ -928,7 +944,7 @@ class DatasetBuilder:
                     "dataset_id": self.dataset_id,
                     "task_id": f"control_{index:03d}",
                     "case_id": f"control_{record.get('sample_id', index)}",
-                    "status": "ready",
+                    "status": "control_only",
                     "modality": "reference_material",
                     "prompt": "请比较两段视频中人物表演的真人感。",
                     "question": "哪个视频中的人物表演更像真人？",
@@ -1122,12 +1138,11 @@ class DatasetBuilder:
             encoding="utf-8",
         )
 
-        self.database.prepare_dataset_rebuild(self.dataset_id)
-        self.database.activate_dataset(dataset)
-        for asset in self.assets.values():
-            self.database.upsert_asset(asset)
-        for task in self.tasks:
-            self.database.upsert_task(task)
+        self.database.replace_dataset_bundle(
+            dataset,
+            list(self.assets.values()),
+            self.tasks,
+        )
         return dataset
 
     def build(self) -> dict[str, Any]:
@@ -1158,7 +1173,7 @@ def main() -> None:
     parser.add_argument("--raw-root", type=Path, default=DEFAULT_RAW_ROOT)
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
     parser.add_argument("--db", type=Path, default=DEFAULT_DB)
-    parser.add_argument("--dataset-id", default="performance_v7")
+    parser.add_argument("--dataset-id", default="performance_v8")
     parser.add_argument("--per-ip-quota", type=int, default=80)
     parser.add_argument(
         "--target-task-count",

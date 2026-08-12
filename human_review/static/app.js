@@ -146,9 +146,22 @@ function resetReveal() {
     reveal.classList.remove("is-ai", "is-real", "is-model", "is-unknown");
     reveal.querySelector("strong").textContent = "";
   }
+  for (const label of document.querySelectorAll(".candidate-label")) {
+    label.textContent = "LABEL HIDDEN";
+    label.classList.remove("is-revealed");
+  }
 }
 
-function showReveal(revealNode, source) {
+function setCandidateLabel(candidateLabel, source) {
+  const label = document.querySelector(
+    `.candidate-label[data-candidate-label="${candidateLabel}"]`,
+  );
+  if (!label || !source) return;
+  label.textContent = source.label || "LABEL REVEALED";
+  label.classList.add("is-revealed");
+}
+
+function showReveal(revealNode, source, candidateLabel) {
   if (!source) return;
   const revealMode = source.reveal_mode || "origin";
   const originType = source.origin_type || "unknown";
@@ -166,6 +179,7 @@ function showReveal(revealNode, source) {
     revealMode === "model" ? "REVEALED MODEL" : "REVEALED SOURCE";
   revealNode.querySelector("strong").textContent =
     source.label || "来源未标注";
+  setCandidateLabel(candidateLabel, source);
 }
 
 function renderReferences(references) {
@@ -238,8 +252,8 @@ function renderTask(task, options = {}) {
   resetMedia("video-b", task.candidates?.B);
   resetReveal();
   if (options.reveal) {
-    showReveal(revealA, options.reveal.A);
-    showReveal(revealB, options.reveal.B);
+    showReveal(revealA, options.reveal.A, "A");
+    showReveal(revealB, options.reveal.B, "B");
   }
 
   choiceButtons.forEach((button) => {
@@ -336,12 +350,16 @@ async function selectChoice(choice) {
       choice,
       reveal,
     });
-    showReveal(revealA, reveal.A);
-    showReveal(revealB, reveal.B);
-    responseClock.textContent = "已记录，结果揭示中...";
-    await new Promise((resolve) => window.setTimeout(resolve, 950));
+    showReveal(revealB, reveal.B, "B");
+    showReveal(revealA, reveal.A, "A");
+    responseClock.textContent = "已记录，结果已揭示";
     state.submitting = false;
-    await fetchNextTask();
+    state.reviewed = true;
+    choiceButtons.forEach((button) => {
+      button.disabled = true;
+    });
+    nextTaskButton.classList.remove("is-hidden");
+    sessionState.textContent = "REVIEWED / CONTINUE";
   } catch (error) {
     state.submitting = false;
     choiceButtons.forEach((button) => {

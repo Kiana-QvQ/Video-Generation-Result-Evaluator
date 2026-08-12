@@ -11,6 +11,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from evaluator.modules.core.paths import project_path
+from evaluator.modules.forensics.holdout import holdout_paths
 from evaluator.modules.wangxing.wangxing_specialization import (
     build_expression_profile,
     build_identity_profile,
@@ -55,6 +56,14 @@ def _build_parser() -> argparse.ArgumentParser:
         help=(
             "Optional manifest produced by label_seedance_expressions.py. "
             "Only high-confidence records join expression training."
+        ),
+    )
+    parser.add_argument(
+        "--holdout-manifest",
+        default="",
+        help=(
+            "Optional forensics holdout_split.json. Listed AU paths are "
+            "excluded from source-profile fitting to avoid leakage."
         ),
     )
     parser.add_argument("--max-pseudo-per-class", type=int, default=40)
@@ -106,14 +115,31 @@ def main(argv: Sequence[str] | None = None) -> int:
         }
     }
     if pseudo_manifest is not None:
+        exclude_au: set[str] = set()
+        if args.holdout_manifest:
+            holdout_path = project_path(args.holdout_manifest)
+            exclude_au |= holdout_paths(
+                holdout_path,
+                domain="real",
+                kind="au",
+            )
+            exclude_au |= holdout_paths(
+                holdout_path,
+                domain="seedance",
+                kind="au",
+            )
         source = build_source_profile(
             real_au_root=project_path(args.au_root),
             seedance_label_manifest=pseudo_manifest,
             output_path=project_path(args.source_profile_output),
+            exclude_au_paths=exclude_au,
         )
         result["source_profile"] = {
             "output": str(project_path(args.source_profile_output)),
             "sample_counts": source["provenance"]["sample_counts"],
+            "holdout_excluded_au_count": source["provenance"].get(
+                "holdout_excluded_au_count", 0
+            ),
             "failed_count": source["provenance"]["skipped_count"],
         }
     if not args.skip_identity:

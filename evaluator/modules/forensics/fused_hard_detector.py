@@ -87,6 +87,7 @@ def score_fused_hard_detector(
     wangxing_source_profile: dict[str, Any] | None = None,
     forensics_profiles: dict[str, Any] | None = None,
     fused_calibrator: dict[str, Any] | None = None,
+    learned_head: dict[str, Any] | None = None,
     include_texture: bool = False,
     max_frames: int = 24,
     sample_fps: float = 8.0,
@@ -96,6 +97,44 @@ def score_fused_hard_detector(
     texture_weight: float = 0.15,
 ) -> dict[str, Any]:
     """Score one clip and always emit a hard real/generated decision."""
+    if (
+        learned_head is not None
+        and wangxing_source_profile is not None
+        and forensics_profiles is not None
+    ):
+        from .learned_fusion_head import score_with_learned_head
+
+        scored = score_with_learned_head(
+            au_path=au_path,
+            wangxing_source_profile=wangxing_source_profile,
+            forensics_profiles=forensics_profiles,
+            learned_head=learned_head,
+            hard_threshold=hard_threshold,
+        )
+        return {
+            "schema_version": FUSED_DETECTOR_SCHEMA,
+            "status": scored.get("status", "available"),
+            "hard_decision": scored.get("hard_decision"),
+            "predicted_generated": scored.get("predicted_generated"),
+            "fused_real_0_1": scored.get("decision_score_0_1"),
+            "calibrated_real_0_1": scored.get("decision_score_0_1"),
+            "decision_score_0_1": scored.get("decision_score_0_1"),
+            "fusion": {
+                "mode": "learned_fusion_head",
+                "features": scored.get("features"),
+                "threshold": scored.get("threshold"),
+                "quality_0_1": scored.get("quality_0_1"),
+            },
+            "wangxing_source": None,
+            "forensics": None,
+            "manual_scores_required": False,
+            "uncertain_band_used": False,
+            "note": (
+                "Hard detector via learned fusion head on Wang Xing source + "
+                "forensics motion features (no texture)."
+            ),
+        }
+
     from ..wangxing.wangxing_specialization import score_source_profile
 
     wangxing = None

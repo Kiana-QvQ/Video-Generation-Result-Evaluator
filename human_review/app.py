@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import mimetypes
 import os
+import re
 import secrets
 import sqlite3
 import uuid
@@ -28,7 +29,7 @@ DATA_DIR = ROOT_DIR / "data"
 DEFAULT_DB = DATA_DIR / "review.sqlite3"
 LEGACY_MANIFEST = DATA_DIR / "tasks.jsonl"
 LEGACY_MEDIA_ROOT = ROOT_DIR / "assets"
-DEFAULT_DATASET_ID = "performance_v7"
+DEFAULT_DATASET_ID = "performance_v8"
 DEFAULT_IP_SECRET = "human-review-local-v1"
 CHOICES = {"A", "B", "tie_or_unrateable"}
 READY_STATUSES = {"ready", "active"}
@@ -126,6 +127,7 @@ class ReviewStore:
                     asset["asset_id"] = asset_id
                     self.database.upsert_asset(
                         {
+                            "dataset_id": dataset_id,
                             "asset_id": asset_id,
                             "source_path": str(source),
                             "media_type": detect_mime(source),
@@ -141,6 +143,7 @@ class ReviewStore:
                         asset["poster_asset_id"] = poster_id
                         self.database.upsert_asset(
                             {
+                                "dataset_id": dataset_id,
                                 "asset_id": poster_id,
                                 "source_path": str(poster_source),
                                 "media_type": detect_mime(
@@ -174,12 +177,20 @@ class ReviewStore:
     def dataset_row(self) -> Any:
         return self.database.get_active_dataset(self.dataset_id)
 
-    def progress(self, reviewer_hash: str) -> dict[str, Any]:
+    def progress(
+        self,
+        reviewer_hash: str,
+        round_id: str = "legacy",
+    ) -> dict[str, Any]:
         dataset = self.dataset_row()
         total = self.database.count_dataset_tasks(self.dataset_id)
         quota = int(dataset["per_ip_quota"]) if dataset and dataset["per_ip_quota"] else 0
         target = min(total, quota) if quota else total
-        completed = self.database.count_votes(self.dataset_id, reviewer_hash)
+        completed = self.database.count_votes(
+            self.dataset_id,
+            reviewer_hash,
+            round_id,
+        )
         return {
             "current": min(completed + 1, target) if target else 0,
             "completed": completed,
@@ -220,6 +231,7 @@ class ReviewStore:
         candidates = list(task["candidates"])
         if len(candidates) != 2:
             raise ValueError(f"Task {task['task_id']} does not contain two candidates.")
+        self._validate_reviewable_task(task)
         if deterministic_swap(
             reviewer_hash,
             self.dataset_id,
@@ -230,8 +242,14 @@ class ReviewStore:
 
         public_candidates: dict[str, dict[str, Any]] = {}
         for label, candidate in zip(("A", "B"), candidates):
+            asset = self.database.get_asset(candidate.get("asset_id", ""))
+            if not asset or asset["media_type"] != "video/mp4":
+                raise ValueError(
+                    f"Candidate {candidate.get('candidate_id')} is not a video asset."
+                )
             public_candidates[label] = {
                 "url": self._asset_url(candidate),
+                "media_type": asset["media_type"],
                 "poster": self._asset_url(
                     {"asset_id": candidate.get("poster_asset_id")}
                 ),
@@ -269,6 +287,27 @@ class ReviewStore:
             },
         }
 
+    @staticmethod
+    def _validate_reviewable_task(task: dict[str, Any]) -> None:
+        if task.get("control_type"):
+            raise ValueError("Control tasks are not user-facing review tasks.")
+        candidates = task.get("candidates") or []
+        if len(candidates) != 2:
+            raise ValueError("Review task must contain exactly two candidates.")
+        asset_ids = [candidate.get("asset_id") for candidate in candidates]
+        if not all(asset_ids) or asset_ids[0] == asset_ids[1]:
+            raise ValueError("Review candidates must be two different video assets.")
+        origins = {candidate.get("origin_type") for candidate in candidates}
+        if origins == {"ai", "real"}:
+            return
+        if origins == {"ai"}:
+            models = {candidate.get("model_id") for candidate in candidates}
+            if len(models) == 2 and all(models):
+                return
+        raise ValueError(
+            "Only AI/real or distinct-model AI/AI pairs can be user-facing."
+        )
+
     def next_task(
         self,
         reviewer_hash: str,
@@ -289,17 +328,33 @@ class ReviewStore:
             )
             allowed_ids = {task["task_id"] for task in own_votes}
             if requested["task_id"] in allowed_ids:
-                return self._public_task(requested, reviewer_hash)
+                try:
+                    return self._public_task(requested, reviewer_hash)
+                except ValueError:
+                    pass
 
         candidates = self.database.get_unvoted_tasks(
             self.dataset_id,
             reviewer_hash,
         )
-        if not candidates:
+        valid_candidates: list[dict[str, Any]] = []
+        for candidate in candidates:
+            try:
+                self._validate_reviewable_task(candidate)
+            except ValueError:
+                continue
+            valid_candidates.append(candidate)
+        if not valid_candidates:
             return None
-        # The database sorts by global vote count; randomize only among the
-        # lowest-count window to keep task coverage balanced.
-        chosen = secrets.choice(candidates[: min(5, len(candidates))])
+        model_candidates = [
+            candidate
+            for candidate in valid_candidates
+            if candidate.get("task_type") == "model_comparison"
+        ]
+        pool = model_candidates or valid_candidates
+        # Keep model-comparison tasks visible instead of burying them in the
+        # random low-vote window.
+        chosen = secrets.choice(pool[: min(5, len(pool))])
         return self._public_task(chosen, reviewer_hash)
 
     def record_vote(
@@ -317,6 +372,7 @@ class ReviewStore:
         task = self.database.get_task(self.dataset_id, task_id)
         if not task or task.get("status") not in READY_STATUSES:
             raise ValueError("Task does not exist or is not available.")
+        self._validate_reviewable_task(task)
         candidates = list(task["candidates"])
         if len(candidates) != 2:
             raise ValueError("Task must contain exactly two candidates.")

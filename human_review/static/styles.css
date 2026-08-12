@@ -628,6 +628,10 @@ em {
   padding: 10px 14px 11px;
 }
 
+.candidate-label.is-revealed {
+  color: var(--coral-soft);
+}
+
 .spine {
   display: flex;
   min-height: 100%;

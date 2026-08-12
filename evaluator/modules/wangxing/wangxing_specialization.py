@@ -641,10 +641,19 @@ def build_source_profile(
     real_au_root: str | Path,
     seedance_label_manifest: str | Path,
     output_path: str | Path,
+    exclude_au_paths: set[str] | None = None,
 ) -> dict[str, Any]:
-    """Fit a real-vs-generated Wang Xing source-domain profile."""
+    """Fit a real-vs-generated Wang Xing source-domain profile.
+
+    ``exclude_au_paths`` should contain resolved absolute path strings to keep
+    holdout AU CSVs out of the fitted centroids (leakage control).
+    """
     real_au_root = Path(real_au_root)
     manifest_path = Path(seedance_label_manifest)
+    excluded = {
+        str(Path(path).resolve()).casefold()
+        for path in (exclude_au_paths or set())
+    }
     if not manifest_path.is_file():
         raise FileNotFoundError(
             f"Seedance pseudo-label manifest was not found: {manifest_path}"
@@ -669,6 +678,14 @@ def build_source_profile(
         if path.is_file() and key not in seen_generated:
             grouped_paths["generated_wangxing"].append(path)
             seen_generated.add(key)
+
+    if excluded:
+        for source_type in list(grouped_paths):
+            grouped_paths[source_type] = [
+                path
+                for path in grouped_paths[source_type]
+                if str(path.resolve()).casefold() not in excluded
+            ]
 
     grouped: dict[str, list[np.ndarray]] = {}
     metadata: list[dict[str, Any]] = []
@@ -725,6 +742,7 @@ def build_source_profile(
         "provenance": {
             "real_au_root": str(real_au_root),
             "seedance_label_manifest": str(manifest_path),
+            "holdout_excluded_au_count": len(excluded),
             "sample_counts": {
                 source_type: len(vectors)
                 for source_type, vectors in grouped.items()
