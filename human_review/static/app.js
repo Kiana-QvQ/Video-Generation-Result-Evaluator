@@ -2,6 +2,7 @@ const MAX_VIDEO_SECONDS = 10;
 
 const state = {
   sessionId: getOrCreateSessionId(),
+  roundId: getOrCreateRoundId(),
   task: null,
   selectedChoice: null,
   startedAt: null,
@@ -27,7 +28,6 @@ const compareGrid = document.querySelector("#compare-grid");
 const decisionPanel = document.querySelector(".decision-panel");
 const choiceButtons = [...document.querySelectorAll(".choice-button")];
 const previousTaskButton = document.querySelector("#previous-task");
-const nextTaskButton = document.querySelector("#next-task");
 const responseClock = document.querySelector("#response-clock");
 const sessionState = document.querySelector("#session-state");
 const completePanel = document.querySelector("#complete-panel");
@@ -48,6 +48,15 @@ function getOrCreateSessionId() {
   if (existing) return existing;
   const value = `browser-${crypto.randomUUID?.() ?? `${Date.now()}-${Math.random()}`}`;
   window.localStorage.setItem(key, value);
+  return value;
+}
+
+function getOrCreateRoundId() {
+  const key = "human-signal-round";
+  const existing = window.sessionStorage.getItem(key);
+  if (existing) return existing;
+  const value = `round-${crypto.randomUUID?.() ?? `${Date.now()}-${Math.random()}`}`;
+  window.sessionStorage.setItem(key, value);
   return value;
 }
 
@@ -265,7 +274,6 @@ function renderTask(task, options = {}) {
   });
 
   previousTaskButton.disabled = state.history.length === 0 || state.submitting;
-  nextTaskButton.classList.toggle("is-hidden", !state.reviewed);
   responseClock.textContent = state.reviewed
     ? "已完成本题"
     : "观看时间 00:00";
@@ -286,7 +294,6 @@ function renderComplete(progress) {
   decisionPanel.classList.add("is-disabled");
   completePanel.classList.remove("is-hidden");
   previousTaskButton.disabled = true;
-  nextTaskButton.classList.add("is-hidden");
   taskTitle.textContent = "本轮评测已完成";
   taskId.textContent = "NO PENDING TASK";
   modalityChip.textContent = "COMPLETE";
@@ -301,19 +308,24 @@ async function fetchNextTask() {
   const query = currentId ? `?task_id=${encodeURIComponent(currentId)}` : "";
   try {
     const response = await fetch(`/api/review/next${query}`, {
-      headers: { "X-Review-Session": state.sessionId },
+      headers: {
+        "X-Review-Session": state.sessionId,
+        "X-Review-Round": state.roundId,
+      },
     });
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error || "无法读取任务");
     updateProgress(payload.progress);
     if (!payload.task) {
       renderComplete(payload.progress);
-      return;
+      return false;
     }
     renderTask(payload.task);
+    return true;
   } catch (error) {
     sessionState.textContent = "CONNECTION ERROR";
     setMessage(error.message || "无法连接评测服务，请检查服务是否启动。", "error");
+    return null;
   }
 }
 
@@ -327,12 +339,16 @@ async function selectChoice(choice) {
   });
 
   const responseMs = Math.round(performance.now() - state.startedAt);
+  document.querySelectorAll(".video-frame video").forEach((video) => {
+    video.pause();
+  });
   try {
     const response = await fetch("/api/review/vote", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "X-Review-Session": state.sessionId,
+        "X-Review-Round": state.roundId,
       },
       body: JSON.stringify({
         task_id: state.task.task_id,
@@ -352,14 +368,20 @@ async function selectChoice(choice) {
     });
     showReveal(revealB, reveal.B, "B");
     showReveal(revealA, reveal.A, "A");
-    responseClock.textContent = "已记录，结果已揭示";
-    state.submitting = false;
+    responseClock.textContent = "已记录，约 2 秒后进入下一题";
     state.reviewed = true;
     choiceButtons.forEach((button) => {
       button.disabled = true;
     });
-    nextTaskButton.classList.remove("is-hidden");
-    sessionState.textContent = "REVIEWED / CONTINUE";
+    sessionState.textContent = "RESULT REVEALED";
+    await new Promise((resolve) => window.setTimeout(resolve, 2000));
+    state.submitting = false;
+    state.reviewed = false;
+    const nextStatus = await fetchNextTask();
+    if (nextStatus === null) {
+      state.reviewed = true;
+      responseClock.textContent = "本题已记录，请刷新页面继续下一题";
+    }
   } catch (error) {
     state.submitting = false;
     choiceButtons.forEach((button) => {
@@ -379,24 +401,25 @@ function showPreviousTask() {
   });
 }
 
-function continueToNextTask() {
-  if (state.submitting || !state.reviewed) return;
-  fetchNextTask();
-}
-
-function restartReview() {
-  window.localStorage.setItem(
-    "human-signal-session",
-    `browser-${crypto.randomUUID?.() ?? `${Date.now()}-${Math.random()}`}`,
-  );
-  window.location.reload();
+async function restartReview() {
+  restartButton.disabled = true;
+  state.roundId = `round-${
+    crypto.randomUUID?.() ?? `${Date.now()}-${Math.random()}`
+  }`;
+  window.sessionStorage.setItem("human-signal-round", state.roundId);
+  state.history = [];
+  state.task = null;
+  state.reviewed = false;
+  state.selectedChoice = null;
+  state.submitting = false;
+  await fetchNextTask();
+  restartButton.disabled = false;
 }
 
 choiceButtons.forEach((button) => {
   button.addEventListener("click", () => selectChoice(button.dataset.choice));
 });
 previousTaskButton.addEventListener("click", showPreviousTask);
-nextTaskButton.addEventListener("click", continueToNextTask);
 restartButton.addEventListener("click", restartReview);
 
 window.addEventListener("keydown", (event) => {

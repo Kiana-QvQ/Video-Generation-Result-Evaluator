@@ -135,8 +135,6 @@ a {
 .reference-item figcaption span,
 .orbit-label,
 .orbit-total,
-.spine-core span,
-.spine-core small,
 .decision-footer,
 .footer {
   font-family: var(--mono);
@@ -146,7 +144,7 @@ a {
 
 .brand-copy small {
   color: var(--muted);
-  font-size: 9px;
+  font-size: 10px;
 }
 
 .topbar-right {
@@ -154,7 +152,7 @@ a {
   align-items: center;
   gap: 11px;
   color: var(--muted);
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .live-indicator {
@@ -189,7 +187,7 @@ a {
 .kicker {
   margin: 0;
   color: var(--coral-soft);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 700;
 }
 
@@ -281,7 +279,7 @@ em {
   justify-content: flex-end;
   gap: 8px;
   color: var(--muted);
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .chip {
@@ -308,7 +306,7 @@ em {
   padding: 11px 14px;
   border-bottom: 1px solid rgba(241, 237, 226, 0.12);
   color: var(--muted);
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .context-index {
@@ -339,14 +337,14 @@ em {
 
 .prompt-block > span {
   color: var(--coral-soft);
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .prompt-block p {
   margin: 9px 0 0;
   color: var(--paper);
-  font-size: 14px;
-  line-height: 1.55;
+  font-size: 16px;
+  line-height: 1.6;
 }
 
 .reference-strip {
@@ -390,15 +388,15 @@ em {
   gap: 3px;
   margin-top: 6px;
   overflow: hidden;
-  color: #d4d3c9;
-  font-size: 10px;
+  color: var(--paper);
+  font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .reference-item figcaption span {
   color: var(--muted);
-  font-size: 8px;
+  font-size: 10px;
 }
 
 .reference-empty {
@@ -483,14 +481,14 @@ em {
 .candidate-state,
 .candidate-foot {
   color: var(--muted);
-  font-size: 8px;
+  font-size: 10px;
 }
 
 .candidate-title strong {
   display: block;
   margin-top: 3px;
   color: var(--paper);
-  font: 700 15px var(--mono);
+  font: 700 16px var(--mono);
 }
 
 .candidate-state {
@@ -532,7 +530,7 @@ em {
 
 .source-reveal span {
   color: var(--muted);
-  font: 8px var(--mono);
+  font: 10px var(--mono);
   letter-spacing: 0.08em;
 }
 
@@ -609,7 +607,7 @@ em {
 
 .video-empty small {
   max-width: 180px;
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1.45;
 }
 
@@ -630,52 +628,6 @@ em {
 
 .candidate-label.is-revealed {
   color: var(--coral-soft);
-}
-
-.spine {
-  display: flex;
-  min-height: 100%;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 14px;
-}
-
-.spine-line {
-  width: 1px;
-  flex: 1;
-  min-height: 38px;
-  background: linear-gradient(var(--coral), transparent);
-}
-
-.spine-line:last-child {
-  background: linear-gradient(transparent, var(--coral));
-}
-
-.spine-core {
-  display: grid;
-  gap: 6px;
-  justify-items: center;
-  color: var(--coral);
-  text-align: center;
-}
-
-.spine-core span,
-.spine-core small {
-  font-size: 8px;
-}
-
-.spine-core strong {
-  color: var(--paper);
-  font: 600 14px/1 var(--serif);
-  letter-spacing: 0.05em;
-}
-
-.spine-core small {
-  max-width: 82px;
-  color: var(--muted);
-  line-height: 1.45;
-  text-transform: none;
 }
 
 .decision-panel {
@@ -706,8 +658,8 @@ em {
 .decision-copy p {
   margin: 8px 0 0;
   color: var(--muted);
-  font-size: 11px;
-  line-height: 1.5;
+  font-size: 14px;
+  line-height: 1.6;
 }
 
 .decision-actions {
@@ -717,7 +669,6 @@ em {
 }
 
 .choice-button,
-.submit-button,
 .outline-button {
   border: 0;
   color: var(--paper);
@@ -760,8 +711,8 @@ em {
 }
 
 .choice-text {
-  font-size: 11px;
-  line-height: 1.35;
+  font-size: 15px;
+  line-height: 1.45;
 }
 
 .decision-footer {
@@ -771,43 +722,7 @@ em {
   justify-content: space-between;
   gap: 12px;
   color: var(--muted);
-  font-size: 9px;
-}
-
-.submit-button {
-  display: inline-flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 13px;
-  border: 1px solid rgba(215, 237, 115, 0.4);
-  border-radius: 6px;
-  background: var(--lime);
-  color: var(--ink);
-  font-size: 11px;
-}
-
-.submit-button:not(:disabled):hover {
-  transform: translateY(-2px);
-  box-shadow: 0 8px 20px rgba(215, 237, 115, 0.16);
-}
-
-.submit-button:disabled {
-  cursor: not-allowed;
-  opacity: 0.4;
-}
-
-.submit-button b {
-  font-size: 16px;
-}
-
-.submit-button.is-loading {
-  animation: pulse 900ms ease-in-out infinite alternate;
-}
-
-@keyframes pulse {
-  to {
-    filter: brightness(1.16);
-  }
+  font-size: 13px;
 }
 
 .complete-panel {
@@ -829,7 +744,7 @@ em {
 .complete-panel p {
   margin: 0 0 20px;
   color: var(--muted);
-  font-size: 13px;
+  font-size: 15px;
 }
 
 .outline-button {
@@ -838,7 +753,7 @@ em {
   border-radius: 6px;
   background: transparent;
   color: var(--lime);
-  font-size: 11px;
+  font-size: 13px;
 }
 
 .outline-button:hover {
@@ -878,7 +793,7 @@ em {
 
 .guidance-list article > span {
   color: var(--coral);
-  font: 10px var(--mono);
+  font: 11px var(--mono);
 }
 
 .guidance-list strong {
@@ -888,8 +803,8 @@ em {
 .guidance-list p {
   margin: 0;
   color: var(--muted);
-  font-size: 11px;
-  line-height: 1.55;
+  font-size: 14px;
+  line-height: 1.6;
 }
 
 .footer {
@@ -898,16 +813,12 @@ em {
   gap: 20px;
   padding: 19px 0 28px;
   color: #737970;
-  font-size: 9px;
+  font-size: 12px;
 }
 
 @media (max-width: 1050px) {
   .compare-grid {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  }
-
-  .spine {
-    display: none;
   }
 
   .decision-panel,
@@ -1010,10 +921,6 @@ em {
   .decision-footer {
     align-items: stretch;
     flex-direction: column;
-  }
-
-  .submit-button {
-    justify-content: center;
   }
 
   .guidance {
@@ -1130,10 +1037,6 @@ body {
 
 .compare-grid:not(.has-context) {
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-}
-
-.spine {
-  display: none;
 }
 
 .compare-grid > .context-card {
@@ -1260,24 +1163,17 @@ body {
   color: var(--coral-soft);
 }
 
-.previous-button,
-.next-button {
+.previous-button {
   padding: 7px 11px;
   border: 1px solid rgba(32, 42, 40, 0.22);
   border-radius: 6px;
   background: transparent;
   color: var(--paper);
-  font: 10px var(--mono);
+  font: 12px var(--mono);
   letter-spacing: 0.04em;
 }
 
-.next-button {
-  border-color: var(--coral);
-  color: var(--coral-soft);
-}
-
-.previous-button:hover:not(:disabled),
-.next-button:hover {
+.previous-button:hover:not(:disabled) {
   background: rgba(231, 101, 88, 0.1);
 }
 

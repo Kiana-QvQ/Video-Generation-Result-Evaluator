@@ -9,9 +9,10 @@ import json
 import re
 import secrets
 import sqlite3
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 
 SCHEMA = """
@@ -90,10 +91,16 @@ def hash_ip(ip_address: str, secret: str) -> str:
     ).hexdigest()
 
 
-def deterministic_swap(ip_hash: str, dataset_id: str, task_id: str, secret: str) -> bool:
+def deterministic_swap(
+    ip_hash: str,
+    dataset_id: str,
+    task_id: str,
+    secret: str,
+    round_id: str = "legacy",
+) -> bool:
     digest = hmac.new(
         secret.encode("utf-8"),
-        f"{ip_hash}:{dataset_id}:{task_id}".encode("utf-8"),
+        f"{ip_hash}:{dataset_id}:{task_id}:{round_id}".encode("utf-8"),
         hashlib.sha256,
     ).digest()
     return bool(digest[0] & 1)
@@ -108,7 +115,8 @@ class ReviewDatabase:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.initialize()
 
-    def connect(self) -> sqlite3.Connection:
+    @contextmanager
+    def connect(self) -> Iterator[sqlite3.Connection]:
         connection = sqlite3.connect(
             self.path,
             timeout=30,
@@ -117,7 +125,14 @@ class ReviewDatabase:
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")
         connection.execute("PRAGMA busy_timeout = 5000")
-        return connection
+        try:
+            yield connection
+            connection.commit()
+        except BaseException:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
 
     def initialize(self) -> None:
         with self.connect() as connection:
@@ -686,8 +701,8 @@ class ReviewDatabase:
             connection.execute(
                 """
                 INSERT INTO review_votes (
-                    vote_id, dataset_id, task_id, ip_hash, choice,
-                    round_id,
+                    vote_id, dataset_id, task_id, ip_hash, round_id,
+                    choice,
                     displayed_a_candidate, displayed_b_candidate,
                     response_ms, created_at
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)

@@ -208,7 +208,10 @@ class ReviewStore:
             return str(asset["url"])
         asset_id = asset.get("asset_id")
         if asset_id:
-            return f"/media/asset/{quote(str(asset_id), safe='')}"
+            return (
+                f"/media/asset/{quote(self.dataset_id, safe='')}"
+                f"/{quote(str(asset_id), safe='')}"
+            )
         return None
 
     def _public_reference(self, reference: dict[str, Any]) -> dict[str, Any]:
@@ -227,22 +230,28 @@ class ReviewStore:
         self,
         task: dict[str, Any],
         reviewer_hash: str,
+        round_id: str = "legacy",
     ) -> dict[str, Any]:
         candidates = list(task["candidates"])
         if len(candidates) != 2:
             raise ValueError(f"Task {task['task_id']} does not contain two candidates.")
         self._validate_reviewable_task(task)
+        self._validate_task_assets(task)
         if deterministic_swap(
             reviewer_hash,
             self.dataset_id,
             task["task_id"],
             self.ip_secret,
+            round_id,
         ):
             candidates.reverse()
 
         public_candidates: dict[str, dict[str, Any]] = {}
         for label, candidate in zip(("A", "B"), candidates):
-            asset = self.database.get_asset(candidate.get("asset_id", ""))
+            asset = self.database.get_asset(
+                candidate.get("asset_id", ""),
+                self.dataset_id,
+            )
             if not asset or asset["media_type"] != "video/mp4":
                 raise ValueError(
                     f"Candidate {candidate.get('candidate_id')} is not a video asset."
@@ -287,6 +296,43 @@ class ReviewStore:
             },
         }
 
+    def _validate_task_assets(self, task: dict[str, Any]) -> None:
+        candidate_ids = {
+            candidate.get("asset_id")
+            for candidate in task.get("candidates", [])
+        }
+        for candidate in task.get("candidates", []):
+            asset = self.database.get_asset(
+                candidate.get("asset_id", ""),
+                self.dataset_id,
+            )
+            if not asset or asset["media_type"] != "video/mp4":
+                raise ValueError(
+                    f"Candidate {candidate.get('candidate_id')} is not a video asset."
+                )
+        for reference in task.get("references", []):
+            asset_id = reference.get("asset_id")
+            if not asset_id or asset_id in candidate_ids:
+                raise ValueError("Reference assets must be separate from candidates.")
+            asset = self.database.get_asset(asset_id, self.dataset_id)
+            if not asset:
+                raise ValueError(f"Reference asset {asset_id} does not exist.")
+            expected_prefix = {
+                "image": "image/",
+                "video": "video/",
+                "audio": "audio/",
+            }.get(reference.get("type"))
+            if expected_prefix and not asset["media_type"].startswith(expected_prefix):
+                raise ValueError(
+                    f"Reference asset {asset_id} has an invalid media type."
+                )
+            poster_id = reference.get("poster_asset_id")
+            if poster_id and not self.database.get_asset(
+                poster_id,
+                self.dataset_id,
+            ):
+                raise ValueError(f"Reference poster {poster_id} does not exist.")
+
     @staticmethod
     def _validate_reviewable_task(task: dict[str, Any]) -> None:
         if task.get("control_type"):
@@ -311,9 +357,10 @@ class ReviewStore:
     def next_task(
         self,
         reviewer_hash: str,
+        round_id: str = "legacy",
         requested_task_id: str | None = None,
     ) -> dict[str, Any] | None:
-        progress = self.progress(reviewer_hash)
+        progress = self.progress(reviewer_hash, round_id)
         if progress["done"]:
             return None
         requested = (
@@ -325,17 +372,19 @@ class ReviewStore:
             own_votes = self.database.get_unvoted_tasks(
                 self.dataset_id,
                 reviewer_hash,
+                round_id,
             )
             allowed_ids = {task["task_id"] for task in own_votes}
             if requested["task_id"] in allowed_ids:
                 try:
-                    return self._public_task(requested, reviewer_hash)
+                    return self._public_task(requested, reviewer_hash, round_id)
                 except ValueError:
                     pass
 
         candidates = self.database.get_unvoted_tasks(
             self.dataset_id,
             reviewer_hash,
+            round_id,
         )
         valid_candidates: list[dict[str, Any]] = []
         for candidate in candidates:
@@ -355,7 +404,7 @@ class ReviewStore:
         # Keep model-comparison tasks visible instead of burying them in the
         # random low-vote window.
         chosen = secrets.choice(pool[: min(5, len(pool))])
-        return self._public_task(chosen, reviewer_hash)
+        return self._public_task(chosen, reviewer_hash, round_id)
 
     def record_vote(
         self,
@@ -363,8 +412,9 @@ class ReviewStore:
         task_id: str,
         choice: str,
         response_ms: int | None,
+        round_id: str = "legacy",
     ) -> dict[str, Any]:
-        progress = self.progress(reviewer_hash)
+        progress = self.progress(reviewer_hash, round_id)
         if progress["done"]:
             raise ValueError("This reviewer has completed the current dataset quota.")
         if choice not in CHOICES:
@@ -373,6 +423,7 @@ class ReviewStore:
         if not task or task.get("status") not in READY_STATUSES:
             raise ValueError("Task does not exist or is not available.")
         self._validate_reviewable_task(task)
+        self._validate_task_assets(task)
         candidates = list(task["candidates"])
         if len(candidates) != 2:
             raise ValueError("Task must contain exactly two candidates.")
@@ -381,6 +432,7 @@ class ReviewStore:
             self.dataset_id,
             task_id,
             self.ip_secret,
+            round_id,
         ):
             candidates.reverse()
         reveal_mode = task.get("reveal_mode", "origin")
@@ -404,6 +456,7 @@ class ReviewStore:
                     "dataset_id": self.dataset_id,
                     "task_id": task_id,
                     "ip_hash": reviewer_hash,
+                    "round_id": round_id,
                     "choice": choice,
                     "displayed_a_candidate": candidates[0]["candidate_id"],
                     "displayed_b_candidate": candidates[1]["candidate_id"],
@@ -413,7 +466,7 @@ class ReviewStore:
         except sqlite3.IntegrityError as exc:
             raise ValueError("This task has already been reviewed for this IP.") from exc
         return {
-            **self.progress(reviewer_hash),
+            **self.progress(reviewer_hash, round_id),
             "reveal": reveal,
         }
 
@@ -431,8 +484,9 @@ class ReviewStore:
             "seedance_2_0": "Seedance 2.0",
         }.get(model_id or "", model_id or "模型未标注")
 
-    def media(self, asset_id: str) -> Any:
-        asset = self.database.get_asset(asset_id)
+    def media(self, asset_id: str, dataset_id: str | None = None) -> Any:
+        selected_dataset = dataset_id or self.dataset_id
+        asset = self.database.get_asset(asset_id, selected_dataset)
         if not asset:
             return jsonify({"error": "Asset not found"}), 404
         path = Path(asset["source_path"])
@@ -467,6 +521,16 @@ def create_app(
             g.reviewer_hash = store.reviewer_hash(store.client_ip())
         return g.reviewer_hash
 
+    def reviewer_round() -> str:
+        raw_round = (
+            request.headers.get("X-Review-Round")
+            or request.args.get("round_id")
+            or "legacy"
+        )
+        if not re.fullmatch(r"[A-Za-z0-9._:-]{1,128}", raw_round):
+            return "legacy"
+        return raw_round
+
     @app.after_request
     def attach_session_cookie(response: Any) -> Any:
         # The cookie is only a UI convenience. Duplicate prevention is IP-based.
@@ -486,12 +550,14 @@ def create_app(
     def get_next_task() -> Any:
         task = store.next_task(
             reviewer_hash(),
+            reviewer_round(),
             request.args.get("task_id"),
         )
         payload = {
             "task": task,
-            "progress": store.progress(reviewer_hash()),
+            "progress": store.progress(reviewer_hash(), reviewer_round()),
             "dataset_id": store.dataset_id,
+            "round_id": reviewer_round(),
         }
         if task:
             task.pop("_displayed_candidates", None)
@@ -502,7 +568,8 @@ def create_app(
         return jsonify(
             {
                 "dataset_id": store.dataset_id,
-                **store.progress(reviewer_hash()),
+                "round_id": reviewer_round(),
+                **store.progress(reviewer_hash(), reviewer_round()),
             }
         )
 
@@ -523,6 +590,7 @@ def create_app(
                 task_id,
                 choice,
                 response_ms,
+                reviewer_round(),
             )
         except (TypeError, ValueError) as exc:
             return jsonify({"error": str(exc)}), 400
@@ -546,8 +614,12 @@ def create_app(
             }
         )
 
+    @app.get("/media/asset/<dataset_id>/<asset_id>")
+    def media_asset(dataset_id: str, asset_id: str) -> Any:
+        return store.media(asset_id, dataset_id)
+
     @app.get("/media/asset/<asset_id>")
-    def media_asset(asset_id: str) -> Any:
+    def media_asset_legacy(asset_id: str) -> Any:
         return store.media(asset_id)
 
     return app
