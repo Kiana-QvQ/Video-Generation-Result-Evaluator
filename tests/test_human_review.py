@@ -5,6 +5,7 @@ import unittest
 from pathlib import Path
 import sqlite3
 import gc
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing
 
 from human_review.app import create_app
@@ -324,6 +325,47 @@ class HumanReviewTests(unittest.TestCase):
             self.assertEqual(tuple(vote), ("ip-hash", "ip-hash", "A"))
             del database
             gc.collect()
+
+    def test_parallel_votes_cannot_bypass_reviewer_quota(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            app = self._create_app(directory)
+            bootstrap = app.test_client()
+            next_response = bootstrap.get("/api/review/next")
+            task_id = next_response.get_json()["task"]["task_id"]
+            cookie_value = (
+                next_response.headers["Set-Cookie"]
+                .split(";", 1)[0]
+                .split("=", 1)[1]
+            )
+            next_response.close()
+            del bootstrap
+
+            def submit(choice: str) -> int:
+                with app.test_client() as client:
+                    client.set_cookie("human_review_reviewer_id", cookie_value)
+                    response = client.post(
+                        "/api/review/vote",
+                        json={"task_id": task_id, "choice": choice},
+                    )
+                    try:
+                        return response.status_code
+                    finally:
+                        response.close()
+
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                statuses = list(executor.map(submit, ("A", "B")))
+
+            self.assertEqual(sorted(statuses), [200, 400])
+            with closing(sqlite3.connect(Path(directory) / "review.sqlite3")) as connection:
+                count = connection.execute(
+                    """
+                    SELECT COUNT(*)
+                    FROM review_votes
+                    WHERE dataset_id = 'test_review'
+                      AND reviewer_id_hash IS NOT NULL
+                    """
+                ).fetchone()[0]
+            self.assertEqual(count, 1)
 
 
 if __name__ == "__main__":

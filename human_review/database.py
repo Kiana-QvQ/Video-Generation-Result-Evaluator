@@ -78,6 +78,10 @@ CREATE TABLE IF NOT EXISTS review_votes (
 """
 
 
+class ReviewQuotaExceededError(RuntimeError):
+    """Raised when a reviewer reaches the configured dataset quota."""
+
+
 def utc_now() -> str:
     return datetime.now(UTC).isoformat(timespec="milliseconds")
 
@@ -532,8 +536,36 @@ class ReviewDatabase:
             ).fetchone()
         return int(row["count"])
 
-    def insert_vote(self, vote: dict[str, Any]) -> None:
+    def insert_vote(
+        self,
+        vote: dict[str, Any],
+        per_reviewer_quota: int | None = None,
+    ) -> None:
         with self.connect() as connection:
+            # Serialize quota checks with the insert so parallel tabs cannot
+            # both pass a preflight count before either vote is committed.
+            connection.execute("BEGIN IMMEDIATE")
+            if per_reviewer_quota and per_reviewer_quota > 0:
+                row = connection.execute(
+                    """
+                    SELECT COUNT(*) AS count
+                    FROM review_votes v
+                    JOIN tasks t
+                      ON t.dataset_id = v.dataset_id
+                     AND t.task_id = v.task_id
+                    WHERE v.dataset_id = ?
+                      AND v.reviewer_id_hash = ?
+                      AND t.status IN ('ready', 'active')
+                      AND t.control_type IS NULL
+                      AND t.task_type IN ('ai_real_anchor', 'model_comparison')
+                    """,
+                    (
+                        vote["dataset_id"],
+                        vote["reviewer_id_hash"],
+                    ),
+                ).fetchone()
+                if int(row["count"]) >= per_reviewer_quota:
+                    raise ReviewQuotaExceededError
             connection.execute(
                 """
                 INSERT INTO review_votes (

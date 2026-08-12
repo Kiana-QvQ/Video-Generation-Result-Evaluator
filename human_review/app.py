@@ -17,12 +17,19 @@ from flask import Flask, g, jsonify, request, send_file
 try:
     from .database import (
         ReviewDatabase,
+        ReviewQuotaExceededError,
         deterministic_swap,
         hash_ip,
         hash_reviewer_id,
     )
 except ImportError:
-    from database import ReviewDatabase, deterministic_swap, hash_ip, hash_reviewer_id
+    from database import (
+        ReviewDatabase,
+        ReviewQuotaExceededError,
+        deterministic_swap,
+        hash_ip,
+        hash_reviewer_id,
+    )
 
 
 ROOT_DIR = Path(__file__).resolve().parent
@@ -100,14 +107,7 @@ class ReviewStore:
     ) -> dict[str, Any]:
         dataset = self.dataset_row()
         total = self.database.count_dataset_tasks(self.dataset_id)
-        quota_value = (
-            dataset["per_reviewer_quota"]
-            if dataset and dataset["per_reviewer_quota"] is not None
-            else dataset["per_ip_quota"]
-            if dataset
-            else None
-        )
-        quota = int(quota_value) if quota_value else 0
+        quota = self._reviewer_quota(dataset)
         target = min(total, quota) if quota else total
         completed = self.database.count_votes(
             self.dataset_id,
@@ -122,6 +122,17 @@ class ReviewStore:
             "quota": quota or None,
             "done": target > 0 and completed >= target,
         }
+
+    @staticmethod
+    def _reviewer_quota(dataset: Any) -> int:
+        if not dataset:
+            return 0
+        quota_value = (
+            dataset["per_reviewer_quota"]
+            if dataset["per_reviewer_quota"] is not None
+            else dataset["per_ip_quota"]
+        )
+        return max(0, int(quota_value)) if quota_value is not None else 0
 
     def _asset_url(self, asset: dict[str, Any] | None) -> str | None:
         if not asset:
@@ -391,8 +402,13 @@ class ReviewStore:
                     "displayed_a_candidate": candidates[0]["candidate_id"],
                     "displayed_b_candidate": candidates[1]["candidate_id"],
                     "response_ms": response_ms,
-                }
+                },
+                per_reviewer_quota=self._reviewer_quota(self.dataset_row()),
             )
+        except ReviewQuotaExceededError as exc:
+            raise ValueError(
+                "This reviewer has completed the current dataset quota."
+            ) from exc
         except sqlite3.IntegrityError as exc:
             raise ValueError(
                 "This task has already been reviewed by this browser."
