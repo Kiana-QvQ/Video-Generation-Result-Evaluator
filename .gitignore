@@ -15,6 +15,18 @@ integrations/VBench/
 *.log
 .docker/
 
+# Datasets and experiment media (keep local / internal storage only)
+data/
+!data/.gitkeep
+
+# Human-review runtime datasets and sqlite (code under human_review/ stays)
+human_review/data/
+!human_review/data/.gitkeep
+!human_review/data/.gitignore
+
+# Internal leadership briefing (not for public GitHub)
+docs/领导汇报_真伪检测指标口径.md
+
 # Large media, checkpoints, and archives
 *.mp4
 *.mkv
@@ -23,6 +35,7 @@ integrations/VBench/
 *.webm
 *.m4v
 *.wmv
+*.pcm
 *.pth
 *.pt
 *.onnx
@@ -34,3 +47,16 @@ integrations/VBench/
 *.7z
 *.tmp
 *.part
+*.npz
+*.joblib
+
+# Local evaluator runtime dumps
+evaluator/uploads/
+evaluator/results/
+evaluator/outputs/
+evaluator/checkpoints/**
+!evaluator/checkpoints/.gitkeep
+!evaluator/checkpoints/README.md
+evaluator/modules/assets/models/wangxing_video_pt/**
+!evaluator/modules/assets/models/wangxing_video_pt/README.md
+!evaluator/modules/assets/models/wangxing_video_pt/.gitkeep
