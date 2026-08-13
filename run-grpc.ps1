@@ -24,7 +24,7 @@ $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $python = Join-Path $root ".venv\Scripts\python.exe"
 
 if (-not (Test-Path $python)) {
-    throw "Project environment is missing. Run .\setup.ps1 first."
+    throw "Project environment is missing. Create .venv and install requirements.txt first."
 }
 
 $hostAddress = if ($BindHost) {

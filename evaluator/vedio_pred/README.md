@@ -16,7 +16,36 @@ video_pred/
 
 脚本会递归读取 `mp4`、`avi`、`mov`、`mkv`、`webm` 和 `flv` 文件。
 
-## 监督式训练
+## 王兴双尺度 .pt（推荐新流程）
+
+协议：
+
+- 特征：`24 帧 @ 1024` + `8 帧 @ 2048`，拼接后用**训练集**均值/方差归一化
+- 训练真拍：从 `data/MD_CL` 按子目录均衡抽 **120**（排除 holdout）
+- 训练生成：全部非 holdout Seedance
+- 测试：`data/forensics/holdout_split.json`（与 AU 硬判同一 holdout）
+- 产出：`outputs/vedio_pred/models/wangxing_dual_scale_classifier.pt`
+
+在仓库根目录、建议 `.venv`：
+
+```powershell
+# 1) 只建划分清单（快）
+.\.venv\Scripts\python.exe scripts\train_wangxing_video_pt.py build-split
+
+# 2) 抽帧+归一化+训练+holdout 测试（慢：1k/2k 解码）
+.\.venv\Scripts\python.exe scripts\train_wangxing_video_pt.py train
+
+# 3) 单条预测
+.\.venv\Scripts\python.exe scripts\train_wangxing_video_pt.py predict --video data\WangXing_Seedance\xxx.mp4
+```
+
+看结果：
+
+- `outputs/vedio_pred/wangxing_dual_pt_split.json` — 训练/测试路径
+- `outputs/vedio_pred/wangxing_dual_pt_holdout_metrics.json` — 生成召回 / 整体准确率
+- `outputs/vedio_pred/models/wangxing_dual_scale_classifier.pt` — 模型
+
+## 监督式训练（旧单尺度入口）
 
 在 `E:\python\Evaluator` 目录执行：
 

@@ -17,22 +17,28 @@ GT 视频、参考图、参考动作视频和文本 Prompt，系统会选择适�
 只有与结果逐帧对应的 GT 视频才会计算 PSNR、SSIM、LPIPS。参考图和参考
 动作视频不能替代 GT。
 
-## 快速开始
+## 两条入口（不要混）
+
+| 入口 | 用途 | 怎么启动 |
+| --- | --- | --- |
+| **`evaluator/`（对方核心）** | 视频评估 Flask Web | `cd evaluator` 后运行 `python server.py` |
+| **仓库根目录 Frame Audit / gRPC** | `web_app.py` + gRPC | `python start.py` / `.\run-grpc.ps1` |
+
+本仓库里：先在**项目侧**（`scripts/`、`outputs/`、`human_review/` 等）验证算法；确认有效后再合并进 `evaluator/modules/`，不要直接改散对方宿主入口。
 
 ```powershell
-.\setup.ps1
-.\run.ps1
+# 对方评估器 Web
+cd evaluator
+..\.venv\Scripts\python.exe server.py
+
+# Frame Audit Web
+.\.venv\Scripts\python.exe start.py
+
+# gRPC（根目录脚本仅保留这一套）
+.\run-grpc.ps1
 ```
 
-打开 `http://127.0.0.1:7860`。服务入口是根目录的 `web_app.py`。
-
-如果 PowerShell 禁止运行脚本，任选其一：
-
-```powershell
-.\run.cmd
-# 或
-powershell -ExecutionPolicy Bypass -File .\run.ps1
-```
+打开评估器：`http://127.0.0.1:5000`（`evaluator/server.py` 默认端口）。
 
 ## 多用户队列
 
@@ -46,7 +52,7 @@ powershell -ExecutionPolicy Bypass -File .\run.ps1
 
 ```powershell
 $env:FRAME_AUDIT_TRUST_PROXY_HEADERS = "true"
-.\run.ps1
+.\.venv\Scripts\python.exe start.py
 ```
 
 不要在没有可信代理的情况下开启该选项，否则客户端可以伪造来源 IP。
@@ -55,23 +61,19 @@ $env:FRAME_AUDIT_TRUST_PROXY_HEADERS = "true"
 
 | 路径 | 说明 |
 | --- | --- |
-| `web_app.py` / `run.ps1` / `setup.ps1` | 核心入口 |
-| `requirements.txt` | 基础依赖 |
-| `requirements/` | 可选依赖（exact backends、VBench） |
-| `evaluator/` | 评估逻辑 |
-| `web/` | 前端静态资源 |
-| `config/` | 模型档位配置 |
-| `scripts/` | 资源下载与可选服务启动 |
-| `docker/` | VBench 镜像构建 |
-| `tools/` | 辅助下载与离线兼容代码 |
-| `docs/` | 文档与评估准则 |
+| `evaluator/` | 对方核心：`server.py` / `app.py` / `main.py` / `modules/` |
+| `scripts/` / `outputs/` / `human_review/` / `docs/` | 本项目验证、训练评估与人审（验证后再进 `evaluator/modules`） |
+| `web_app.py` / `start.py` | Frame Audit Web（也被 gRPC 复用） |
+| `grpc_server.py` / `start_grpc.py` / `run-grpc.*` / `grpc_api/` | gRPC（根目录仅保留这组 `.ps1`/`.cmd`） |
+| `requirements.txt` / `requirements/` | 依赖 |
+| `web/` / `config/` / `docker/` / `tools/` | Frame Audit / 可选后端资源 |
+| `data/` | 数据集与 AU |
 
 ## 可选后端
 
-基础环境不依赖重模型，也不会把代理结果标记成精确模型结果。安装可选后端：
+基础环境不依赖重模型，也不会把代理结果标记成精确模型结果。可选资源：
 
 ```powershell
-.\setup.ps1 -Optional
 .\scripts\download-optional-assets.ps1 -SkipPythonPackages
 ```
 
@@ -81,23 +83,19 @@ $env:FRAME_AUDIT_TRUST_PROXY_HEADERS = "true"
 常用的独立后端命令：
 
 ```powershell
-# VBench
-# VBench uses an isolated Docker environment; do not install it into .venv.
+# VBench（隔离 Docker，不要装进 .venv）
 .\scripts\download-vbench-models.ps1 -SkipDinoRepository
 .\docker\build-vbench.ps1
 
-# 8GB 本地 VLM Judge（不使用 Docker）
-.\setup.ps1 -VLM
+# 本地 VLM Judge
 .\scripts\download-vlm-judge.ps1
-.\run.ps1
+.\.venv\Scripts\python.exe start.py --with-vlm
+# 或
+.\run-grpc.ps1 -WithVlm
 ```
 
 VBench 是可选能力；Qwen VLM Judge 默认不会随基础启动自动加载。
-安装并下载权重后，使用 `.\run.ps1 -WithVlm` 或
-`.\run-grpc.ps1 -WithVlm` 显式启动；使用 `--without-vlm` 可保持关闭。
-本地 Qwen Judge 读取 `model_cache/vlm_judge/` 中的权重；如果需要 Docker，
-必须显式使用 `.\run.ps1 -WithVlm -VlmBackend docker`。
-LibreFace 请使用 `.\setup-libreface.ps1` 创建独立的 Torch 2.0 环境。
+本地 Qwen Judge 读取 `model_cache/vlm_judge/` 中的权重。
 
 ## 输出与测试
 
