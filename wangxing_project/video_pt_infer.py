@@ -15,6 +15,10 @@ from evaluator.vedio_pred.wangxing_dual_pt import (
     extract_dual_feature,
 )
 from evaluator.vedio_pred.real_video_detector import _predict_classifier_logits
+from wangxing_project.multi_scale_pt import (
+    MULTI_MODEL_TYPE,
+    predict_wangxing_multi_scale_pt,
+)
 
 
 def predict_dual_pt(video_path: str | Path, model_path: str | Path) -> dict[str, Any]:
@@ -34,8 +38,11 @@ def predict_dual_pt(video_path: str | Path, model_path: str | Path) -> dict[str,
     except TypeError:
         checkpoint = torch.load(str(model_path), map_location="cpu")
 
-    if checkpoint.get("model_type") != DUAL_MODEL_TYPE:
-        raise ValueError(f"Unsupported model_type: {checkpoint.get('model_type')}")
+    model_type = checkpoint.get("model_type")
+    if model_type == MULTI_MODEL_TYPE:
+        return predict_wangxing_multi_scale_pt(video_path, model_path)
+    if model_type != DUAL_MODEL_TYPE:
+        raise ValueError(f"Unsupported model_type: {model_type}")
     scales = checkpoint["config"]["scales"]
     feature = extract_dual_feature(
         video_path,
