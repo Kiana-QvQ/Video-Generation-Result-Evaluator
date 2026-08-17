@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import functools
 import hashlib
 import os
 import shutil
@@ -15,6 +16,11 @@ PYTHON = Path(sys.executable)
 EXTRACTOR = PROJECT_ROOT / "scripts" / "extract_libreface_au.py"
 EVALUATOR = PROJECT_ROOT / "scripts" / "evaluate_au_compliance.py"
 SHARED_AU_CACHE_NAMESPACE = "libreface_shared_v1"
+AU_CACHE_SCHEMA_VERSION = "libreface_extract_cache_v2"
+AU_CACHE_SIGNATURE_FILES = (
+    EXTRACTOR,
+    PROJECT_ROOT / "scripts" / "libreface_worker.py",
+)
 
 
 def _configure_utf8_streams() -> None:
@@ -49,12 +55,48 @@ def _video_sha256(video_path: Path) -> str:
     return digest.hexdigest()
 
 
+@functools.lru_cache(maxsize=1)
+def _au_extraction_cache_signature() -> str:
+    """Fingerprint the extractor so stale AU CSVs are not silently reused."""
+    digest = hashlib.sha256()
+    digest.update(AU_CACHE_SCHEMA_VERSION.encode("utf-8"))
+    for path in AU_CACHE_SIGNATURE_FILES:
+        try:
+            relative = path.relative_to(PROJECT_ROOT).as_posix()
+        except ValueError:
+            relative = str(path)
+        digest.update(relative.encode("utf-8"))
+        try:
+            digest.update(path.read_bytes())
+        except OSError:
+            digest.update(b"<missing>")
+    return digest.hexdigest()[:12]
+
+
+def _resolved_cache_namespace(namespace: str) -> str:
+    base = str(namespace).strip() or "generated"
+    return f"{base}__{_au_extraction_cache_signature()}"
+
+
+def _cache_debug_meta(namespace: str) -> dict[str, str]:
+    return {
+        "requested_namespace": str(namespace).strip() or "generated",
+        "resolved_namespace": _resolved_cache_namespace(namespace),
+        "schema_version": AU_CACHE_SCHEMA_VERSION,
+        "extractor_signature": _au_extraction_cache_signature(),
+    }
+
+
 def _cached_csv_path(
     video_path: Path,
     cache_root: Path,
     namespace: str,
 ) -> Path:
-    return cache_root / namespace / f"{_video_sha256(video_path)}.csv"
+    return (
+        cache_root
+        / _resolved_cache_namespace(namespace)
+        / f"{_video_sha256(video_path)}.csv"
+    )
 
 
 def _project_path(value: str) -> Path:

@@ -36,6 +36,7 @@ def decide_real_vs_generated(
     uncertain_high: float = 0.65,
     min_quality: float = 0.45,
     allow_uncertain: bool = True,
+    allow_score_uncertain: bool = True,
 ) -> dict[str, Any]:
     """Map a real-capture score into real / generated / uncertain.
 
@@ -52,7 +53,7 @@ def decide_real_vs_generated(
             "calibrated_score_0_1": None,
             "quality_0_1": _finite(quality_0_1),
             "reason": "missing_score",
-            "manual_scores_required": False,
+            "manual_scores_required": True,
         }
 
     calibrated = apply_probability_calibrator(raw, calibrator)
@@ -62,7 +63,11 @@ def decide_real_vs_generated(
 
     if allow_uncertain and quality is not None and quality < min_quality:
         reasons.append("low_input_quality")
-    if allow_uncertain and uncertain_low <= score <= uncertain_high:
+    if (
+        allow_uncertain
+        and allow_score_uncertain
+        and uncertain_low <= score <= uncertain_high
+    ):
         reasons.append("score_in_uncertain_band")
 
     if reasons:
@@ -86,7 +91,7 @@ def decide_real_vs_generated(
         "uncertain_band": [float(uncertain_low), float(uncertain_high)],
         "min_quality": float(min_quality),
         "reasons": reasons,
-        "manual_scores_required": False,
+        "manual_scores_required": "low_input_quality" in reasons,
         "note": (
             "Uncertain means refuse to hard-label mid-score or low-quality "
             "clips. It is not a third ground-truth class."

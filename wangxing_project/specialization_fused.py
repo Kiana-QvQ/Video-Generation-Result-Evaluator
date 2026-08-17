@@ -16,6 +16,7 @@ from wangxing_project.model_slots import resolve_wangxing_pt_path
 SCHEMA = "wangxing_specialization_authenticity_fused_v1"
 DEFAULT_AU_WEIGHT = 0.65
 DEFAULT_PT_WEIGHT = 0.35
+DEFAULT_MIN_QUALITY = 0.45
 PT_SCORE_CACHE_NAME = "wangxing_pt_score_cache.json"
 
 
@@ -192,6 +193,8 @@ def score_wangxing_specialization_authenticity(
     au_weight: float = DEFAULT_AU_WEIGHT,
     pt_weight: float = DEFAULT_PT_WEIGHT,
     hard_threshold: float | None = None,
+    min_quality: float = DEFAULT_MIN_QUALITY,
+    allow_uncertain: bool = True,
 ) -> dict[str, Any]:
     """Build Wang Xing specialization authenticity block (AU + optional .pt)."""
     from evaluator.modules.forensics.authenticity_decision import (
@@ -249,6 +252,11 @@ def score_wangxing_specialization_authenticity(
         au_weight=effective_au_weight,
         pt_weight=effective_pt_weight,
     )
+    fusion["quality_gate_applied_in_decision"] = bool(
+        allow_uncertain
+        and quality is not None
+        and quality < float(min_quality)
+    )
     threshold = (
         float(hard_threshold)
         if hard_threshold is not None
@@ -259,7 +267,9 @@ def score_wangxing_specialization_authenticity(
         real_score_0_1=fused_score,
         quality_0_1=quality,
         hard_threshold=threshold,
-        allow_uncertain=False,
+        min_quality=float(min_quality),
+        allow_uncertain=allow_uncertain,
+        allow_score_uncertain=False,
     )
 
     return {
@@ -290,14 +300,17 @@ def score_wangxing_specialization_authenticity(
         "hard_decision": decision,
         "predicted_generated": decision.get("predicted_generated"),
         "hard_threshold": threshold,
+        "min_quality": float(min_quality),
         "weights": {
             "au_weight_requested": float(au_weight),
             "pt_weight_requested": float(pt_weight),
             "au_weight_effective": effective_au_weight,
             "pt_weight_effective": effective_pt_weight,
         },
-        "manual_scores_required": False,
-        "uncertain_band_used": False,
+        "manual_scores_required": bool(
+            decision.get("manual_scores_required", False)
+        ),
+        "uncertain_band_used": decision.get("decision") == "uncertain",
         "note": (
             "Wang Xing specialization authenticity: AU multi-technique learned "
             "head fused with optional dual-scale video .pt. Not part of five-axis "

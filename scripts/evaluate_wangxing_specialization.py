@@ -14,7 +14,10 @@ from evaluator.modules.core.paths import project_path
 from evaluator.modules.wangxing.wangxing_specialization import (
     evaluate_specialization,
 )
-from scripts.evaluate_generated_video import _run_extraction
+from scripts.evaluate_generated_video import (
+    _cache_debug_meta,
+    _run_extraction,
+)
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -104,6 +107,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "source_profile": (
             str(source_profile) if source_profile.is_file() else None
         ),
+        "au_cache": _cache_debug_meta("wangxing_specialization_v1"),
     }
     serialized = json.dumps(result, ensure_ascii=False, indent=2)
     if output is not None:

@@ -37,10 +37,31 @@ def _load_json(path: Path) -> dict[str, Any]:
 
 def _holdout_au_set(manifest: dict[str, Any]) -> set[str]:
     return {
-        str(project_path(item["au"]).resolve())
+        str(project_path(item["au"]).resolve()).casefold()
         for key in ("real", "seedance")
         for item in manifest.get(key, [])
+        if isinstance(item, dict) and item.get("au")
     }
+
+
+def _collect_extra_generated_from_protocol(manifest: dict[str, Any]) -> list[Path]:
+    """Optional Change/hard-example AU list from change_seedance_protocol.json."""
+    rows = manifest.get("train")
+    if not isinstance(rows, list):
+        return []
+    paths: list[Path] = []
+    for item in rows:
+        if not isinstance(item, dict):
+            continue
+        if item.get("landmark_expected") is False:
+            continue
+        au = item.get("au")
+        if not isinstance(au, str) or not au.strip():
+            continue
+        path = project_path(au)
+        if path.is_file():
+            paths.append(path)
+    return paths
 
 
 def _collect_train_paths(
@@ -52,16 +73,26 @@ def _collect_train_paths(
     seedance_limit: int,
     real_per_generated: float,
     random_state: int,
+    extra_generated: Sequence[Path] | None = None,
 ) -> tuple[list[Path], list[Path]]:
+    holdout_resolved = {str(Path(path).resolve()).casefold() for path in holdout_au}
     gen_paths = [
         path
         for path in sorted(seedance_au_root.glob("*.csv"))
-        if str(path.resolve()) not in holdout_au
+        if str(path.resolve()).casefold() not in holdout_resolved
     ][:seedance_limit]
+    seen = {str(path.resolve()).casefold() for path in gen_paths}
+    for path in extra_generated or []:
+        key = str(path.resolve()).casefold()
+        if key in holdout_resolved or key in seen:
+            continue
+        if path.is_file():
+            gen_paths.append(path)
+            seen.add(key)
     real_pool = [
         path
         for path in sorted(real_au_root.rglob("*.csv"))
-        if str(path.resolve()) not in holdout_au
+        if str(path.resolve()).casefold() not in holdout_resolved
     ]
     target_real = min(
         len(real_pool),
@@ -117,18 +148,23 @@ def cmd_train(args: argparse.Namespace) -> int:
         else profile_path("wangxing_source_profile", required=True)
     )
 
+    extra_generated: list[Path] = []
+    if args.extra_generated_au_manifest:
+        protocol = _load_json(project_path(args.extra_generated_au_manifest))
+        extra_generated = _collect_extra_generated_from_protocol(protocol)
     real_paths, gen_paths = _collect_train_paths(
-        real_au_root=Path(args.real_au_root),
-        seedance_au_root=Path(args.seedance_au_root),
+        real_au_root=project_path(args.real_au_root),
+        seedance_au_root=project_path(args.seedance_au_root),
         holdout_au=holdout_au,
         real_limit=args.real_limit,
         seedance_limit=args.seedance_limit,
         real_per_generated=args.real_per_generated,
         random_state=args.seed,
+        extra_generated=extra_generated,
     )
     print(
         f"Train pool real={len(real_paths)} generated={len(gen_paths)} "
-        f"(holdout excluded)",
+        f"(holdout excluded; extra_generated={len(extra_generated)})",
         flush=True,
     )
 
@@ -168,9 +204,15 @@ def cmd_train(args: argparse.Namespace) -> int:
                 else profile_path("wangxing_source_profile", required=True)
             ),
             "holdout_manifest": str(project_path(args.holdout_manifest)),
+            "extra_generated_au_manifest": (
+                str(project_path(args.extra_generated_au_manifest))
+                if args.extra_generated_au_manifest
+                else None
+            ),
             "train_paths": {
                 "real_count": len(real_kept),
                 "generated_count": len(gen_kept),
+                "extra_generated_count": len(extra_generated),
             },
         }
     )
@@ -331,6 +373,14 @@ def build_parser() -> argparse.ArgumentParser:
     train.add_argument("--hard-example-rounds", type=int, default=2)
     train.add_argument("--target-metric", type=float, default=0.75)
     train.add_argument("--seed", type=int, default=42)
+    train.add_argument(
+        "--extra-generated-au-manifest",
+        default="",
+        help=(
+            "Optional change_seedance_protocol.json: inject protocol['train'] "
+            "AU CSVs (landmark_expected!=false) into the generated pool."
+        ),
+    )
     train.add_argument(
         "--output",
         default="outputs/forensics/learned_fusion_head.json",

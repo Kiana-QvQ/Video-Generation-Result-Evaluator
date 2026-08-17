@@ -8,6 +8,10 @@ from unittest.mock import patch
 import cv2
 import numpy as np
 
+from evaluator.modules.forensics.authenticity_decision import (
+    decide_real_vs_generated,
+    metrics_from_decisions,
+)
 from evaluator.modules.wangxing.wangxing_specialization import (
     _fit_logistic_calibrator,
     _identity_calibration_metrics,
@@ -45,6 +49,54 @@ def _write_video(path: Path, frame_count: int = 4) -> None:
 
 
 class WangxingSpecializationTests(unittest.TestCase):
+    def test_low_quality_forces_manual_review_instead_of_hard_label(self) -> None:
+        decision = decide_real_vs_generated(
+            real_score_0_1=0.85,
+            quality_0_1=0.0,
+            min_quality=0.45,
+            allow_uncertain=True,
+            allow_score_uncertain=False,
+        )
+        self.assertEqual(decision["decision"], "uncertain")
+        self.assertIsNone(decision["predicted_generated"])
+        self.assertIn("low_input_quality", decision["reasons"])
+        self.assertTrue(decision["manual_scores_required"])
+
+    def test_quality_gate_does_not_change_normal_generated_decision(self) -> None:
+        decision = decide_real_vs_generated(
+            real_score_0_1=0.36,
+            quality_0_1=1.0,
+            min_quality=0.45,
+            allow_uncertain=True,
+            allow_score_uncertain=False,
+        )
+        self.assertEqual(decision["decision"], "generated")
+        self.assertTrue(decision["predicted_generated"])
+
+    def test_uncertain_samples_reduce_coverage_not_evaluable_recall(self) -> None:
+        decisions = [
+            decide_real_vs_generated(
+                real_score_0_1=0.9,
+                quality_0_1=1.0,
+                allow_uncertain=True,
+            ),
+            decide_real_vs_generated(
+                real_score_0_1=0.1,
+                quality_0_1=1.0,
+                allow_uncertain=True,
+            ),
+            decide_real_vs_generated(
+                real_score_0_1=0.9,
+                quality_0_1=0.0,
+                min_quality=0.45,
+                allow_uncertain=True,
+            ),
+        ]
+        metrics = metrics_from_decisions([0, 1, 1], decisions)
+        self.assertEqual(metrics["uncertain_count"], 1)
+        self.assertEqual(metrics["coverage"], 2 / 3)
+        self.assertEqual(metrics["generated_recall"], 1.0)
+
     def test_quality_weighted_prototype_prefers_valid_face_frames(self) -> None:
         prototype = _weighted_prototype(
             np.asarray([[1.0, 0.0], [0.0, 1.0]], dtype=np.float32),

@@ -8,8 +8,10 @@ from unittest.mock import patch
 from scripts.evaluate_generated_video import (
     SHARED_AU_CACHE_NAMESPACE,
     _cached_csv_path,
+    _cache_debug_meta,
     _csv_path,
     _driver_au_for_video,
+    _resolved_cache_namespace,
     _run_extraction,
 )
 
@@ -58,6 +60,76 @@ class EvaluateGeneratedVideoTests(unittest.TestCase):
 
             self.assertEqual(result, cached_path)
             run.assert_not_called()
+
+    def test_cache_namespace_includes_extractor_signature(self) -> None:
+        with patch(
+            "scripts.evaluate_generated_video._au_extraction_cache_signature",
+            return_value="abc123def456",
+        ):
+            self.assertEqual(
+                _resolved_cache_namespace("wangxing_specialization_v1"),
+                "wangxing_specialization_v1__abc123def456",
+            )
+            self.assertEqual(
+                _cache_debug_meta("wangxing_specialization_v1"),
+                {
+                    "requested_namespace": "wangxing_specialization_v1",
+                    "resolved_namespace": "wangxing_specialization_v1__abc123def456",
+                    "schema_version": "libreface_extract_cache_v2",
+                    "extractor_signature": "abc123def456",
+                },
+            )
+
+    def test_cache_miss_when_extractor_signature_changes(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            video_path = root / "result.mp4"
+            cache_root = root / "cache"
+            run_root = root / "run"
+            video_path.write_bytes(b"stable video content")
+            namespace = "wangxing_specialization_v1"
+
+            with patch(
+                "scripts.evaluate_generated_video._au_extraction_cache_signature",
+                return_value="oldsignature",
+            ):
+                old_cached_path = _cached_csv_path(video_path, cache_root, namespace)
+            old_cached_path.parent.mkdir(parents=True)
+            old_cached_path.write_text("AU01_r\n0.2\n", encoding="utf-8")
+
+            with patch(
+                "scripts.evaluate_generated_video._au_extraction_cache_signature",
+                return_value="newsignature",
+            ):
+                expected_output = _cached_csv_path(video_path, cache_root, namespace)
+                extraction_root = (
+                    expected_output.parent / f".extract_{expected_output.stem}"
+                )
+                extracted_path = _csv_path(video_path, extraction_root)
+
+                def fake_run(*args: object, **kwargs: object) -> None:
+                    extracted_path.parent.mkdir(parents=True, exist_ok=True)
+                    extracted_path.write_text("AU01_r\n0.4\n", encoding="utf-8")
+
+                with patch(
+                    "scripts.evaluate_generated_video.subprocess.run",
+                    side_effect=fake_run,
+                ) as run:
+                    result = _run_extraction(
+                        video_path,
+                        run_root,
+                        device="cpu",
+                        batch_size=1,
+                        num_workers=0,
+                        force=False,
+                        cache_root=cache_root,
+                        cache_namespace=namespace,
+                    )
+
+            self.assertEqual(result, expected_output)
+            self.assertNotEqual(result, old_cached_path)
+            self.assertTrue(result.is_file())
+            run.assert_called_once()
 
     def test_same_video_reuses_generated_au_for_driver(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

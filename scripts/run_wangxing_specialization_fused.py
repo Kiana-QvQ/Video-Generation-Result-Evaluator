@@ -29,6 +29,26 @@ def _load_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8-sig"))
 
 
+def _is_unscorable(
+    decision: dict[str, Any],
+    min_quality: float,
+    *,
+    quality_gate: bool,
+) -> bool:
+    if not quality_gate:
+        return bool(
+            decision.get("decision") == "uncertain"
+            and decision.get("manual_scores_required")
+        )
+    if decision.get("manual_scores_required"):
+        return True
+    quality = decision.get("quality_0_1")
+    try:
+        return quality is not None and float(quality) < float(min_quality)
+    except (TypeError, ValueError):
+        return False
+
+
 def cmd_slots(_: argparse.Namespace) -> int:
     print(json.dumps(list_model_slots(), ensure_ascii=False, indent=2))
     return 0
@@ -71,6 +91,8 @@ def cmd_score_one(args: argparse.Namespace) -> int:
         au_weight=args.au_weight,
         pt_weight=args.pt_weight,
         hard_threshold=args.threshold,
+        min_quality=args.min_quality,
+        allow_uncertain=args.quality_gate,
     )
     print(json.dumps(scored, ensure_ascii=False, indent=2))
     return 0
@@ -101,6 +123,7 @@ def cmd_evaluate(args: argparse.Namespace) -> int:
     labels: list[int] = []
     decisions: list[dict[str, Any]] = []
     rows: list[dict[str, Any]] = []
+    unscorable_samples: list[dict[str, Any]] = []
     for index, sample in enumerate(samples, start=1):
         au_path = project_path(sample["au"])
         video_path = project_path(sample["video"]) if sample.get("video") else None
@@ -119,42 +142,67 @@ def cmd_evaluate(args: argparse.Namespace) -> int:
             au_weight=args.au_weight,
             pt_weight=args.pt_weight,
             hard_threshold=args.threshold,
+            min_quality=args.min_quality,
+            allow_uncertain=args.quality_gate,
         )
         decision = scored["hard_decision"]
+        unscorable = _is_unscorable(
+            decision,
+            args.min_quality,
+            quality_gate=args.quality_gate,
+        )
         labels.append(int(sample["label_generated"]))
         decisions.append(decision)
-        rows.append(
-            {
-                "index": index,
-                "source_label": sample["source_label"],
-                "label_generated": int(sample["label_generated"]),
-                "au": str(au_path),
-                "video": str(video_path) if video_path else None,
-                "decision_score_0_1": scored.get("decision_score_0_1"),
-                "hard_decision": decision,
-                "branches": {
-                    "au": scored["branches"]["au_learned_head"].get(
-                        "real_probability_0_1"
-                    ),
-                    "pt": scored["branches"]["video_dual_pt"].get(
-                        "real_probability_0_1"
-                    ),
-                    "pt_status": scored["branches"]["video_dual_pt"].get("status"),
-                },
-                "fusion": scored.get("fusion"),
-            }
-        )
+        row = {
+            "index": index,
+            "source_label": sample["source_label"],
+            "label_generated": int(sample["label_generated"]),
+            "au": str(au_path),
+            "video": str(video_path) if video_path else None,
+            "decision_score_0_1": scored.get("decision_score_0_1"),
+            "hard_decision": decision,
+            "unscorable": unscorable,
+            "branches": {
+                "au": scored["branches"]["au_learned_head"].get(
+                    "real_probability_0_1"
+                ),
+                "pt": scored["branches"]["video_dual_pt"].get(
+                    "real_probability_0_1"
+                ),
+                "pt_status": scored["branches"]["video_dual_pt"].get("status"),
+            },
+            "fusion": scored.get("fusion"),
+        }
+        rows.append(row)
+        if unscorable:
+            unscorable_samples.append(
+                {
+                    "index": index,
+                    "source_label": sample["source_label"],
+                    "label_generated": int(sample["label_generated"]),
+                    "au": str(au_path),
+                    "video": str(video_path) if video_path else None,
+                    "quality_0_1": decision.get("quality_0_1"),
+                    "reasons": decision.get("reasons", []),
+                }
+            )
         print(
             f"[{index}/{len(samples)}] {sample['source_label']} "
             f"score={scored.get('decision_score_0_1')} "
             f"pred={decision.get('decision')} "
+            f"unscorable={unscorable} "
             f"pt={scored['branches']['video_dual_pt'].get('status')}",
             flush=True,
         )
 
     metrics = metrics_from_decisions(labels, decisions)
+    strict_metrics = metrics_from_decisions(
+        labels,
+        decisions,
+        include_uncertain_as_error=True,
+    )
     payload = {
-        "schema_version": "wangxing_specialization_fused_holdout_metrics_v1",
+        "schema_version": "wangxing_specialization_fused_holdout_metrics_v2",
         "source_profile": str(source_path),
         "learned_head": str(project_path(args.learned_head)),
         "forensics_profile": str(project_path(args.forensics_profile)),
@@ -162,6 +210,12 @@ def cmd_evaluate(args: argparse.Namespace) -> int:
         "au_weight": args.au_weight,
         "pt_weight": args.pt_weight,
         "threshold": args.threshold,
+        "min_quality": args.min_quality,
+        "quality_gate": {
+            "enabled": bool(args.quality_gate),
+            "min_quality": args.min_quality,
+            "unscorable_count": len(unscorable_samples),
+        },
         "model_slots": list_model_slots(),
         "headline": {
             "generated_recall": metrics.get("generated_recall"),
@@ -169,12 +223,18 @@ def cmd_evaluate(args: argparse.Namespace) -> int:
             "generated_precision": metrics.get("generated_precision"),
             "real_recall": metrics.get("real_recall"),
             "coverage": metrics.get("coverage"),
+            "evaluable_count": metrics.get("decided_count"),
+            "unscorable_count": len(unscorable_samples),
         },
         "metrics": metrics,
+        "metrics_if_unscorable_counted_as_error": strict_metrics,
+        "unscorable_samples": unscorable_samples,
         "rows": rows,
         "note": (
             "Project-side Wang Xing specialization authenticity fusion "
-            "(AU learned multi-technique head + dual-scale video .pt)."
+            "(AU learned multi-technique head + dual-scale video .pt). "
+            "Low-quality samples are reported as unscorable/manual review "
+            "and excluded from evaluable headline metrics."
         ),
     }
     output = project_path(args.output)
@@ -184,6 +244,10 @@ def cmd_evaluate(args: argparse.Namespace) -> int:
         encoding="utf-8",
     )
     print(json.dumps(payload["headline"], ensure_ascii=False, indent=2))
+    print(
+        f"Unscorable/manual review: {len(unscorable_samples)} "
+        f"(min_quality={args.min_quality})"
+    )
     print(f"Wrote {output}")
     return 0
 
@@ -215,6 +279,12 @@ def build_parser() -> argparse.ArgumentParser:
     one.add_argument("--au-weight", type=float, default=0.65)
     one.add_argument("--pt-weight", type=float, default=0.35)
     one.add_argument("--threshold", type=float, default=None)
+    one.add_argument("--min-quality", type=float, default=0.45)
+    one.add_argument(
+        "--quality-gate",
+        action="store_true",
+        help="Refuse hard labels for samples below --min-quality.",
+    )
     one.set_defaults(func=cmd_score_one)
 
     evaluate = sub.add_parser(
@@ -240,6 +310,17 @@ def build_parser() -> argparse.ArgumentParser:
     evaluate.add_argument("--au-weight", type=float, default=0.65)
     evaluate.add_argument("--pt-weight", type=float, default=0.35)
     evaluate.add_argument("--threshold", type=float, default=None)
+    evaluate.add_argument(
+        "--min-quality",
+        type=float,
+        default=0.45,
+        help="Samples below this quality are uncertain/manual review.",
+    )
+    evaluate.add_argument(
+        "--quality-gate",
+        action="store_true",
+        help="Refuse hard labels for samples below --min-quality.",
+    )
     evaluate.add_argument("--limit", type=int, default=0)
     evaluate.add_argument(
         "--output",
@@ -252,6 +333,8 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    if hasattr(args, "min_quality") and not 0.0 <= args.min_quality <= 1.0:
+        raise SystemExit("--min-quality must be between 0 and 1.")
     return int(args.func(args))
 
 
