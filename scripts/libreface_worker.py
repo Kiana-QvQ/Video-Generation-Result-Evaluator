@@ -2,12 +2,54 @@ from __future__ import annotations
 
 import argparse
 import os
+import shutil
+import tempfile
 from pathlib import Path
 
 import cv2
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+
+def _patch_pillow_antialias() -> None:
+    """LibreFace still references ``Image.ANTIALIAS`` (removed in Pillow 10+)."""
+    from PIL import Image
+
+    if hasattr(Image, "ANTIALIAS"):
+        return
+    resampling = getattr(Image, "Resampling", None)
+    replacement = getattr(resampling, "LANCZOS", None) if resampling else None
+    if replacement is None:
+        replacement = getattr(Image, "LANCZOS", None)
+    if replacement is not None:
+        Image.ANTIALIAS = replacement  # type: ignore[attr-defined]
+
+
+def _prepare_mediapipe_ascii_modules() -> None:
+    """MediaPipe graph assets fail under non-ASCII install paths on Windows."""
+    import mediapipe as mp
+    from mediapipe.python import solution_base
+
+    package_root = Path(mp.__file__).resolve().parent
+    if not any(ord(char) > 127 for char in str(package_root)):
+        return
+    ascii_root = (
+        Path(tempfile.gettempdir())
+        / "video_evaluator_mediapipe"
+        / "mediapipe"
+    )
+    if any(ord(char) > 127 for char in str(ascii_root)):
+        raise OSError(
+            "The system temp path also contains non-ASCII characters."
+        )
+    ascii_root.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(
+        package_root / "modules",
+        ascii_root / "modules",
+        dirs_exist_ok=True,
+    )
+    solution_base.__file__ = str(ascii_root / "python" / "solution_base.py")
 
 
 def _normalise_frame_paths(libreface_module: object) -> None:
@@ -387,6 +429,8 @@ def main() -> int:
     (gdown_home / ".cache" / "gdown").mkdir(parents=True, exist_ok=True)
     os.environ["HOME"] = str(gdown_home)
     os.environ["USERPROFILE"] = str(gdown_home)
+    _patch_pillow_antialias()
+    _prepare_mediapipe_ascii_modules()
     import libreface
 
     _normalise_frame_paths(libreface)
