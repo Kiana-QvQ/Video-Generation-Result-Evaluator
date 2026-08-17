@@ -90,6 +90,13 @@ class WebAppTests(unittest.TestCase):
         self.assertIn("人脸表情与肌肉运动", response.text)
         self.assertIn("质感与细节真实性证据", response.text)
 
+    def test_wangxing_result_marks_uncertain_forensics_as_manual_review(self) -> None:
+        response = self.client.get("/assets/app.js")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("REVIEW / manual check", response.text)
+        self.assertIn("manual review required", response.text)
+        self.assertIn("Only raw forensics evidence is available.", response.text)
+
     def test_model_inventory_exposes_readiness(self) -> None:
         response = self.client.get("/api/models")
         self.assertEqual(response.status_code, 200)
@@ -474,6 +481,33 @@ class WebAppTests(unittest.TestCase):
 
         self.assertEqual(result["status"], "unavailable")
         self.assertIn("malformed forensic profile", result["reason"])
+
+    def test_forensics_assessment_uses_32_frame_window(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            result_path = root / "result.mp4"
+            au_path = root / "generated.csv"
+            result_path.write_bytes(b"result")
+            au_path.write_text("frame_idx\n0\n", encoding="utf-8")
+            with patch(
+                "web_app.FORENSICS_PROFILE_PATH",
+                root / "forensics_profiles.json",
+            ), patch(
+                "web_app.analyze_forensics",
+                return_value={"status": "calibrated"},
+            ) as analyze:
+                (root / "forensics_profiles.json").write_text(
+                    json.dumps({"facial_motion": {}, "texture_detail": {}}),
+                    encoding="utf-8",
+                )
+                result = web_app._run_forensics_assessment(
+                    result_path=result_path,
+                    au_path=au_path,
+                )
+
+        self.assertEqual(result["status"], "calibrated")
+        self.assertEqual(analyze.call_args.kwargs["max_frames"], 32)
+        self.assertEqual(analyze.call_args.kwargs["sample_fps"], 8.0)
 
     def test_invalid_wangxing_expression_class_is_rejected_before_queueing(
         self,

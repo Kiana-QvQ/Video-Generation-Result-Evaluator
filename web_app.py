@@ -575,7 +575,7 @@ def _run_forensics_assessment(
             authenticity_calibrator=profiles.get(
                 "authenticity_calibrator"
             ),
-            max_frames=16,
+            max_frames=32,
             sample_fps=8.0,
         )
         result["auto_invoked_by"] = "wangxing_specialization_web_flow"

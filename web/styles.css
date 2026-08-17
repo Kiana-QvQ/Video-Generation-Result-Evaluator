@@ -1978,6 +1978,10 @@ input[type="text"]::placeholder {
   color: #4f8894;
 }
 
+.wangxing-specialization-conclusion.authenticity.is-review > span {
+  color: #86662d;
+}
+
 .wangxing-specialization-conclusion strong {
   overflow: hidden;
   color: var(--ink);
@@ -1985,6 +1989,10 @@ input[type="text"]::placeholder {
   letter-spacing: -0.05em;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.wangxing-specialization-conclusion.authenticity.is-review strong {
+  color: #86662d;
 }
 
 .wangxing-specialization-conclusion small {

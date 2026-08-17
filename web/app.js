@@ -86,6 +86,37 @@ function normalizeScore(value) {
   return Number.isFinite(number) ? Math.max(0, Math.min(1, number)) : null;
 }
 
+function formatPercent01(value) {
+  const score = normalizeScore(value);
+  return score === null ? "--" : `${(score * 100).toFixed(1)}%`;
+}
+
+function summarizeForensicsDecision(decision, probability) {
+  const normalizedDecision = String(decision ?? "uncertain");
+  const probabilityLabel = formatPercent01(probability);
+  const reviewRequired = normalizedDecision === "uncertain";
+  const conclusion = {
+    real_capture: "Leans Real Capture",
+    seedance_like: "Leans AI Generated",
+    uncertain: "REVIEW / manual check",
+  }[normalizedDecision] ?? "REVIEW / manual check";
+  const detail =
+    probabilityLabel === "--"
+      ? "Only raw forensics evidence is available. Do not treat this as a final real/AI verdict."
+      : reviewRequired
+        ? `Calibrated real-capture probability ${probabilityLabel}. This clip stays in manual review because the evidence is still ambiguous.`
+        : `Calibrated real-capture probability ${probabilityLabel}.`;
+  return {
+    conclusion,
+    detail,
+    reviewRequired,
+    scoreLabel: reviewRequired ? "REVIEW / manual" : probabilityLabel,
+    scoreCaption: reviewRequired
+      ? "manual review required"
+      : "calibrated real-capture probability",
+  };
+}
+
 function categoryScore(key, category) {
   const metrics = category?.metrics ?? {};
   const valueByCategory = {
@@ -846,7 +877,7 @@ function renderWangxingResult(result) {
     return;
   }
   if (payload.schema_version === "wangxing_specialization_v1") {
-    renderWangxingSpecializationDashboard(payload);
+    renderWangxingSpecializationDashboardV2(payload);
     return;
   }
   wangxingResult.classList.remove("is-hidden");
@@ -1480,6 +1511,258 @@ function renderWangxingSpecializationResult(payload) {
       </p>
     </div>
     ${forensicMarkup}
+  `;
+}
+
+function renderWangxingSpecializationDashboardV2(payload) {
+  if (payload.status !== "available") {
+    const notApplicable = payload.status === "not_applicable";
+    wangxingResult.classList.remove("is-hidden");
+    wangxingResult.innerHTML = `
+      <div class="wangxing-result-head">
+        <div>
+          <span class="wangxing-result-kicker">TARGET SPECIALIZATION / WANG XING</span>
+          <h3>${notApplicable ? "Wang Xing Specialization Disabled" : "Wang Xing Specialization Unavailable"}</h3>
+        </div>
+        <span class="wangxing-result-status review">${
+          notApplicable ? "NOT APPLICABLE" : "UNAVAILABLE"
+        }</span>
+      </div>
+      <p class="wangxing-result-note">${escapeHtml(payload.reason ?? "Specialization did not run.")}</p>
+    `;
+    return;
+  }
+
+  const identity = payload.identity ?? {};
+  const expression = payload.expression_profile ?? {};
+  const forensics = payload.forensics ?? {};
+  const forensicFusion = forensics.fusion ?? {};
+  const forensicScores = forensics.scores ?? {};
+  const forensicBranches = forensics.branches ?? {};
+  const identityDecision = String(identity.decision ?? "uncertain");
+  const finalDecision = String(payload.decision ?? "uncertain_identity");
+  const percent = formatPercent01;
+  const identityStatus =
+    identityDecision === "wangxing"
+      ? "allow"
+      : identityDecision === "not_wangxing"
+        ? "block"
+        : "review";
+  const identityLabels = {
+    wangxing: "WANG XING",
+    not_wangxing: "NOT WANG XING",
+    uncertain: "IDENTITY REVIEW",
+  };
+  const profileConclusionLabels = {
+    wangxing_expression_compatible: "Profile Compatible",
+    wangxing_expression_incompatible: "Profile Drift",
+    uncertain_identity: "Identity Review",
+    uncertain_expression: "Expression Review",
+    not_wangxing: "Not Wang Xing",
+  };
+  const profileConclusion =
+    profileConclusionLabels[finalDecision] ??
+    (identityDecision === "wangxing" ? "Identity Matched" : "Identity Review");
+  const profileDetailLabels = {
+    wangxing_expression_compatible:
+      "Identity and expression both align with the built-in Wang Xing reference domain.",
+    wangxing_expression_incompatible:
+      "Identity looks correct, but the expression profile drifts from the expected Wang Xing domain.",
+    uncertain_identity:
+      "Identity evidence is not strong enough to confirm that this clip is Wang Xing.",
+    uncertain_expression:
+      "Identity looks like Wang Xing, but the expression evidence still needs review.",
+    not_wangxing:
+      "Identity evidence does not match the Wang Xing reference domain.",
+  };
+  const profileDetail =
+    profileDetailLabels[finalDecision] ??
+    "Specialization evidence still needs review.";
+  const forensicsDecision = String(
+    forensics.authenticity?.decision ??
+      forensicFusion.decision ??
+      "uncertain",
+  );
+  const forensicsProbability = normalizeScore(
+    forensicScores.calibrated_real_probability_0_1 ??
+      forensicFusion.real_capture_likelihood_0_1,
+  );
+  const forensicsSummary = summarizeForensicsDecision(
+    forensicsDecision,
+    forensicsProbability,
+  );
+  const forensicsRaw = normalizeScore(
+    forensicScores.raw_real_domain_evidence_0_1 ??
+      forensicFusion.raw_real_domain_evidence_0_1,
+  );
+  const forensicsFacial = normalizeScore(
+    forensicBranches.facial_motion?.metrics?.raw_real_domain_evidence_0_1,
+  );
+  const forensicsTexture = normalizeScore(
+    forensicBranches.texture_detail?.metrics?.raw_real_domain_evidence_0_1,
+  );
+  const hasForensics = [
+    forensicsRaw,
+    forensicsProbability,
+    forensicsFacial,
+    forensicsTexture,
+  ].some((value) => value !== null);
+  const identityScore = normalizeScore(identity.probability_0_1);
+  const consistency = normalizeScore(identity.frame_consistency);
+  const validRatio = normalizeScore(identity.valid_frame_ratio);
+  const qualityWeight = normalizeScore(identity.quality_weight_mean);
+  const negativeProbability = normalizeScore(
+    identity.negative_class_probability_0_1,
+  );
+  const compatibility = normalizeScore(expression.compatibility_0_1);
+  const topProfiles = Array.isArray(expression.top_profiles)
+    ? expression.top_profiles
+    : [];
+  const events = expression.event_statistics ?? {};
+  const activeRatio = normalizeScore(events.active_ratio);
+  const longestEventRatio = normalizeScore(events.longest_event_ratio);
+  const facialMotionCoherence = normalizeScore(
+    forensicBranches.facial_motion?.metrics?.motion_coherence_0_1,
+  );
+  const facialLandmarkCoverage = normalizeScore(
+    forensicBranches.facial_motion?.metrics?.landmark_valid_frame_ratio,
+  );
+  const facialAuRelation = normalizeScore(
+    forensicBranches.facial_motion?.metrics?.au_relation_consistency_0_1,
+  );
+  const facialDynamicsNaturalness = normalizeScore(
+    forensicBranches.facial_motion?.metrics?.au_dynamics_naturalness_0_1,
+  );
+  const facialTrainingFree = normalizeScore(
+    forensicBranches.facial_motion?.metrics?.training_free_motion_prior_0_1,
+  );
+  const textureStability = normalizeScore(
+    forensicBranches.texture_detail?.metrics?.temporal_stability_proxy_0_1,
+  );
+  const textureFlicker = normalizeScore(
+    forensicBranches.texture_detail?.metrics?.texture_flicker_0_1,
+  );
+  const textureClarity =
+    textureFlicker === null ? null : Math.max(0, Math.min(1, 1 - textureFlicker));
+  const textureHomogeneity = normalizeScore(
+    forensicBranches.texture_detail?.metrics?.optical_flow_homogeneity_0_1,
+  );
+  const textureMicroTemporal = normalizeScore(
+    forensicBranches.texture_detail?.metrics?.micro_temporal_naturalness_0_1,
+  );
+
+  wangxingResult.classList.remove("is-hidden");
+  wangxingResult.innerHTML = `
+    <div class="wangxing-result-head">
+      <div>
+        <span class="wangxing-result-kicker">TARGET SPECIALIZATION / WANG XING</span>
+        <h3>Wang Xing Identity And Facial Profile</h3>
+      </div>
+      <span class="wangxing-result-status ${escapeHtml(identityStatus)}">
+        ${escapeHtml(identityLabels[identityDecision] ?? "IDENTITY REVIEW")}
+      </span>
+    </div>
+    <div class="wangxing-specialization-conclusions">
+      <div class="wangxing-specialization-conclusion authenticity ${
+        forensicsSummary.reviewRequired ? "is-review" : ""
+      }">
+        <span>Forensics Decision</span>
+        <strong>${escapeHtml(forensicsSummary.conclusion)}</strong>
+        <small>${escapeHtml(forensicsSummary.detail)}</small>
+      </div>
+      <div class="wangxing-specialization-conclusion profile">
+        <span>Identity And Expression</span>
+        <strong>${escapeHtml(profileConclusion)}</strong>
+        <small>${escapeHtml(profileDetail)}</small>
+      </div>
+    </div>
+    <div class="wangxing-specialization-radar-grid">
+      ${specializationRadarMarkup(
+        [
+          identityScore,
+          consistency,
+          validRatio,
+          qualityWeight,
+          negativeProbability === null ? null : 1 - negativeProbability,
+        ],
+        [
+          "Identity",
+          "Consistency",
+          "Valid frames",
+          "Quality",
+          "Positive signal",
+        ],
+        "Identity Evidence",
+        `${String(identity.valid_frame_count ?? "--")} valid frames`,
+        "identity",
+      )}
+      ${specializationRadarMarkup(
+        [
+          compatibility,
+          forensicsFacial ?? facialTrainingFree ?? facialMotionCoherence,
+          facialAuRelation ?? facialMotionCoherence,
+          facialDynamicsNaturalness ?? activeRatio,
+          facialLandmarkCoverage ?? longestEventRatio,
+        ],
+        [
+          "Profile fit",
+          "Facial motion",
+          "AU relations",
+          "Dynamics",
+          "Landmarks",
+        ],
+        "Expression Evidence",
+        String(expression.selected_profile_display_name ?? "--"),
+        "expression",
+      )}
+      ${
+        hasForensics
+          ? specializationRadarMarkup(
+              [
+                forensicsTexture,
+                textureMicroTemporal ?? textureStability,
+                textureHomogeneity ?? textureClarity,
+                normalizeScore(
+                  forensicBranches.texture_detail?.metrics?.real_domain_fit_0_1,
+                ),
+                forensicsRaw,
+              ],
+              [
+                "Texture branch",
+                "Micro-temporal",
+                "Residual diversity",
+                "Real fit",
+                "Raw evidence",
+              ],
+              "Forensics Evidence",
+              "flow residual / spectrum / temporal",
+              "forensics",
+            )
+          : ""
+      }
+    </div>
+    <div class="wangxing-specialization-expression-meta">
+      <span><strong>${escapeHtml(expression.selected_profile_display_name ?? "--")}</strong>top profile</span>
+      <span><strong>${expression.severe_deviation ? "YES" : "NO"}</strong>severe drift</span>
+      <span><strong>${escapeHtml(String(events.event_count ?? "--"))}</strong>expression events</span>
+      <span><strong>${escapeHtml(forensicsSummary.scoreLabel)}</strong>${escapeHtml(
+        forensicsSummary.scoreCaption,
+      )}</span>
+    </div>
+    ${
+      topProfiles.length
+        ? `<p class="wangxing-result-note">
+            Closest profiles: ${topProfiles
+              .map(
+                (profile, index) =>
+                  `${index + 1}. ${escapeHtml(
+                    profile.display_name ?? profile.class ?? "--",
+                  )} ${escapeHtml(percent(profile.score_0_1))}`,
+              )
+              .join(" / ")}
+          </p>`
+        : ""
+    }
   `;
 }
 
