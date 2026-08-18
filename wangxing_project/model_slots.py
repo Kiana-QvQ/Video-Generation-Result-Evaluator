@@ -57,6 +57,34 @@ MODEL_SLOTS: dict[str, dict[str, Any]] = {
             "Not the webpage default; does not replace dual-scale .pt."
         ),
     },
+    "wangxing_joint_au_pt_v2": {
+        "family": "wangxing_video_pt",
+        "label": "WangXing joint AU+dual-scale v2 .pt",
+        "path": PROJECT_ROOT
+        / "outputs"
+        / "vedio_pred"
+        / "models"
+        / "wangxing_joint_au_pt_v2_res1k.pt",
+        "enabled_when_present": True,
+        "note": (
+            "Optional two-branch AU-conditioned fusion model with "
+            "video/AU auxiliary heads. Not the webpage default."
+        ),
+    },
+    "wangxing_v3_generalization": {
+        "family": "wangxing_video_pt",
+        "label": "WangXing temporal AU/video v3 .pt",
+        "path": PROJECT_ROOT
+        / "outputs"
+        / "vedio_pred"
+        / "models"
+        / "wangxing_v3_res1k.pt",
+        "enabled_when_present": True,
+        "note": (
+            "Optional train-only domain-generalization model with "
+            "temporal adapter and AU-conditioned fusion. Not webpage default."
+        ),
+    },
 }
 
 
