@@ -64,6 +64,10 @@ of only moving a threshold.
   - per-group validation metrics
   - branch AUC diagnostics
   - `Change` batch diagnostics for all 5 clips
+- defaults to 50 texture videos per domain; pass
+  `--max-videos-per-domain 0` only for an intentional full scan
+- reuses the MUSIQ metric instance inside the process instead of loading it
+  once per video
 
 ## Commands To Run
 
@@ -80,8 +84,28 @@ Run from the repo root with `.venv`.
 ```powershell
 .\.venv\Scripts\python.exe scripts\build_forensics_v2_change.py train `
   --output-profile outputs\forensics\forensics_profiles_v2_change.json `
-  --output-report outputs\forensics\forensics_v2_change_report.json
+  --output-report outputs\forensics\forensics_v2_change_report.json `
+  --device auto `
+  --nr-vqa-backends pyiqa_musiq
 ```
+
+For a fast pipeline smoke test without the external MUSIQ backend:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\build_forensics_v2_change.py train `
+  --max-videos-per-domain 5 `
+  --nr-vqa-backends builtin_nr_vqa `
+  --device auto `
+  --output-profile outputs\forensics\forensics_profiles_v2_change_smoke.json `
+  --output-report outputs\forensics\forensics_v2_change_smoke_report.json
+```
+
+The smoke profile is only for checking that the pipeline completes. Do not
+promote it as the production profile.
+
+`--device auto` uses CUDA when PyTorch reports a usable GPU and falls back to
+CPU if CUDA initialization or MUSIQ inference fails. The selected device is
+recorded in the profile/report provenance.
 
 Optional stricter motion filtering:
 

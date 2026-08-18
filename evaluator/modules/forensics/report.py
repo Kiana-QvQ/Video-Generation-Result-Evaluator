@@ -45,6 +45,7 @@ def analyze_forensics(
     detect_faces: bool = True,
     nr_vqa_backends: Sequence[str] | None = None,
     nr_vqa_ensemble: bool = False,
+    device: str = "auto",
 ) -> dict[str, Any]:
     """Run either branch or both and keep their evidence separate."""
     facial_result = None
@@ -65,6 +66,7 @@ def analyze_forensics(
             detect_faces=detect_faces,
             nr_vqa_backends=nr_vqa_backends,
             nr_vqa_ensemble=nr_vqa_ensemble,
+            device=device,
         )
 
     authenticity = fuse_authenticity_evidence(
@@ -191,6 +193,11 @@ def analyze_forensics(
                 if isinstance(texture_result, dict)
                 else None
             ),
+            "nr_vqa_device": (
+                texture_result.get("feature_record", {}).get("nr_vqa_device")
+                if isinstance(texture_result, dict)
+                else None
+            ),
             "pose_normalized_frame_ratio": (
                 facial_result.get("metrics", {}).get(
                     "pose_normalized_frame_ratio"
@@ -279,6 +286,11 @@ def analyze_forensics(
                 texture_result.get("feature_record", {})
                 .get("nr_vqa", {})
                 .get("backend")
+                if isinstance(texture_result, dict)
+                else None
+            ),
+            "nr_vqa_device": (
+                texture_result.get("feature_record", {}).get("nr_vqa_device")
                 if isinstance(texture_result, dict)
                 else None
             ),

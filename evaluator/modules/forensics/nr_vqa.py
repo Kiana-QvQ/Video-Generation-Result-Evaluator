@@ -12,6 +12,7 @@ from __future__ import annotations
 import importlib
 import math
 import os
+import threading
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
@@ -48,6 +49,9 @@ _EXTERNAL_MODULE_CANDIDATES: dict[str, tuple[str, ...]] = {
     "external_rapique": ("rapique", "RAPIQUE"),
     "external_sleeq": ("sleeq", "SLEEQ"),
 }
+
+_PYIQA_METRIC_CACHE: dict[tuple[str, str], Any] = {}
+_PYIQA_METRIC_LOCK = threading.Lock()
 
 
 def _clamp(value: float, lower: float = 0.0, upper: float = 1.0) -> float:
@@ -181,43 +185,87 @@ def _normalize_external_score(raw: float) -> float:
     return _clamp(raw / 100.0)
 
 
-def _try_pyiqa(frames: Sequence[np.ndarray], metric_name: str) -> dict[str, Any] | None:
+def _resolve_torch_device(requested_device: str) -> str:
+    requested = str(requested_device or "auto").strip().lower()
+    if requested == "cpu":
+        return "cpu"
+    try:
+        import torch
+    except Exception:
+        return "cpu"
+    if requested in {"auto", "cuda"} and torch.cuda.is_available():
+        return "cuda"
+    return "cpu"
+
+
+def _try_pyiqa(
+    frames: Sequence[np.ndarray],
+    metric_name: str,
+    *,
+    device: str = "auto",
+) -> dict[str, Any] | None:
     try:
         import torch
         import pyiqa
     except Exception:
         return None
-    try:
-        metric = pyiqa.create_metric(metric_name, device="cpu")
-    except Exception:
-        return None
-    scores: list[float] = []
-    for frame in frames[: min(8, len(frames))]:
-        tensor = (
-            torch.from_numpy(frame.astype(np.float32) / 255.0)
-            .permute(2, 0, 1)
-            .unsqueeze(0)
-        )
-        with torch.no_grad():
-            value = float(metric(tensor).item())
-        scores.append(value)
-    if not scores:
-        return None
-    raw = float(np.mean(scores))
-    # Heuristic normalization across common pyiqa ranges.
-    if metric_name == "brisque":
-        # Lower is better for BRISQUE.
-        score = _clamp(1.0 - raw / 100.0)
-    else:
-        score = _normalize_external_score(raw)
-    return {
-        "backend": f"pyiqa_{metric_name}",
-        "status": "available",
-        "score_0_1": score,
-        "raw_score": raw,
-        "metrics": {"pyiqa_raw_mean": raw},
-        "note": f"Optional pyiqa backend ({metric_name}).",
-    }
+    requested_device = _resolve_torch_device(device)
+    devices = (
+        (requested_device, "cpu")
+        if requested_device != "cpu"
+        else ("cpu",)
+    )
+    for resolved_device in devices:
+        try:
+            cache_key = (metric_name, resolved_device)
+            metric = _PYIQA_METRIC_CACHE.get(cache_key)
+            if metric is None:
+                with _PYIQA_METRIC_LOCK:
+                    metric = _PYIQA_METRIC_CACHE.get(cache_key)
+                    if metric is None:
+                        metric = pyiqa.create_metric(
+                            metric_name,
+                            device=resolved_device,
+                        )
+                        _PYIQA_METRIC_CACHE[cache_key] = metric
+            scores: list[float] = []
+            for frame in frames[: min(8, len(frames))]:
+                tensor = (
+                    torch.from_numpy(frame.astype(np.float32) / 255.0)
+                    .permute(2, 0, 1)
+                    .unsqueeze(0)
+                    .to(resolved_device)
+                )
+                with torch.no_grad():
+                    value = float(metric(tensor).item())
+                scores.append(value)
+            if not scores:
+                return None
+            raw = float(np.mean(scores))
+            # Heuristic normalization across common pyiqa ranges.
+            if metric_name == "brisque":
+                # Lower is better for BRISQUE.
+                score = _clamp(1.0 - raw / 100.0)
+            else:
+                score = _normalize_external_score(raw)
+            return {
+                "backend": f"pyiqa_{metric_name}",
+                "status": "available",
+                "score_0_1": score,
+                "raw_score": raw,
+                "device": resolved_device,
+                "metrics": {"pyiqa_raw_mean": raw},
+                "note": f"Optional pyiqa backend ({metric_name}).",
+            }
+        except Exception:
+            if resolved_device == "cuda":
+                _PYIQA_METRIC_CACHE.pop((metric_name, resolved_device), None)
+                try:
+                    torch.cuda.empty_cache()
+                except Exception:
+                    pass
+            continue
+    return None
 
 
 def _call_predict(predict: Any, frames: Sequence[np.ndarray]) -> float:
@@ -276,6 +324,7 @@ def extract_nr_vqa_features(
     sample_fps: float = 8.0,
     prefer_backends: Sequence[str] | None = None,
     ensemble: bool = False,
+    device: str = "auto",
 ) -> dict[str, Any]:
     """Extract no-reference VQA features with graceful backend fallback.
 
@@ -299,9 +348,9 @@ def extract_nr_vqa_features(
         if backend == "builtin_nr_vqa":
             result = _builtin_nr_vqa(frames)
         elif backend == "pyiqa_musiq":
-            result = _try_pyiqa(frames, "musiq")
+            result = _try_pyiqa(frames, "musiq", device=device)
         elif backend == "pyiqa_brisque":
-            result = _try_pyiqa(frames, "brisque")
+            result = _try_pyiqa(frames, "brisque", device=device)
         elif backend in _EXTERNAL_MODULE_CANDIDATES:
             result = _try_external(backend, frames)
         if result is None:
@@ -355,6 +404,7 @@ def extract_nr_vqa_features(
         "features": features,
         "attempts": attempts,
         "available_backends": [item["backend"] for item in available],
+        "device": selected.get("device", "cpu"),
         "vmaf_used": False,
         "manual_reference_required": False,
         "note": selected.get(

@@ -4,6 +4,7 @@ import argparse
 import json
 import math
 import sys
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -14,6 +15,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from evaluator.modules.core.paths import project_path
+from evaluator.modules.core.hardware_policy import resolve_policy
 from evaluator.modules.forensics import (
     analyze_forensics,
     build_texture_detail_profile,
@@ -234,16 +236,26 @@ def _build_texture_domain(
     domain: str,
     max_frames: int,
     sample_fps: float,
+    nr_vqa_backends: Sequence[str] | None = None,
+    device: str = "auto",
 ) -> tuple[dict[str, Any] | None, dict[str, Any]]:
     records: list[dict[str, Any]] = []
     skipped: list[dict[str, str]] = []
-    for path in paths:
+    total = len(paths)
+    for index, path in enumerate(paths, start=1):
+        if index == 1 or index == total or index % 5 == 0:
+            print(
+                f"[texture:{domain}] {index}/{total} {path.name}",
+                flush=True,
+            )
         try:
             records.append(
                 extract_texture_detail_features(
                     path,
                     max_frames=max_frames,
                     sample_fps=sample_fps,
+                    nr_vqa_backends=nr_vqa_backends,
+                    device=device,
                 )
             )
         except (OSError, RuntimeError, ValueError) as exc:
@@ -362,6 +374,8 @@ def _score_holdout_sample(
     profile_payload: dict[str, Any],
     max_frames: int,
     sample_fps: float,
+    nr_vqa_backends: Sequence[str] | None = None,
+    device: str = "auto",
 ) -> dict[str, Any]:
     report = analyze_forensics(
         facial_motion=sample.get("au_path"),
@@ -371,6 +385,8 @@ def _score_holdout_sample(
         authenticity_calibrator=None,
         max_frames=max_frames,
         sample_fps=sample_fps,
+        nr_vqa_backends=nr_vqa_backends,
+        device=device,
     )
     branches = report.get("branches", {})
     facial = branches.get("facial_motion", {}) if isinstance(branches, dict) else {}
@@ -501,6 +517,8 @@ def _score_change_batch(
     calibrator: dict[str, Any],
     max_frames: int,
     sample_fps: float,
+    nr_vqa_backends: Sequence[str] | None = None,
+    device: str = "auto",
 ) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for stem in CHANGE_ALL_STEMS:
@@ -517,6 +535,8 @@ def _score_change_batch(
             profile_payload=profile_payload,
             max_frames=max_frames,
             sample_fps=sample_fps,
+            nr_vqa_backends=nr_vqa_backends,
+            device=device,
         )
         row = _attach_calibrated_outputs([scored], calibrator=calibrator)[0]
         row["split"] = split
@@ -548,6 +568,16 @@ def train_outputs(args: argparse.Namespace) -> int:
     protocol = json.loads(protocol_path.read_text(encoding="utf-8-sig"))
     extra_generated_records = _load_generated_manifest_records(generated_manifest_path)
     holdout_manifest = load_holdout_manifest(holdout_manifest_path)
+    nr_vqa_backends = (
+        tuple(
+            item.strip()
+            for item in str(args.nr_vqa_backends).split(",")
+            if item.strip()
+        )
+        if args.nr_vqa_backends
+        else None
+    )
+    resolved_device = resolve_policy(args.device).resolved_device
 
     real_au_root = project_path(args.real_au_root)
     real_video_root = project_path(args.real_video_root)
@@ -607,6 +637,11 @@ def train_outputs(args: argparse.Namespace) -> int:
     if not real_video_paths or not generated_video_paths:
         raise SystemExit("Both real and generated video training sets are required.")
 
+    print(
+        "Building facial-motion profile: "
+        f"real_au={len(real_au_paths)} generated_au={len(generated_au_paths)}",
+        flush=True,
+    )
     facial_motion_profile = build_two_domain_facial_motion_profile(
         real_au_paths,
         generated_au_paths,
@@ -618,12 +653,16 @@ def train_outputs(args: argparse.Namespace) -> int:
         domain="real",
         max_frames=args.max_frames,
         sample_fps=args.sample_fps,
+        nr_vqa_backends=nr_vqa_backends,
+        device=resolved_device,
     )
     generated_texture, generated_texture_report = _build_texture_domain(
         generated_video_paths,
         domain="seedance",
         max_frames=args.max_frames,
         sample_fps=args.sample_fps,
+        nr_vqa_backends=nr_vqa_backends,
+        device=resolved_device,
     )
     if real_texture is None or generated_texture is None:
         raise SystemExit("Texture profile could not be built for both domains.")
@@ -667,6 +706,10 @@ def train_outputs(args: argparse.Namespace) -> int:
             "max_videos_per_domain": int(args.max_videos_per_domain),
             "max_frames_per_video": int(args.max_frames),
             "sample_fps": float(args.sample_fps),
+            "nr_vqa_backends": (
+                list(nr_vqa_backends) if nr_vqa_backends else None
+            ),
+            "device": resolved_device,
             "real_report": real_texture_report,
             "generated_report": generated_texture_report,
         },
@@ -680,7 +723,15 @@ def train_outputs(args: argparse.Namespace) -> int:
     generated_holdout_samples = _holdout_samples(holdout_manifest, "seedance")
     holdout_scored_raw: list[dict[str, Any]] = []
     failures: list[dict[str, str]] = []
-    for sample in [*real_holdout_samples, *generated_holdout_samples]:
+    holdout_samples = [*real_holdout_samples, *generated_holdout_samples]
+    total_holdout = len(holdout_samples)
+    for index, sample in enumerate(holdout_samples, start=1):
+        if index == 1 or index == total_holdout or index % 5 == 0:
+            print(
+                f"[holdout] {index}/{total_holdout} "
+                f"{sample.get('name') or sample.get('video_path')}",
+                flush=True,
+            )
         try:
             holdout_scored_raw.append(
                 _score_holdout_sample(
@@ -688,6 +739,8 @@ def train_outputs(args: argparse.Namespace) -> int:
                     profile_payload=profile_payload,
                     max_frames=args.max_frames,
                     sample_fps=args.sample_fps,
+                    nr_vqa_backends=nr_vqa_backends,
+                    device=resolved_device,
                 )
             )
         except (OSError, RuntimeError, TypeError, ValueError) as exc:
@@ -731,6 +784,8 @@ def train_outputs(args: argparse.Namespace) -> int:
         calibrator=calibrator,
         max_frames=args.max_frames,
         sample_fps=args.sample_fps,
+        nr_vqa_backends=nr_vqa_backends,
+        device=resolved_device,
     )
     labels = [1 if row["domain"] == "real" else 0 for row in holdout_scored]
     probabilities = [
@@ -760,6 +815,10 @@ def train_outputs(args: argparse.Namespace) -> int:
             "max_videos_per_domain": int(args.max_videos_per_domain),
             "min_landmark_ratio": float(args.min_landmark_ratio),
             "min_pose_ratio": float(args.min_pose_ratio),
+            "nr_vqa_backends": (
+                list(nr_vqa_backends) if nr_vqa_backends else None
+            ),
+            "device": resolved_device,
         },
         "validation": _summarize_rows(holdout_scored),
         "validation_by_group": _group_rows(holdout_scored),
@@ -832,9 +891,28 @@ def build_parser() -> argparse.ArgumentParser:
     train.add_argument("--generated-au-root", default="data/au/WangXing_Seedance")
     train.add_argument("--real-video-root", default="data/MD_CL")
     train.add_argument("--generated-video-root", default="data/WangXing_Seedance")
-    train.add_argument("--max-videos-per-domain", type=int, default=0)
+    train.add_argument(
+        "--max-videos-per-domain",
+        type=int,
+        default=50,
+        help="Texture profile videos per domain; 0 means all.",
+    )
     train.add_argument("--max-frames", type=int, default=32)
     train.add_argument("--sample-fps", type=float, default=8.0)
+    train.add_argument(
+        "--device",
+        choices=("auto", "cpu", "cuda"),
+        default="auto",
+        help="Device for optional MUSIQ/pyiqa inference.",
+    )
+    train.add_argument(
+        "--nr-vqa-backends",
+        default=None,
+        help=(
+            "Comma-separated NR-VQA backend order. Default uses the package "
+            "preference order; use builtin_nr_vqa for a fast smoke test."
+        ),
+    )
     train.add_argument("--min-landmark-ratio", type=float, default=0.0)
     train.add_argument("--min-pose-ratio", type=float, default=0.0)
     train.add_argument("--min-samples-per-domain", type=int, default=25)

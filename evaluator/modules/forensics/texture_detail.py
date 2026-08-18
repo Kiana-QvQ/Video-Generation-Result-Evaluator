@@ -204,6 +204,7 @@ def extract_texture_detail_features(
     include_nr_vqa: bool = True,
     nr_vqa_backends: Sequence[str] | None = None,
     nr_vqa_ensemble: bool = False,
+    device: str = "auto",
     include_frequency_forensics: bool = True,
 ) -> dict[str, Any]:
     """Extract local texture, frequency and frame-to-frame residual features.
@@ -322,6 +323,7 @@ def extract_texture_detail_features(
             sample_fps=sample_fps,
             prefer_backends=nr_vqa_backends,
             ensemble=nr_vqa_ensemble,
+            device=device,
         )
         features.update(nr_vqa_result.get("features", {}))
         features["nr_vqa_score_0_1"] = float(nr_vqa_result.get("score_0_1", 0.5))
@@ -368,6 +370,11 @@ def extract_texture_detail_features(
         "regions": list(REGION_BOXES),
         "face_detection_backend": detection_backend,
         "nr_vqa": nr_vqa_result,
+        "nr_vqa_device": (
+            nr_vqa_result.get("device")
+            if isinstance(nr_vqa_result, dict)
+            else None
+        ),
         "note": (
             "These are quality and temporal-texture features plus optional "
             "no-reference VQA and frequency forensics. A calibrated "
@@ -449,6 +456,7 @@ def score_texture_detail(
     include_nr_vqa: bool = True,
     nr_vqa_backends: Sequence[str] | None = None,
     nr_vqa_ensemble: bool = False,
+    device: str = "auto",
     include_frequency_forensics: bool = True,
 ) -> dict[str, Any]:
     """Score texture features and optionally calibrate them by domain."""
@@ -464,6 +472,7 @@ def score_texture_detail(
             include_nr_vqa=include_nr_vqa,
             nr_vqa_backends=nr_vqa_backends,
             nr_vqa_ensemble=nr_vqa_ensemble,
+            device=device,
             include_frequency_forensics=include_frequency_forensics,
         )
     if profile is None:

@@ -557,6 +557,7 @@ def _run_forensics_assessment(
     *,
     result_path: Path,
     au_path: Path | None,
+    device: str = "auto",
 ) -> dict[str, Any]:
     if not FORENSICS_PROFILE_PATH.is_file():
         return {
@@ -577,6 +578,7 @@ def _run_forensics_assessment(
             ),
             max_frames=32,
             sample_fps=8.0,
+            device=device,
         )
         result["auto_invoked_by"] = "wangxing_specialization_web_flow"
         return result
@@ -722,6 +724,7 @@ def _run_wangxing_au_assessment(
                 if generated_au and Path(str(generated_au)).is_file()
                 else None
             ),
+            device=au_device,
         )
         payload["prompt_evidence"] = {
             "provided": bool((prompt_text or "").strip()),
