@@ -43,6 +43,20 @@ MODEL_SLOTS: dict[str, dict[str, Any]] = {
         "enabled_when_present": True,
         "note": "Project-validated Wang Xing authenticity branch.",
     },
+    "wangxing_joint_au_pt": {
+        "family": "wangxing_video_pt",
+        "label": "WangXing joint AU+dual-scale .pt",
+        "path": PROJECT_ROOT
+        / "outputs"
+        / "vedio_pred"
+        / "models"
+        / "wangxing_joint_au_pt_res1k.pt",
+        "enabled_when_present": True,
+        "note": (
+            "Optional early-concat AU(25)+video MLP. "
+            "Not the webpage default; does not replace dual-scale .pt."
+        ),
+    },
 }
 
 
