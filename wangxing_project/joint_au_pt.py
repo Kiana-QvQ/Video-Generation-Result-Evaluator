@@ -8,6 +8,7 @@ AU features are the same 25 evidence dims used by the logistic fusion head
 from __future__ import annotations
 
 import json
+import hashlib
 import math
 import re
 from pathlib import Path
@@ -100,6 +101,24 @@ def _predict_logits(
 
 def _load_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8-sig"))
+
+
+def _profile_signature(
+    source_profile: dict[str, Any],
+    forensics_profiles: dict[str, Any],
+) -> str:
+    payload = {
+        "feature_names": list(FEATURE_NAMES),
+        "source_profile": source_profile,
+        "forensics_profiles": forensics_profiles,
+    }
+    serialized = json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(serialized).hexdigest()[:16]
 
 
 def _video_key(path: Path) -> str:
@@ -269,15 +288,23 @@ def _extract_au_matrix(
     cache_path: Path,
 ) -> tuple[dict[str, np.ndarray], list[str]]:
     cache_path = Path(cache_path)
+    profile_signature = _profile_signature(
+        source_profile,
+        forensics_profiles,
+    )
     au_map: dict[str, np.ndarray] = {}
     if cache_path.is_file():
         try:
             with np.load(str(cache_path), allow_pickle=True) as payload:
+                cached_signature = str(payload["profile_signature"].tolist()[0])
                 cached_names = [
                     str(item)
                     for item in payload["feature_names"].tolist()
                 ]
-                if cached_names == list(FEATURE_NAMES):
+                if (
+                    cached_signature == profile_signature
+                    and cached_names == list(FEATURE_NAMES)
+                ):
                     cached_paths = [
                         str(Path(item).resolve())
                         for item in payload["paths"].tolist()
@@ -328,6 +355,7 @@ def _extract_au_matrix(
             paths=np.asarray(ordered_paths, dtype=object),
             features=matrix,
             feature_names=np.asarray(list(FEATURE_NAMES), dtype=object),
+            profile_signature=np.asarray([profile_signature]),
         )
     return au_map, errors
 
