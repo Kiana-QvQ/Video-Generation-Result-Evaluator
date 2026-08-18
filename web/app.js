@@ -96,24 +96,24 @@ function summarizeForensicsDecision(decision, probability) {
   const probabilityLabel = formatPercent01(probability);
   const reviewRequired = normalizedDecision === "uncertain";
   const conclusion = {
-    real_capture: "Leans Real Capture",
-    seedance_like: "Leans AI Generated",
-    uncertain: "REVIEW / manual check",
-  }[normalizedDecision] ?? "REVIEW / manual check";
+    real_capture: "偏向真实拍摄",
+    seedance_like: "偏向 AI 生成",
+    uncertain: "待复核 / 人工检查",
+  }[normalizedDecision] ?? "待复核 / 人工检查";
   const detail =
     probabilityLabel === "--"
-      ? "Only raw forensics evidence is available. Do not treat this as a final real/AI verdict."
+      ? "当前仅有原始取证证据，不能直接作为最终的真实 / AI 结论。"
       : reviewRequired
-        ? `Calibrated real-capture probability ${probabilityLabel}. This clip stays in manual review because the evidence is still ambiguous.`
-        : `Calibrated real-capture probability ${probabilityLabel}.`;
+        ? `校准后的真实拍摄概率为 ${probabilityLabel}。当前证据仍有歧义，建议继续人工复核。`
+        : `校准后的真实拍摄概率为 ${probabilityLabel}。`;
   return {
     conclusion,
     detail,
     reviewRequired,
-    scoreLabel: reviewRequired ? "REVIEW / manual" : probabilityLabel,
+    scoreLabel: reviewRequired ? "待复核 / 人工检查" : probabilityLabel,
     scoreCaption: reviewRequired
-      ? "manual review required"
-      : "calibrated real-capture probability",
+      ? "需要人工复核"
+      : "校准后真实拍摄概率",
   };
 }
 
@@ -1521,14 +1521,14 @@ function renderWangxingSpecializationDashboardV2(payload) {
     wangxingResult.innerHTML = `
       <div class="wangxing-result-head">
         <div>
-          <span class="wangxing-result-kicker">TARGET SPECIALIZATION / WANG XING</span>
-          <h3>${notApplicable ? "Wang Xing Specialization Disabled" : "Wang Xing Specialization Unavailable"}</h3>
+          <span class="wangxing-result-kicker">定向专项 / 王兴</span>
+          <h3>${notApplicable ? "王兴专项未启用" : "王兴专项不可用"}</h3>
         </div>
         <span class="wangxing-result-status review">${
-          notApplicable ? "NOT APPLICABLE" : "UNAVAILABLE"
+          notApplicable ? "不适用" : "不可用"
         }</span>
       </div>
-      <p class="wangxing-result-note">${escapeHtml(payload.reason ?? "Specialization did not run.")}</p>
+      <p class="wangxing-result-note">${escapeHtml(payload.reason ?? "本次未运行王兴专项分析。")}</p>
     `;
     return;
   }
@@ -1549,35 +1549,35 @@ function renderWangxingSpecializationDashboardV2(payload) {
         ? "block"
         : "review";
   const identityLabels = {
-    wangxing: "WANG XING",
-    not_wangxing: "NOT WANG XING",
-    uncertain: "IDENTITY REVIEW",
+    wangxing: "王兴",
+    not_wangxing: "非王兴",
+    uncertain: "身份待复核",
   };
   const profileConclusionLabels = {
-    wangxing_expression_compatible: "Profile Compatible",
-    wangxing_expression_incompatible: "Profile Drift",
-    uncertain_identity: "Identity Review",
-    uncertain_expression: "Expression Review",
-    not_wangxing: "Not Wang Xing",
+    wangxing_expression_compatible: "画像匹配",
+    wangxing_expression_incompatible: "画像漂移",
+    uncertain_identity: "身份待复核",
+    uncertain_expression: "表情待复核",
+    not_wangxing: "非王兴",
   };
   const profileConclusion =
     profileConclusionLabels[finalDecision] ??
-    (identityDecision === "wangxing" ? "Identity Matched" : "Identity Review");
+    (identityDecision === "wangxing" ? "身份匹配" : "身份待复核");
   const profileDetailLabels = {
     wangxing_expression_compatible:
-      "Identity and expression both align with the built-in Wang Xing reference domain.",
+      "身份和表情都与内置的王兴参考画像一致。",
     wangxing_expression_incompatible:
-      "Identity looks correct, but the expression profile drifts from the expected Wang Xing domain.",
+      "身份看起来匹配，但表情画像和预期的王兴参考域存在漂移。",
     uncertain_identity:
-      "Identity evidence is not strong enough to confirm that this clip is Wang Xing.",
+      "当前身份证据还不足以确认这段视频就是王兴。",
     uncertain_expression:
-      "Identity looks like Wang Xing, but the expression evidence still needs review.",
+      "身份看起来像王兴，但表情证据仍需要进一步复核。",
     not_wangxing:
-      "Identity evidence does not match the Wang Xing reference domain.",
+      "身份证据与王兴参考画像不匹配。",
   };
   const profileDetail =
     profileDetailLabels[finalDecision] ??
-    "Specialization evidence still needs review.";
+    "专项证据仍需进一步复核。";
   const forensicsDecision = String(
     forensics.authenticity?.decision ??
       forensicFusion.decision ??
@@ -1655,23 +1655,23 @@ function renderWangxingSpecializationDashboardV2(payload) {
   wangxingResult.innerHTML = `
     <div class="wangxing-result-head">
       <div>
-        <span class="wangxing-result-kicker">TARGET SPECIALIZATION / WANG XING</span>
-        <h3>Wang Xing Identity And Facial Profile</h3>
+        <span class="wangxing-result-kicker">定向专项 / 王兴</span>
+        <h3>王兴身份与面部画像</h3>
       </div>
       <span class="wangxing-result-status ${escapeHtml(identityStatus)}">
-        ${escapeHtml(identityLabels[identityDecision] ?? "IDENTITY REVIEW")}
+        ${escapeHtml(identityLabels[identityDecision] ?? "身份待复核")}
       </span>
     </div>
     <div class="wangxing-specialization-conclusions">
       <div class="wangxing-specialization-conclusion authenticity ${
         forensicsSummary.reviewRequired ? "is-review" : ""
       }">
-        <span>Forensics Decision</span>
+        <span>真实性取证</span>
         <strong>${escapeHtml(forensicsSummary.conclusion)}</strong>
         <small>${escapeHtml(forensicsSummary.detail)}</small>
       </div>
       <div class="wangxing-specialization-conclusion profile">
-        <span>Identity And Expression</span>
+        <span>身份与表情</span>
         <strong>${escapeHtml(profileConclusion)}</strong>
         <small>${escapeHtml(profileDetail)}</small>
       </div>
@@ -1686,14 +1686,14 @@ function renderWangxingSpecializationDashboardV2(payload) {
           negativeProbability === null ? null : 1 - negativeProbability,
         ],
         [
-          "Identity",
-          "Consistency",
-          "Valid frames",
-          "Quality",
-          "Positive signal",
+          "身份",
+          "一致性",
+          "有效帧",
+          "质量",
+          "正向信号",
         ],
-        "Identity Evidence",
-        `${String(identity.valid_frame_count ?? "--")} valid frames`,
+        "身份证据",
+        `${String(identity.valid_frame_count ?? "--")} 个有效帧`,
         "identity",
       )}
       ${specializationRadarMarkup(
@@ -1705,13 +1705,13 @@ function renderWangxingSpecializationDashboardV2(payload) {
           facialLandmarkCoverage ?? longestEventRatio,
         ],
         [
-          "Profile fit",
-          "Facial motion",
-          "AU relations",
-          "Dynamics",
-          "Landmarks",
+          "画像贴合",
+          "面部运动",
+          "AU 关系",
+          "动态性",
+          "关键点",
         ],
-        "Expression Evidence",
+        "表情证据",
         String(expression.selected_profile_display_name ?? "--"),
         "expression",
       )}
@@ -1728,23 +1728,23 @@ function renderWangxingSpecializationDashboardV2(payload) {
                 forensicsRaw,
               ],
               [
-                "Texture branch",
-                "Micro-temporal",
-                "Residual diversity",
-                "Real fit",
-                "Raw evidence",
+                "纹理分支",
+                "微时序",
+                "残差多样性",
+                "真实域贴合",
+                "原始证据",
               ],
-              "Forensics Evidence",
-              "flow residual / spectrum / temporal",
+              "取证证据",
+              "光流残差 / 频谱 / 时序",
               "forensics",
             )
           : ""
       }
     </div>
     <div class="wangxing-specialization-expression-meta">
-      <span><strong>${escapeHtml(expression.selected_profile_display_name ?? "--")}</strong>top profile</span>
-      <span><strong>${expression.severe_deviation ? "YES" : "NO"}</strong>severe drift</span>
-      <span><strong>${escapeHtml(String(events.event_count ?? "--"))}</strong>expression events</span>
+      <span><strong>${escapeHtml(expression.selected_profile_display_name ?? "--")}</strong>最接近画像</span>
+      <span><strong>${expression.severe_deviation ? "是" : "否"}</strong>明显漂移</span>
+      <span><strong>${escapeHtml(String(events.event_count ?? "--"))}</strong>个表情事件</span>
       <span><strong>${escapeHtml(forensicsSummary.scoreLabel)}</strong>${escapeHtml(
         forensicsSummary.scoreCaption,
       )}</span>
@@ -1752,7 +1752,7 @@ function renderWangxingSpecializationDashboardV2(payload) {
     ${
       topProfiles.length
         ? `<p class="wangxing-result-note">
-            Closest profiles: ${topProfiles
+            最接近的画像：${topProfiles
               .map(
                 (profile, index) =>
                   `${index + 1}. ${escapeHtml(

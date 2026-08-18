@@ -93,9 +93,22 @@ class WebAppTests(unittest.TestCase):
     def test_wangxing_result_marks_uncertain_forensics_as_manual_review(self) -> None:
         response = self.client.get("/assets/app.js")
         self.assertEqual(response.status_code, 200)
-        self.assertIn("REVIEW / manual check", response.text)
-        self.assertIn("manual review required", response.text)
-        self.assertIn("Only raw forensics evidence is available.", response.text)
+        self.assertIn("待复核 / 人工检查", response.text)
+        self.assertIn("需要人工复核", response.text)
+        self.assertIn("当前仅有原始取证证据", response.text)
+        self.assertNotIn("REVIEW / manual check", response.text)
+        self.assertNotIn("manual review required", response.text)
+
+    def test_wangxing_result_uses_chinese_copy(self) -> None:
+        response = self.client.get("/assets/app.js")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("王兴身份与面部画像", response.text)
+        self.assertIn("真实性取证", response.text)
+        self.assertIn("身份与表情", response.text)
+        self.assertIn("画像匹配", response.text)
+        self.assertIn("最接近的画像", response.text)
+        self.assertNotIn("Wang Xing Identity And Facial Profile", response.text)
+        self.assertNotIn("Profile Compatible", response.text)
 
     def test_model_inventory_exposes_readiness(self) -> None:
         response = self.client.get("/api/models")

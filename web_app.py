@@ -542,12 +542,11 @@ def _wangxing_au_status() -> dict[str, Any]:
         "emotion_profile": str(ORIGINAL_EMOTION_AU_PROFILE_PATH),
         "classes": sorted(WANGXING_AU_CLASSES),
         "note": (
-            "ArcFace identity and real Wang Xing facial expression profiles "
-            "are ready. Seedance is used for identity calibration only."
+            "ArcFace 身份画像和王兴真人表情画像已就绪。"
+            "Seedance 仅用于身份校准。"
             if ready
             else (
-                "Train the Wang Xing identity and real-expression profiles "
-                "before enabling the specialization."
+                "请先训练王兴身份画像和真人表情画像，再启用该专项能力。"
             )
         ),
     }
@@ -562,7 +561,7 @@ def _run_forensics_assessment(
     if not FORENSICS_PROFILE_PATH.is_file():
         return {
             "status": "unavailable",
-            "reason": "Forensics profile is missing.",
+            "reason": "真实性取证画像缺失。",
         }
     try:
         profiles = json.loads(
@@ -585,7 +584,7 @@ def _run_forensics_assessment(
     except Exception as exc:
         return {
             "status": "unavailable",
-            "reason": f"Forensics scoring failed: {exc}",
+            "reason": f"真实性取证评分失败：{exc}",
         }
 
 
@@ -729,15 +728,15 @@ def _run_wangxing_au_assessment(
         payload["prompt_evidence"] = {
             "provided": bool((prompt_text or "").strip()),
             "note": (
-                "Prompt is evaluated by the generic expression semantic "
-                "track; it does not change the Wang Xing identity gate."
+                "Prompt 只参与通用表情语义评估，"
+                "不会改变王兴身份门控结果。"
             ),
         }
         return payload
     except (OSError, json.JSONDecodeError) as exc:
         return {
             "status": "unavailable",
-            "reason": "Wang Xing specialization report was not written.",
+            "reason": "未生成王兴专项报告。",
             "error_type": type(exc).__name__,
         }
 
