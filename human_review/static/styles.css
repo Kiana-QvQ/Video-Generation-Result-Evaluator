@@ -232,6 +232,13 @@ em {
   transform: rotate(-7deg);
 }
 
+.orbit-reading {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  transform: rotate(-7deg);
+}
+
 .orbit-label,
 .orbit-total {
   color: var(--coral-soft);
@@ -245,6 +252,27 @@ em {
 .orbit-total b {
   color: var(--paper);
   font-weight: 500;
+}
+
+.progress-orbit .orbit-label {
+  font-size: 11px;
+  transform: rotate(-7deg);
+}
+
+.progress-orbit .orbit-reading strong {
+  margin-top: 0;
+  font-size: 44px;
+  transform: none;
+}
+
+.progress-orbit .orbit-reading .orbit-total {
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  transform: none;
+}
+
+.progress-orbit .orbit-reading .orbit-total b {
+  font-size: 14px;
 }
 
 .review-stage {
