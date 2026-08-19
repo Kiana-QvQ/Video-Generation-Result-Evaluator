@@ -154,6 +154,10 @@ python human_review/build_ai_quality_dataset.py
 在队列中添加文件夹路径，不需要手动复制到多个目录。每个文件夹建议使用独立的
 `dataset_id`，避免不同批次混在同一个评分版本中。
 
+启动 `python human_review/server.py` 时会自动执行队列同步并选择最新质量数据集；
+输入没有变化时不会重新构建。首次包含 4K HEVC 视频的批次可能需要等待播放副本
+生成，后续启动会直接复用。
+
 已有评分的数据集不能原地重建。添加新视频后应使用新版本：
 
 ```powershell

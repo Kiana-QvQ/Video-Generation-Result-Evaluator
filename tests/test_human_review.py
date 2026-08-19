@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -7,6 +9,7 @@ import sqlite3
 import gc
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing
+from unittest.mock import patch
 
 from human_review.app import create_app
 from human_review.database import ReviewDatabase
@@ -24,6 +27,77 @@ class HumanReviewTests(unittest.TestCase):
         )
         self.assertEqual(local_args.host, "127.0.0.1")
         self.assertEqual(local_args.port, 5002)
+
+    def test_quality_auto_sync_reuses_and_versions_changed_sources(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            input_dir = root / "input"
+            output_dir = root / "datasets" / "auto_v1"
+            input_dir.mkdir()
+            (input_dir / "a.mp4").write_bytes(b"a")
+            queue = root / "source_queue.json"
+            queue.write_text(
+                json.dumps(
+                    {
+                        "dataset_id": "auto_v1",
+                        "output_dir": str(output_dir),
+                        "manifest": None,
+                        "input_dirs": [
+                            {
+                                "path": str(input_dir),
+                                "label": "test",
+                                "enabled": True,
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            state = root / "active_dataset.json"
+            db_path = root / "review.sqlite3"
+
+            with patch.object(server, "QUALITY_QUEUE", queue), patch.object(
+                server, "QUALITY_STATE", state
+            ), patch.dict(
+                os.environ,
+                {
+                    "HUMAN_REVIEW_DB": str(db_path),
+                    "HUMAN_REVIEW_AUTO_SYNC": "true",
+                },
+                clear=False,
+            ):
+                self.assertEqual(server.sync_quality_dataset(), "auto_v1")
+                self.assertTrue((output_dir / "dataset.json").is_file())
+                self.assertEqual(server.sync_quality_dataset(), "auto_v1")
+
+                (input_dir / "b.mp4").write_bytes(b"b")
+                self.assertEqual(server.sync_quality_dataset(), "auto_v1")
+
+                database = ReviewDatabase(db_path, ip_secret="test-secret")
+                task_id = database.get_quality_task(
+                    "auto_v1",
+                    "auto_v1__video_001_a",
+                )["task_id"]
+                database.insert_quality_vote(
+                    {
+                        "dataset_id": "auto_v1",
+                        "task_id": task_id,
+                        "reviewer_id_hash": "reviewer",
+                        "ip_hash": "ip",
+                        "rating": "upper",
+                    }
+                )
+
+                (input_dir / "c.mp4").write_bytes(b"c")
+                self.assertEqual(server.sync_quality_dataset(), "auto_v2")
+                self.assertEqual(
+                    database.count_quality_tasks("auto_v2"),
+                    3,
+                )
+                self.assertEqual(
+                    json.loads(state.read_text(encoding="utf-8"))["dataset_id"],
+                    "auto_v2",
+                )
 
     def _create_app(self, directory: str):
         root = Path(directory)

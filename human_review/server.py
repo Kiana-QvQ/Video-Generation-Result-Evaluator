@@ -142,7 +142,12 @@ def sync_quality_dataset() -> str | None:
     if selected and database.count_quality_dataset_votes(dataset_id):
         dataset_id = _next_dataset_id(database, dataset_id)
 
-    output_dir = ROOT_DIR / "data" / "datasets" / dataset_id
+    queue_output = _resolve_queue_path(queue.get("output_dir"))
+    output_dir = (
+        queue_output
+        if queue_output and dataset_id == base_id
+        else ROOT_DIR / "data" / "datasets" / dataset_id
+    )
     manifest_value = queue.get("manifest")
     manifest_path = (
         _resolve_queue_path(manifest_value)
@@ -181,11 +186,22 @@ def main() -> None:
     args = build_parser().parse_args()
 
     try:
-        quality_dataset_id = sync_quality_dataset()
+        if args.debug and os.getenv("WERKZEUG_RUN_MAIN") != "true":
+            quality_dataset_id = os.getenv("HUMAN_REVIEW_QUALITY_DATASET")
+        else:
+            quality_dataset_id = sync_quality_dataset()
         if quality_dataset_id:
             print(f"AI quality dataset: {quality_dataset_id}")
     except Exception as exc:
-        print(f"AI quality dataset auto-sync skipped: {exc}")
+        state = _load_quality_state()
+        fallback = state.get("dataset_id") or os.getenv(
+            "HUMAN_REVIEW_QUALITY_DATASET"
+        )
+        if fallback:
+            os.environ["HUMAN_REVIEW_QUALITY_DATASET"] = fallback
+            print(f"AI quality dataset auto-sync skipped; using {fallback}: {exc}")
+        else:
+            print(f"AI quality dataset auto-sync skipped: {exc}")
 
     print(
         f"""

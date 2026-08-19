@@ -11,6 +11,7 @@ import re
 import shutil
 import subprocess
 from datetime import UTC, datetime
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -161,41 +162,76 @@ def make_browser_playback_copy(
             "FFMPEG_BIN or ffmpeg is required to create a browser copy."
         )
 
+    requested_encoder = os.getenv("FFMPEG_VIDEO_ENCODER")
+    encoders = [requested_encoder] if requested_encoder else list(
+        available_h264_encoders(ffmpeg)
+    )
+    if not encoders:
+        encoders = ["libx264"]
+
     temporary = destination.with_name(f".{destination.stem}.tmp.mp4")
-    temporary.unlink(missing_ok=True)
-    try:
-        subprocess.run(
-            [
-                ffmpeg,
-                "-y",
-                "-i",
-                str(source),
-                "-map",
-                "0:v:0",
-                "-map",
-                "0:a?",
-                "-c:v",
-                "libx264",
-                "-preset",
-                "fast",
-                "-crf",
-                "18",
-                "-pix_fmt",
-                "yuv420p",
-                "-c:a",
-                "aac",
-                "-b:a",
-                "160k",
-                "-movflags",
-                "+faststart",
-                str(temporary),
-            ],
-            check=True,
-        )
-        temporary.replace(destination)
-    finally:
+    last_error: subprocess.CalledProcessError | None = None
+    for encoder in encoders:
         temporary.unlink(missing_ok=True)
-    return True
+        video_options = ["-c:v", encoder]
+        if encoder == "h264_nvenc":
+            video_options += ["-preset", "p4", "-cq", "20"]
+        elif encoder == "h264_amf":
+            video_options += ["-quality", "balanced", "-qp_i", "20", "-qp_p", "22"]
+        elif encoder == "h264_qsv":
+            video_options += ["-preset", "medium", "-global_quality", "20"]
+        else:
+            video_options += ["-preset", "fast", "-crf", "18"]
+        try:
+            subprocess.run(
+                [
+                    ffmpeg,
+                    "-hide_banner",
+                    "-loglevel",
+                    "error",
+                    "-y",
+                    "-i",
+                    str(source),
+                    "-map",
+                    "0:v:0",
+                    "-map",
+                    "0:a?",
+                    *video_options,
+                    "-pix_fmt",
+                    "yuv420p",
+                    "-c:a",
+                    "aac",
+                    "-b:a",
+                    "160k",
+                    "-movflags",
+                    "+faststart",
+                    str(temporary),
+                ],
+                check=True,
+            )
+            temporary.replace(destination)
+            return True
+        except subprocess.CalledProcessError as exc:
+            last_error = exc
+    temporary.unlink(missing_ok=True)
+    raise RuntimeError(
+        f"Unable to create browser playback copy for {source.name}"
+    ) from last_error
+
+
+@lru_cache(maxsize=4)
+def available_h264_encoders(ffmpeg: str) -> tuple[str, ...]:
+    available = subprocess.run(
+        [ffmpeg, "-hide_banner", "-encoders"],
+        check=False,
+        capture_output=True,
+        text=True,
+    ).stdout
+    return tuple(
+        encoder
+        for encoder in ("h264_nvenc", "h264_amf", "h264_qsv", "libx264")
+        if encoder in available
+    ) or ("libx264",)
 
 
 def build_dataset(
@@ -372,7 +408,11 @@ def main() -> None:
     queue = load_source_queue(args.source_queue)
     queue_dirs = [
         (
-            Path(item["path"]),
+            (
+                Path(item["path"])
+                if Path(item["path"]).is_absolute()
+                else ROOT_DIR.parent / Path(item["path"])
+            ).resolve(),
             item.get("label"),
         )
         for item in queue.get("input_dirs", [])
@@ -387,9 +427,18 @@ def main() -> None:
         "ai_quality_25plus5_v1",
     )
     manifest_value = args.manifest or queue.get("manifest")
-    manifest_path = Path(manifest_value) if manifest_value else DEFAULT_MANIFEST
-    output_dir = args.output_dir or Path(
+    manifest_path = (
+        Path(manifest_value).resolve()
+        if manifest_value
+        else DEFAULT_MANIFEST
+    )
+    output_value = args.output_dir or Path(
         queue.get("output_dir", str(DEFAULT_OUTPUT_DIR))
+    )
+    output_dir = (
+        output_value.resolve()
+        if output_value.is_absolute()
+        else (ROOT_DIR.parent / output_value).resolve()
     )
     dataset = build_dataset(
         input_dir=None,
