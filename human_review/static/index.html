@@ -25,13 +25,21 @@
           </span>
         </a>
         <div class="topbar-right">
+          <nav class="mode-switch" aria-label="评测栏目">
+            <button class="mode-tab is-active" data-mode="pairwise" type="button">
+              真人感对比
+            </button>
+            <button class="mode-tab" data-mode="quality" type="button">
+              AI 质量分档
+            </button>
+          </nav>
           <span class="live-indicator"><i></i> LOCAL REVIEW</span>
           <span class="topbar-rule"></span>
           <span id="session-state">SESSION READY</span>
         </div>
       </header>
 
-      <main>
+      <main id="pairwise-main" class="mode-view">
         <section class="intro">
           <div class="intro-copy">
             <p class="kicker">PAIRWISE EVALUATION / VIDEO GENERATION</p>
@@ -209,6 +217,109 @@
               <p>无法看清、两者差异太小，或都没有明显真人感时不要强行二选一。</p>
             </article>
           </div>
+        </section>
+      </main>
+
+      <main id="quality-main" class="mode-view is-hidden">
+        <section class="intro quality-intro">
+          <div class="intro-copy">
+            <p class="kicker">SINGLE VIDEO RATING / AI QUALITY</p>
+            <h1>这一段，<em>属于哪一档？</em></h1>
+            <p class="intro-text">
+              只根据人物动作、表情、重心和时序连续性判断整体表现质量。
+              不参考文件名、来源或程序分数。
+            </p>
+          </div>
+          <div class="progress-orbit" aria-label="AI 质量评测进度">
+            <span class="orbit-label">VIDEO</span>
+            <strong id="quality-progress-current">--</strong>
+            <span class="orbit-total">/ <b id="quality-progress-total">--</b></span>
+          </div>
+        </section>
+
+        <section class="quality-review-stage" aria-live="polite">
+          <div class="stage-head">
+            <div>
+              <p class="kicker">CURRENT AI VIDEO</p>
+              <h2 id="quality-task-title">正在准备视频</h2>
+            </div>
+            <div class="stage-meta">
+              <span id="quality-modality-chip" class="chip">AI QUALITY</span>
+              <span id="quality-task-id" class="task-id">TASK --</span>
+            </div>
+          </div>
+
+          <div id="quality-message-panel" class="message-panel is-hidden" role="status"></div>
+
+          <article class="quality-video-card">
+            <div class="candidate-head">
+              <div class="candidate-title">
+                <span class="candidate-letter">01</span>
+                <div>
+                  <span class="candidate-kicker">AI VIDEO</span>
+                  <strong>WATCH FULL CLIP</strong>
+                </div>
+              </div>
+              <span class="candidate-state">SOURCE HIDDEN</span>
+            </div>
+            <div class="video-frame quality-video-frame">
+              <video
+                id="quality-video"
+                playsinline
+                autoplay
+                muted
+                controls
+                preload="metadata"
+                aria-label="待评测 AI 视频"
+              ></video>
+              <div class="video-empty">
+                <span class="empty-mark">01</span>
+                <strong>视频加载中</strong>
+                <small>如果长时间未显示，将提示具体错误</small>
+              </div>
+            </div>
+            <div class="candidate-foot">
+              <span>NO SOURCE LABEL</span>
+              <span>WATCH BEFORE RATING</span>
+            </div>
+          </article>
+
+          <section class="quality-decision-panel">
+            <div class="decision-copy">
+              <span class="kicker">01 / YOUR RATING</span>
+              <h2 id="quality-question">这段视频属于哪个质量档次？</h2>
+              <p id="quality-hint">
+                以人物整体表现为准，不要求每个维度都同样优秀。
+              </p>
+            </div>
+            <div class="quality-rating-actions">
+              <button class="quality-rating-button quality-rating-upper" data-rating="upper" type="button">
+                <span class="choice-key">上</span>
+                <span class="choice-text">上档</span>
+                <small>整体表现较好</small>
+              </button>
+              <button class="quality-rating-button quality-rating-middle" data-rating="middle" type="button">
+                <span class="choice-key">中</span>
+                <span class="choice-text">中档</span>
+                <small>表现有优点也有明显问题</small>
+              </button>
+              <button class="quality-rating-button quality-rating-lower" data-rating="lower" type="button">
+                <span class="choice-key">下</span>
+                <span class="choice-text">下档</span>
+                <small>人物表现问题较明显</small>
+              </button>
+            </div>
+            <div class="decision-footer">
+              <span id="quality-response-clock">观看时间 00:00</span>
+              <span class="auto-next-note">选择后自动进入下一条视频</span>
+            </div>
+          </section>
+        </section>
+
+        <section id="quality-complete-panel" class="complete-panel is-hidden">
+          <span class="kicker">AI QUALITY REVIEW COMPLETE</span>
+          <h2>这一组视频已经完成。</h2>
+          <p>三档人工评分已经保存，当前评测结果可以用于和程序分数对照。</p>
         </section>
       </main>
 

@@ -122,6 +122,49 @@ python human_review/build_dataset.py `
 `human_review/data/review.sqlite3` 数据库。若要切换数据库或数据集，
 通过 `HUMAN_REVIEW_DB` 和 `HUMAN_REVIEW_DATASET` 显式配置。
 
+## AI 视频质量分档栏目
+
+页面顶部另有独立的 `AI 质量分档` 栏目。它不改变现有
+`performance_v8` 二选一任务，使用同一个浏览器身份和 IP 审计哈希，
+但任务、媒体和评分分别保存在 `quality_*` 表中。
+
+当前初始化数据集是 25+5 条 AI 视频：
+
+```text
+human_review/data/ai_quality/videos/
+human_review/data/ai_quality/manifest.json
+human_review/data/datasets/ai_quality_25plus5_v1/
+```
+
+页面每次显示一个 AI 视频，评分按钮为 `上档`、`中档`、`下档`。
+程序分数和已有人工分档只保存在服务端数据中，不发送到网页，避免影响
+新的主观评分。
+
+构建或更新数据集：
+
+```powershell
+python human_review/build_ai_quality_dataset.py
+```
+
+已有评分的数据集不能原地重建。添加新视频后应使用新版本：
+
+```powershell
+python human_review/build_ai_quality_dataset.py `
+  --dataset-id ai_quality_25plus5_v2 `
+  --output-dir human_review\data\datasets\ai_quality_25plus5_v2
+$env:HUMAN_REVIEW_QUALITY_DATASET = "ai_quality_25plus5_v2"
+```
+
+新栏目接口：
+
+```text
+GET  /api/quality/next
+GET  /api/quality/progress
+POST /api/quality/rate
+GET  /api/quality/health
+GET  /media/quality/<dataset-id>/<asset-id>
+```
+
 ## 带参考生成实验
 
 原始实验只保存在 `human_review/data/raw_archive/experiments_20260811`。

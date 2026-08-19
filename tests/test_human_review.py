@@ -77,7 +77,142 @@ class HumanReviewTests(unittest.TestCase):
                 }
             ],
         )
-        return create_app(db_path=db_path, dataset_id="test_review")
+        quality_a = root / "quality-a.mp4"
+        quality_b = root / "quality-b.mp4"
+        quality_a.write_bytes(b"quality-a")
+        quality_b.write_bytes(b"quality-b")
+        database.replace_quality_dataset_bundle(
+            {
+                "dataset_id": "test_quality",
+                "name": "Test Quality",
+                "version": "v1",
+                "per_reviewer_quota": 2,
+                "per_ip_quota": 2,
+            },
+            [
+                {
+                    "dataset_id": "test_quality",
+                    "asset_id": "quality-asset-a",
+                    "source_path": str(quality_a),
+                    "media_type": "video/mp4",
+                    "original_name": quality_a.name,
+                },
+                {
+                    "dataset_id": "test_quality",
+                    "asset_id": "quality-asset-b",
+                    "source_path": str(quality_b),
+                    "media_type": "video/mp4",
+                    "original_name": quality_b.name,
+                },
+            ],
+            [
+                {
+                    "dataset_id": "test_quality",
+                    "task_id": "quality-task-a",
+                    "asset_id": "quality-asset-a",
+                    "question": "质量档次？",
+                },
+                {
+                    "dataset_id": "test_quality",
+                    "task_id": "quality-task-b",
+                    "asset_id": "quality-asset-b",
+                    "question": "质量档次？",
+                },
+            ],
+        )
+        return create_app(
+            db_path=db_path,
+            dataset_id="test_review",
+            quality_dataset_id="test_quality",
+        )
+
+    def test_quality_rating_is_isolated_and_reuses_reviewer_ip_controls(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            app = self._create_app(directory)
+            first_browser = app.test_client()
+            second_browser = app.test_client()
+
+            first_task_response = first_browser.get(
+                "/api/quality/next",
+                headers={"X-Review-Round": "quality-round-a"},
+            )
+            self.assertEqual(first_task_response.status_code, 200)
+            first_payload = first_task_response.get_json()
+            first_task = first_payload["task"]
+            self.assertEqual(first_payload["dataset_id"], "test_quality")
+            self.assertEqual(first_payload["progress"]["total"], 2)
+            self.assertEqual(
+                {
+                    (item["value"], item["label"])
+                    for item in first_task["ratings"]
+                },
+                {
+                    ("upper", "上档"),
+                    ("middle", "中档"),
+                    ("lower", "下档"),
+                },
+            )
+
+            media = first_browser.get(first_task["video"]["url"])
+            try:
+                self.assertEqual(media.status_code, 200)
+                self.assertIn(media.data, (b"quality-a", b"quality-b"))
+            finally:
+                media.close()
+
+            invalid = first_browser.post(
+                "/api/quality/rate",
+                json={
+                    "task_id": first_task["task_id"],
+                    "rating": "unknown",
+                },
+            )
+            self.assertEqual(invalid.status_code, 400)
+
+            first_rating = first_browser.post(
+                "/api/quality/rate",
+                json={
+                    "task_id": first_task["task_id"],
+                    "rating": "upper",
+                },
+                headers={"X-Review-Round": "quality-round-a"},
+            )
+            self.assertEqual(first_rating.status_code, 200)
+            self.assertEqual(first_rating.get_json()["progress"]["completed"], 1)
+            self.assertEqual(
+                first_browser.get("/api/review/progress").get_json()["completed"],
+                0,
+            )
+
+            second_task = second_browser.get("/api/quality/next").get_json()["task"]
+            self.assertIsNotNone(second_task)
+            second_rating = second_browser.post(
+                "/api/quality/rate",
+                json={
+                    "task_id": second_task["task_id"],
+                    "rating": "middle",
+                },
+            )
+            self.assertEqual(second_rating.status_code, 200)
+
+            with closing(sqlite3.connect(Path(directory) / "review.sqlite3")) as connection:
+                quality_counts = connection.execute(
+                    """
+                    SELECT COUNT(*), COUNT(DISTINCT reviewer_id_hash),
+                           COUNT(DISTINCT ip_hash)
+                    FROM quality_votes
+                    WHERE dataset_id = 'test_quality'
+                    """
+                ).fetchone()
+                pairwise_count = connection.execute(
+                    """
+                    SELECT COUNT(*)
+                    FROM review_votes
+                    WHERE dataset_id = 'test_review'
+                    """
+                ).fetchone()[0]
+            self.assertEqual(tuple(quality_counts), (2, 2, 1))
+            self.assertEqual(pairwise_count, 0)
 
     def test_review_round_can_restart_without_continue_button(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

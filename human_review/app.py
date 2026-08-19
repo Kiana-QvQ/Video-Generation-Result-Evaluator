@@ -37,10 +37,12 @@ STATIC_DIR = ROOT_DIR / "static"
 DATA_DIR = ROOT_DIR / "data"
 DEFAULT_DB = DATA_DIR / "review.sqlite3"
 DEFAULT_DATASET_ID = "performance_v8"
+DEFAULT_QUALITY_DATASET_ID = "ai_quality_25plus5_v1"
 DEFAULT_IP_SECRET = "human-review-local-v1"
 REVIEWER_COOKIE = "human_review_reviewer_id"
 REVIEWER_COOKIE_MAX_AGE = 60 * 60 * 24 * 365
 CHOICES = {"A", "B", "tie_or_unrateable"}
+QUALITY_RATINGS = {"upper", "middle", "lower"}
 READY_STATUSES = {"ready", "active"}
 
 
@@ -59,10 +61,22 @@ def normalize_ip(raw_ip: str | None) -> str:
 
 
 class ReviewStore:
-    def __init__(self, db_path: Path, dataset_id: str) -> None:
+    def __init__(
+        self,
+        db_path: Path,
+        dataset_id: str,
+        quality_dataset_id: str | None = None,
+    ) -> None:
         ip_secret = os.getenv("HUMAN_REVIEW_IP_SECRET", DEFAULT_IP_SECRET)
         self.database = ReviewDatabase(db_path, ip_secret=ip_secret)
         self.dataset_id = dataset_id
+        self.quality_dataset_id = (
+            quality_dataset_id
+            or os.getenv(
+                "HUMAN_REVIEW_QUALITY_DATASET",
+                DEFAULT_QUALITY_DATASET_ID,
+            )
+        )
         self._ensure_dataset()
 
     def _ensure_dataset(self) -> None:
@@ -448,10 +462,183 @@ class ReviewStore:
             conditional=True,
         )
 
+    def _quality_dataset_row(self) -> Any:
+        selected = self.database.get_active_quality_dataset(
+            self.quality_dataset_id,
+        )
+        if selected and self.database.count_quality_tasks(
+            selected["dataset_id"],
+        ) > 0:
+            return selected
+        raise RuntimeError(
+            f"Quality dataset {self.quality_dataset_id!r} is not available. "
+            "Build the AI quality dataset before opening this section."
+        )
+
+    def quality_progress(self, reviewer_id_hash: str) -> dict[str, Any]:
+        dataset = self._quality_dataset_row()
+        total = self.database.count_quality_tasks(self.quality_dataset_id)
+        quota = self._reviewer_quota(dataset)
+        target = min(total, quota) if quota else total
+        completed = self.database.count_quality_votes(
+            self.quality_dataset_id,
+            reviewer_id_hash,
+        )
+        return {
+            "current": min(completed + 1, target) if target else 0,
+            "completed": completed,
+            "total": target,
+            "dataset_total": total,
+            "remaining": max(target - completed, 0),
+            "quota": quota or None,
+            "done": target > 0 and completed >= target,
+        }
+
+    def _public_quality_task(self, task: dict[str, Any]) -> dict[str, Any]:
+        asset = self.database.get_quality_asset(
+            task["asset_id"],
+            self.quality_dataset_id,
+        )
+        if (
+            not asset
+            or asset["media_type"] != "video/mp4"
+            or not Path(asset["source_path"]).is_file()
+        ):
+            raise ValueError(
+                f"Quality asset {task['asset_id']} is not an available video."
+            )
+        return {
+            "task_id": task["task_id"],
+            "task_type": "ai_quality_rating",
+            "question": task.get(
+                "question",
+                "这段 AI 视频的人物表现属于哪个质量档次？",
+            ),
+            "video": {
+                "url": (
+                    f"/media/quality/"
+                    f"{quote(self.quality_dataset_id, safe='')}/"
+                    f"{quote(str(task['asset_id']), safe='')}"
+                ),
+                "media_type": asset["media_type"],
+                "duration": task.get("metadata", {}).get("duration"),
+                "width": task.get("metadata", {}).get("width"),
+                "height": task.get("metadata", {}).get("height"),
+            },
+            "ratings": [
+                {"value": "upper", "label": "上档"},
+                {"value": "middle", "label": "中档"},
+                {"value": "lower", "label": "下档"},
+            ],
+        }
+
+    def next_quality_task(
+        self,
+        reviewer_id_hash: str,
+        requested_task_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        progress = self.quality_progress(reviewer_id_hash)
+        if progress["done"]:
+            return None
+
+        requested = (
+            self.database.get_quality_task(
+                self.quality_dataset_id,
+                requested_task_id,
+            )
+            if requested_task_id
+            else None
+        )
+        if requested and requested.get("status") in READY_STATUSES:
+            own_tasks = self.database.get_unrated_quality_tasks(
+                self.quality_dataset_id,
+                reviewer_id_hash,
+            )
+            if requested["task_id"] in {task["task_id"] for task in own_tasks}:
+                return self._public_quality_task(requested)
+
+        tasks = self.database.get_unrated_quality_tasks(
+            self.quality_dataset_id,
+            reviewer_id_hash,
+        )
+        if not tasks:
+            return None
+        chosen = secrets.choice(tasks[: min(5, len(tasks))])
+        return self._public_quality_task(chosen)
+
+    def record_quality_rating(
+        self,
+        reviewer_id_hash: str,
+        ip_hash: str,
+        task_id: str,
+        rating: str,
+        response_ms: int | None,
+        round_id: str = "legacy",
+    ) -> dict[str, Any]:
+        progress = self.quality_progress(reviewer_id_hash)
+        if progress["done"]:
+            raise ValueError(
+                "This reviewer has completed the current quality dataset quota."
+            )
+        if rating not in QUALITY_RATINGS:
+            raise ValueError("rating must be upper, middle, or lower.")
+        task = self.database.get_quality_task(
+            self.quality_dataset_id,
+            task_id,
+        )
+        if not task or task.get("status") not in READY_STATUSES:
+            raise ValueError("Quality task does not exist or is not available.")
+        self._public_quality_task(task)
+        try:
+            self.database.insert_quality_vote(
+                {
+                    "dataset_id": self.quality_dataset_id,
+                    "task_id": task_id,
+                    "reviewer_id_hash": reviewer_id_hash,
+                    "ip_hash": ip_hash,
+                    "round_id": round_id,
+                    "rating": rating,
+                    "response_ms": response_ms,
+                },
+                per_reviewer_quota=self._reviewer_quota(
+                    self._quality_dataset_row(),
+                ),
+            )
+        except ReviewQuotaExceededError as exc:
+            raise ValueError(
+                "This reviewer has completed the current quality dataset quota."
+            ) from exc
+        except sqlite3.IntegrityError as exc:
+            raise ValueError(
+                "This quality task has already been reviewed by this browser."
+            ) from exc
+        return self.quality_progress(reviewer_id_hash)
+
+    def quality_media(
+        self,
+        asset_id: str,
+        dataset_id: str | None = None,
+    ) -> Any:
+        selected_dataset = dataset_id or self.quality_dataset_id
+        if selected_dataset != self.quality_dataset_id:
+            return jsonify({"error": "Quality dataset not available"}), 404
+        asset = self.database.get_quality_asset(asset_id, selected_dataset)
+        if not asset:
+            return jsonify({"error": "Quality asset not found"}), 404
+        path = Path(asset["source_path"])
+        if not path.is_file():
+            return jsonify({"error": "Quality asset file not found"}), 404
+        return send_file(
+            path,
+            mimetype=asset["media_type"],
+            conditional=True,
+        )
+
 
 def create_app(
     db_path: Path | None = None,
     dataset_id: str | None = None,
+    quality_dataset_id: str | None = None,
 ) -> Flask:
     app = Flask(
         __name__,
@@ -463,6 +650,7 @@ def create_app(
         or Path(os.getenv("HUMAN_REVIEW_DB", DEFAULT_DB)),
         dataset_id=dataset_id
         or os.getenv("HUMAN_REVIEW_DATASET", DEFAULT_DATASET_ID),
+        quality_dataset_id=quality_dataset_id,
     )
     app.extensions["review_store"] = store
 
@@ -586,8 +774,97 @@ def create_app(
             }
         )
 
+    @app.get("/api/quality/next")
+    def get_next_quality_task() -> Any:
+        try:
+            task = store.next_quality_task(
+                reviewer_id_hash(),
+                request.args.get("task_id"),
+            )
+            progress = store.quality_progress(reviewer_id_hash())
+        except (RuntimeError, ValueError) as exc:
+            return jsonify({"error": str(exc)}), 503
+        return jsonify(
+            {
+                "task": task,
+                "progress": progress,
+                "dataset_id": store.quality_dataset_id,
+                "round_id": reviewer_round(),
+            }
+        )
+
+    @app.get("/api/quality/progress")
+    def get_quality_progress() -> Any:
+        try:
+            progress = store.quality_progress(reviewer_id_hash())
+        except RuntimeError as exc:
+            return jsonify({"error": str(exc)}), 503
+        return jsonify(
+            {
+                "dataset_id": store.quality_dataset_id,
+                "round_id": reviewer_round(),
+                **progress,
+            }
+        )
+
+    @app.post("/api/quality/rate")
+    def post_quality_rating() -> Any:
+        data = request.get_json(silent=True) or {}
+        task_id = str(data.get("task_id", "")).strip()
+        rating = str(data.get("rating", "")).strip()
+        response_value = data.get("response_ms")
+        try:
+            response_ms = (
+                max(0, min(int(response_value), 86_400_000))
+                if response_value is not None
+                else None
+            )
+            progress = store.record_quality_rating(
+                reviewer_id_hash(),
+                reviewer_ip_hash(),
+                task_id,
+                rating,
+                response_ms,
+                reviewer_round(),
+            )
+        except (RuntimeError, TypeError, ValueError) as exc:
+            return jsonify({"error": str(exc)}), 400
+        return jsonify(
+            {
+                "status": "recorded",
+                "dataset_id": store.quality_dataset_id,
+                "progress": progress,
+            }
+        )
+
+    @app.get("/api/quality/health")
+    def quality_health() -> Any:
+        try:
+            task_count = store.database.count_quality_tasks(
+                store.quality_dataset_id,
+            )
+            available = bool(store._quality_dataset_row())
+        except RuntimeError:
+            task_count = 0
+            available = False
+        return jsonify(
+            {
+                "status": "ok",
+                "available": available,
+                "dataset_id": store.quality_dataset_id,
+                "reviewer_deduplication": True,
+                "ip_audit_hash": True,
+                "task_count": task_count,
+                "ratings": sorted(QUALITY_RATINGS),
+            }
+        )
+
     @app.get("/media/asset/<dataset_id>/<asset_id>")
     def media_asset(dataset_id: str, asset_id: str) -> Any:
         return store.media(asset_id, dataset_id)
+
+    @app.get("/media/quality/<dataset_id>/<asset_id>")
+    def quality_media_asset(dataset_id: str, asset_id: str) -> Any:
+        return store.quality_media(asset_id, dataset_id)
 
     return app

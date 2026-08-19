@@ -9,6 +9,21 @@ const state = {
   reviewed: false,
 };
 
+const qualityState = {
+  roundId: getOrCreateRoundId("quality"),
+  task: null,
+  selectedRating: null,
+  startedAt: null,
+  submitting: false,
+  reviewed: false,
+  loaded: false,
+};
+
+let activeMode = "pairwise";
+
+const modeTabs = [...document.querySelectorAll(".mode-tab")];
+const pairwiseMain = document.querySelector("#pairwise-main");
+const qualityMain = document.querySelector("#quality-main");
 const progressCurrent = document.querySelector("#progress-current");
 const progressTotal = document.querySelector("#progress-total");
 const taskTitle = document.querySelector("#task-title");
@@ -30,6 +45,22 @@ const sessionState = document.querySelector("#session-state");
 const completePanel = document.querySelector("#complete-panel");
 const decisionQuestion = document.querySelector("#decision-question");
 const decisionHint = document.querySelector("#decision-hint");
+const qualityProgressCurrent = document.querySelector("#quality-progress-current");
+const qualityProgressTotal = document.querySelector("#quality-progress-total");
+const qualityTaskTitle = document.querySelector("#quality-task-title");
+const qualityTaskId = document.querySelector("#quality-task-id");
+const qualityModalityChip = document.querySelector("#quality-modality-chip");
+const qualityMessagePanel = document.querySelector("#quality-message-panel");
+const qualityVideo = document.querySelector("#quality-video");
+const qualityVideoFrame = document.querySelector(".quality-video-frame");
+const qualityQuestion = document.querySelector("#quality-question");
+const qualityHint = document.querySelector("#quality-hint");
+const qualityRatingButtons = [
+  ...document.querySelectorAll(".quality-rating-button"),
+];
+const qualityResponseClock = document.querySelector("#quality-response-clock");
+const qualityCompletePanel = document.querySelector("#quality-complete-panel");
+const qualityDecisionPanel = document.querySelector(".quality-decision-panel");
 
 const modalityLabels = {
   text_to_video: "TEXT TO VIDEO",
@@ -38,8 +69,8 @@ const modalityLabels = {
   reference_material: "REFERENCE MATERIAL",
 };
 
-function getOrCreateRoundId() {
-  const key = "human-signal-round";
+function getOrCreateRoundId(suffix = "pairwise") {
+  const key = `human-signal-round-${suffix}`;
   const existing = window.sessionStorage.getItem(key);
   if (existing) return existing;
   const value = `round-${crypto.randomUUID?.() ?? `${Date.now()}-${Math.random()}`}`;
@@ -74,9 +105,25 @@ function setMessage(message, tone = "normal") {
   messagePanel.classList.remove("is-hidden");
 }
 
+function setQualityMessage(message, tone = "normal") {
+  if (!message) {
+    qualityMessagePanel.classList.add("is-hidden");
+    qualityMessagePanel.textContent = "";
+    return;
+  }
+  qualityMessagePanel.textContent = message;
+  qualityMessagePanel.dataset.tone = tone;
+  qualityMessagePanel.classList.remove("is-hidden");
+}
+
 function updateProgress(progress) {
   progressCurrent.textContent = progress?.current ?? "--";
   progressTotal.textContent = progress?.total ?? "--";
+}
+
+function updateQualityProgress(progress) {
+  qualityProgressCurrent.textContent = progress?.current ?? "--";
+  qualityProgressTotal.textContent = progress?.total ?? "--";
 }
 
 function resetMedia(videoId, asset) {
@@ -369,12 +416,225 @@ async function selectChoice(choice) {
   }
 }
 
+function resetQualityMedia(asset) {
+  if (qualityVideo._reviewCleanup) qualityVideo._reviewCleanup();
+
+  const empty = qualityVideoFrame.querySelector(".video-empty");
+  qualityVideo.pause();
+  qualityVideo.autoplay = true;
+  qualityVideo.muted = true;
+  qualityVideo.removeAttribute("src");
+  qualityVideo.removeAttribute("poster");
+  qualityVideo.load();
+  qualityVideoFrame.classList.remove("has-media", "media-error");
+  empty.classList.remove("is-hidden");
+  empty.querySelector("strong").textContent = "视频加载中";
+  empty.querySelector("small").textContent =
+    "如果长时间未显示，将提示具体错误";
+
+  if (!asset?.url) return;
+
+  qualityVideo.src = asset.url;
+  const enforceLimit = () => {
+    if (qualityVideo.currentTime >= MAX_VIDEO_SECONDS) {
+      qualityVideo.currentTime = MAX_VIDEO_SECONDS;
+      qualityVideo.pause();
+    }
+  };
+  const onLoadedMetadata = () => {
+    qualityVideo.currentTime = 0;
+    qualityVideo.play().catch(() => {});
+  };
+  const onLoadedData = () => {
+    qualityVideoFrame.classList.add("has-media");
+    empty.classList.add("is-hidden");
+  };
+  const onError = () => {
+    qualityVideoFrame.classList.add("media-error");
+    empty.classList.remove("is-hidden");
+    empty.querySelector("strong").textContent = "视频无法播放";
+    empty.querySelector("small").textContent =
+      "当前素材编码或文件不可用，请联系管理员";
+  };
+
+  qualityVideo.addEventListener("loadedmetadata", onLoadedMetadata);
+  qualityVideo.addEventListener("loadeddata", onLoadedData, { once: true });
+  qualityVideo.addEventListener("timeupdate", enforceLimit);
+  qualityVideo.addEventListener("seeking", enforceLimit);
+  qualityVideo.addEventListener("error", onError, { once: true });
+  qualityVideo._reviewCleanup = () => {
+    qualityVideo.removeEventListener("loadedmetadata", onLoadedMetadata);
+    qualityVideo.removeEventListener("loadeddata", onLoadedData);
+    qualityVideo.removeEventListener("timeupdate", enforceLimit);
+    qualityVideo.removeEventListener("seeking", enforceLimit);
+    qualityVideo.removeEventListener("error", onError);
+  };
+  qualityVideo.load();
+}
+
+function renderQualityTask(task) {
+  qualityState.task = task;
+  qualityState.reviewed = false;
+  qualityState.selectedRating = null;
+  qualityState.startedAt = performance.now();
+
+  qualityTaskTitle.textContent = "正在观看一段 AI 视频";
+  qualityTaskId.textContent = "SINGLE VIDEO";
+  qualityModalityChip.textContent = "AI QUALITY";
+  qualityQuestion.textContent =
+    task.question || "这段视频属于哪个质量档次？";
+  qualityHint.textContent = "以人物整体表现为准，不参考文件名、来源或程序分数。";
+  resetQualityMedia(task.video);
+  qualityRatingButtons.forEach((button) => {
+    button.classList.remove("is-selected");
+    button.disabled = false;
+  });
+  qualityResponseClock.textContent = "观看时间 00:00";
+  qualityDecisionPanel.classList.remove("is-disabled");
+  qualityCompletePanel.classList.add("is-hidden");
+  setQualityMessage("");
+  sessionState.textContent = "AI QUALITY ACTIVE";
+}
+
+function renderQualityComplete(progress) {
+  updateQualityProgress(progress);
+  qualityState.task = null;
+  qualityState.reviewed = false;
+  qualityDecisionPanel.classList.add("is-disabled");
+  qualityCompletePanel.classList.remove("is-hidden");
+  qualityTaskTitle.textContent = "AI 质量评测已完成";
+  qualityTaskId.textContent = "NO PENDING VIDEO";
+  qualityModalityChip.textContent = "COMPLETE";
+  sessionState.textContent = "AI QUALITY COMPLETE";
+  setQualityMessage("");
+}
+
+async function fetchNextQualityTask() {
+  sessionState.textContent = "LOADING AI QUALITY";
+  setQualityMessage("正在读取下一条 AI 视频...");
+  const currentId = qualityState.task?.task_id;
+  const query = currentId ? `?task_id=${encodeURIComponent(currentId)}` : "";
+  try {
+    const response = await fetch(`/api/quality/next${query}`, {
+      headers: {
+        "X-Review-Round": qualityState.roundId,
+      },
+    });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || "无法读取 AI 质量任务");
+    qualityState.loaded = true;
+    updateQualityProgress(payload.progress);
+    if (!payload.task) {
+      renderQualityComplete(payload.progress);
+      return false;
+    }
+    renderQualityTask(payload.task);
+    return true;
+  } catch (error) {
+    qualityState.loaded = false;
+    sessionState.textContent = "QUALITY CONNECTION ERROR";
+    setQualityMessage(
+      error.message || "无法连接 AI 质量评测服务，请检查数据集是否已构建。",
+      "error",
+    );
+    return null;
+  }
+}
+
+async function selectQualityRating(rating) {
+  if (
+    !qualityState.task ||
+    qualityState.submitting ||
+    qualityState.reviewed
+  ) {
+    return;
+  }
+  qualityState.selectedRating = rating;
+  qualityState.submitting = true;
+  qualityRatingButtons.forEach((button) => {
+    button.classList.toggle("is-selected", button.dataset.rating === rating);
+    button.disabled = true;
+  });
+  const responseMs = Math.round(
+    performance.now() - qualityState.startedAt,
+  );
+  qualityVideo.pause();
+  try {
+    const response = await fetch("/api/quality/rate", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Review-Round": qualityState.roundId,
+      },
+      body: JSON.stringify({
+        task_id: qualityState.task.task_id,
+        rating,
+        response_ms: responseMs,
+      }),
+    });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || "质量评分记录失败");
+    updateQualityProgress(payload.progress);
+    qualityState.reviewed = true;
+    qualityResponseClock.textContent = "已记录，正在进入下一条视频";
+    sessionState.textContent = "AI QUALITY RECORDED";
+    await new Promise((resolve) => window.setTimeout(resolve, 650));
+    qualityState.submitting = false;
+    qualityState.reviewed = false;
+    const nextStatus = await fetchNextQualityTask();
+    if (nextStatus === null) {
+      qualityState.reviewed = true;
+      qualityResponseClock.textContent = "本题已记录，请刷新页面继续";
+    }
+  } catch (error) {
+    qualityState.submitting = false;
+    qualityRatingButtons.forEach((button) => {
+      button.disabled = false;
+    });
+    setQualityMessage(error.message || "质量评分记录失败，请重试。", "error");
+  }
+}
+
+function setMode(mode) {
+  activeMode = mode === "quality" ? "quality" : "pairwise";
+  const qualityVisible = activeMode === "quality";
+  pairwiseMain.classList.toggle("is-hidden", qualityVisible);
+  qualityMain.classList.toggle("is-hidden", !qualityVisible);
+  modeTabs.forEach((tab) => {
+    tab.classList.toggle("is-active", tab.dataset.mode === activeMode);
+  });
+  if (qualityVisible) {
+    if (!qualityState.loaded) fetchNextQualityTask();
+    return;
+  }
+  sessionState.textContent = state.task ? "SESSION ACTIVE" : "SESSION READY";
+}
+
+qualityRatingButtons.forEach((button) => {
+  button.addEventListener("click", () => {
+    selectQualityRating(button.dataset.rating);
+  });
+});
+
+modeTabs.forEach((tab) => {
+  tab.addEventListener("click", () => setMode(tab.dataset.mode));
+});
+
 choiceButtons.forEach((button) => {
   button.addEventListener("click", () => selectChoice(button.dataset.choice));
 });
 
 window.addEventListener("keydown", (event) => {
   if (event.target.matches("input, textarea, select, video")) return;
+  if (activeMode === "quality") {
+    const ratingByKey = { "1": "upper", "2": "middle", "3": "lower" };
+    const rating = ratingByKey[event.key];
+    if (rating) {
+      event.preventDefault();
+      selectQualityRating(rating);
+    }
+    return;
+  }
   const choiceByKey = { a: "A", b: "B", c: "tie_or_unrateable" };
   const choice = choiceByKey[event.key.toLowerCase()];
   if (choice) {
@@ -387,6 +647,17 @@ window.setInterval(() => {
   if (state.startedAt && state.task && !state.submitting && !state.reviewed) {
     responseClock.textContent = `观看时间 ${formatDuration(
       (performance.now() - state.startedAt) / 1000,
+    )}`;
+  }
+  if (
+    qualityState.startedAt &&
+    qualityState.task &&
+    !qualityState.submitting &&
+    !qualityState.reviewed &&
+    activeMode === "quality"
+  ) {
+    qualityResponseClock.textContent = `观看时间 ${formatDuration(
+      (performance.now() - qualityState.startedAt) / 1000,
     )}`;
   }
 }, 1000);
