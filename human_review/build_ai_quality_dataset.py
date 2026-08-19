@@ -7,6 +7,7 @@ import argparse
 import hashlib
 import json
 import re
+import shutil
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -70,11 +71,20 @@ def build_dataset(
     if not videos:
         raise RuntimeError(f"No MP4 videos found in {input_dir}")
 
+    database = ReviewDatabase(db_path, ip_secret="human-review-local-v1")
+    if database.count_quality_dataset_votes(dataset_id):
+        raise RuntimeError(
+            f"Refusing to rebuild {dataset_id}: it already has ratings. "
+            "Use a new dataset ID for a new video snapshot."
+        )
+
     manifest = load_manifest(manifest_path)
     seen_ids: set[str] = set()
     assets: list[dict[str, Any]] = []
     tasks: list[dict[str, Any]] = []
     created_at = utc_now()
+    snapshot_dir = output_dir / "assets"
+    snapshot_dir.mkdir(parents=True, exist_ok=True)
 
     for index, path in enumerate(videos, start=1):
         annotation = manifest.get(path.name, {})
@@ -88,6 +98,8 @@ def build_dataset(
 
         asset_id = f"quality_asset_{stable_slug(sample_id)}"
         task_id = f"{dataset_id}__{stable_slug(sample_id)}"
+        snapshot_path = snapshot_dir / path.name
+        shutil.copy2(path, snapshot_path)
         metadata = {
             "sample_id": sample_id,
             "file_name": path.name,
@@ -95,6 +107,7 @@ def build_dataset(
             "source_domain": annotation.get("source_domain"),
             "program_band": annotation.get("program_band"),
             "human_band": annotation.get("human_band"),
+            "expression_score": annotation.get("expression_score"),
             "source_results": annotation.get("source_results"),
         }
         digest = file_sha256(path)
@@ -102,7 +115,7 @@ def build_dataset(
             {
                 "dataset_id": dataset_id,
                 "asset_id": asset_id,
-                "source_path": str(path.resolve()),
+                "source_path": str(snapshot_path.resolve()),
                 "media_type": "video/mp4",
                 "original_name": path.name,
                 "sha256": digest,
@@ -136,6 +149,7 @@ def build_dataset(
             "purpose": "single_video_ai_quality_rating",
             "input_dir": str(input_dir.resolve()),
             "manifest_path": str(manifest_path.resolve()),
+            "snapshot_dir": str(snapshot_dir.resolve()),
             "privacy_note": "Program and human annotations stay server-side.",
         },
     }
@@ -152,7 +166,6 @@ def build_dataset(
         for task in tasks:
             handle.write(json.dumps(task, ensure_ascii=False) + "\n")
 
-    database = ReviewDatabase(db_path, ip_secret="human-review-local-v1")
     database.replace_quality_dataset_bundle(dataset, assets, tasks)
     return dataset
 
@@ -170,7 +183,12 @@ def parse_args() -> argparse.Namespace:
         default="ai_quality_25plus5_v1",
         help="Use a new version, such as ai_quality_25plus5_v2, after adding videos.",
     )
-    parser.add_argument("--per-reviewer-quota", type=int, default=30)
+    parser.add_argument(
+        "--per-reviewer-quota",
+        type=int,
+        default=0,
+        help="0 means every reviewer can rate all tasks; set a positive limit if needed.",
+    )
     return parser.parse_args()
 
 

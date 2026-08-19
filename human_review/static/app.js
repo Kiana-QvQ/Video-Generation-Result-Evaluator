@@ -13,6 +13,7 @@ const qualityState = {
   roundId: getOrCreateRoundId("quality"),
   task: null,
   selectedRating: null,
+  pendingRating: null,
   startedAt: null,
   submitting: false,
   reviewed: false,
@@ -466,6 +467,7 @@ function renderQualityTask(task) {
   qualityState.task = task;
   qualityState.reviewed = false;
   qualityState.selectedRating = null;
+  qualityState.pendingRating = null;
   qualityState.startedAt = performance.now();
 
   qualityTaskTitle.textContent = "正在观看一段 AI 视频";
@@ -539,6 +541,22 @@ async function selectQualityRating(rating) {
   ) {
     return;
   }
+  if (qualityState.pendingRating !== rating) {
+    const labels = {
+      upper: "上档",
+      middle: "中档",
+      lower: "下档",
+    };
+    qualityState.pendingRating = rating;
+    qualityState.selectedRating = rating;
+    qualityRatingButtons.forEach((button) => {
+      button.classList.toggle("is-selected", button.dataset.rating === rating);
+    });
+    qualityHint.textContent = `已选择${labels[rating]}，请再次点击同一按钮确认提交。`;
+    qualityResponseClock.textContent = "等待确认";
+    return;
+  }
+  qualityState.pendingRating = null;
   qualityState.selectedRating = rating;
   qualityState.submitting = true;
   qualityRatingButtons.forEach((button) => {
@@ -578,6 +596,7 @@ async function selectQualityRating(rating) {
     }
   } catch (error) {
     qualityState.submitting = false;
+    qualityState.pendingRating = rating;
     qualityRatingButtons.forEach((button) => {
       button.disabled = false;
     });

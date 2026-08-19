@@ -805,6 +805,18 @@ class ReviewDatabase:
             ).fetchone()
         return int(row["count"])
 
+    def count_quality_dataset_votes(self, dataset_id: str) -> int:
+        with self.connect() as connection:
+            row = connection.execute(
+                """
+                SELECT COUNT(*) AS count
+                FROM quality_votes
+                WHERE dataset_id = ?
+                """,
+                (dataset_id,),
+            ).fetchone()
+        return int(row["count"])
+
     def insert_quality_vote(
         self,
         vote: dict[str, Any],

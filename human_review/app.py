@@ -356,7 +356,7 @@ class ReviewStore:
         pool = model_candidates or valid_candidates
         # Keep model-comparison tasks visible instead of burying them in the
         # random low-vote window.
-        chosen = secrets.choice(pool[: min(5, len(pool))])
+        chosen = secrets.choice(pool)
         return self._public_task(chosen, reviewer_id_hash, round_id)
 
     def record_vote(
@@ -563,7 +563,7 @@ class ReviewStore:
         )
         if not tasks:
             return None
-        chosen = secrets.choice(tasks[: min(5, len(tasks))])
+        chosen = secrets.choice(tasks)
         return self._public_quality_task(chosen)
 
     def record_quality_rating(

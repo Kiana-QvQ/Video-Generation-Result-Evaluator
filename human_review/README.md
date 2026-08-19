@@ -139,6 +139,7 @@ human_review/data/datasets/ai_quality_25plus5_v1/
 页面每次显示一个 AI 视频，评分按钮为 `上档`、`中档`、`下档`。
 程序分数和已有人工分档只保存在服务端数据中，不发送到网页，避免影响
 新的主观评分。该栏目不限制视频时长，完整视频可通过播放器观看。
+每个版本构建时都会保存独立的视频快照，避免后续替换输入文件影响旧版本。
 
 构建或更新数据集：
 
@@ -164,6 +165,17 @@ POST /api/quality/rate
 GET  /api/quality/health
 GET  /media/quality/<dataset-id>/<asset-id>
 ```
+
+导出 AI 分档统计：
+
+```powershell
+python human_review/export_ai_quality_results.py `
+  --dataset-id ai_quality_25plus5_v1 `
+  --csv human_review\data\reports\ai_quality_25plus5_v1_summary.csv
+```
+
+导出结果包含每条视频的三档计数、主档位、一致率，以及原程序分档和表情分，
+不会包含 reviewer 或 IP 哈希。
 
 ## 带参考生成实验
 
