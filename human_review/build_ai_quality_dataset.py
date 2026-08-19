@@ -23,6 +23,7 @@ except ImportError:
 ROOT_DIR = Path(__file__).resolve().parent
 DEFAULT_INPUT_DIR = ROOT_DIR / "data" / "ai_quality" / "videos"
 DEFAULT_MANIFEST = ROOT_DIR / "data" / "ai_quality" / "manifest.json"
+DEFAULT_SOURCE_QUEUE = ROOT_DIR / "data" / "ai_quality" / "source_queue.json"
 DEFAULT_OUTPUT_DIR = ROOT_DIR / "data" / "datasets" / "ai_quality_25plus5_v1"
 DEFAULT_DB = ROOT_DIR / "data" / "review.sqlite3"
 DEFAULT_QUESTION = "请根据人物的动作、表情和时序连续性，判断这段 AI 视频属于哪个质量档次。"
@@ -47,6 +48,55 @@ def load_manifest(path: Path) -> dict[str, dict[str, Any]]:
         for item in items
         if isinstance(item, dict) and item.get("file_name")
     }
+
+
+def load_source_queue(path: Path) -> dict[str, Any]:
+    if not path.is_file():
+        raise RuntimeError(f"Source queue does not exist: {path}")
+    queue = json.loads(path.read_text(encoding="utf-8-sig"))
+    if not isinstance(queue, dict):
+        raise RuntimeError("Source queue must be a JSON object.")
+    return queue
+
+
+def collect_videos(
+    input_dirs: list[tuple[Path, str | None]],
+) -> list[tuple[Path, str | None]]:
+    videos: list[tuple[Path, str | None]] = []
+    seen_names: set[str] = set()
+    for input_dir, source_label in input_dirs:
+        if not input_dir.is_dir():
+            raise RuntimeError(f"Input directory does not exist: {input_dir}")
+        for path in sorted(input_dir.iterdir()):
+            if not path.is_file() or path.suffix.lower() != ".mp4":
+                continue
+            if path.name in seen_names:
+                raise RuntimeError(
+                    f"Duplicate video filename across input directories: {path.name}"
+                )
+            seen_names.add(path.name)
+            videos.append((path, source_label))
+    if not videos:
+        raise RuntimeError("No MP4 videos found in the configured input directories.")
+    return videos
+
+
+def source_signature(videos: list[tuple[Path, str | None]]) -> str:
+    records = [
+        {
+            "path": str(path.resolve()),
+            "label": label,
+            "size": path.stat().st_size,
+            "mtime_ns": path.stat().st_mtime_ns,
+        }
+        for path, label in videos
+    ]
+    payload = json.dumps(
+        records,
+        ensure_ascii=False,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
 
 
 def file_sha256(path: Path) -> str:
@@ -149,20 +199,21 @@ def make_browser_playback_copy(
 
 
 def build_dataset(
-    input_dir: Path,
+    input_dir: Path | None,
     manifest_path: Path,
     output_dir: Path,
     db_path: Path,
     dataset_id: str,
     per_reviewer_quota: int,
+    input_dirs: list[tuple[Path, str | None]] | None = None,
 ) -> dict[str, Any]:
-    videos = sorted(
-        path
-        for path in input_dir.iterdir()
-        if path.is_file() and path.suffix.lower() == ".mp4"
+    configured_dirs = input_dirs or [(input_dir, None)]
+    if any(path is None for path, _ in configured_dirs):
+        raise RuntimeError("At least one input directory is required.")
+    videos = collect_videos(
+        [(path, label) for path, label in configured_dirs if path is not None]
     )
-    if not videos:
-        raise RuntimeError(f"No MP4 videos found in {input_dir}")
+    input_signature = source_signature(videos)
 
     database = ReviewDatabase(db_path, ip_secret="human-review-local-v1")
     if database.count_quality_dataset_votes(dataset_id):
@@ -181,7 +232,7 @@ def build_dataset(
     snapshot_dir.mkdir(parents=True, exist_ok=True)
     originals_dir.mkdir(parents=True, exist_ok=True)
 
-    for index, path in enumerate(videos, start=1):
+    for index, (path, source_label) in enumerate(videos, start=1):
         annotation = manifest.get(path.name, {})
         sample_id = str(
             annotation.get("sample_id")
@@ -207,6 +258,7 @@ def build_dataset(
             "file_name": path.name,
             "cohort": annotation.get("cohort"),
             "source_domain": annotation.get("source_domain"),
+            "source_collection": source_label,
             "program_band": annotation.get("program_band"),
             "human_band": annotation.get("human_band"),
             "expression_score": annotation.get("expression_score"),
@@ -253,11 +305,19 @@ def build_dataset(
         "rating_values": ["upper", "middle", "lower"],
         "metadata": {
             "purpose": "single_video_ai_quality_rating",
-            "input_dir": str(input_dir.resolve()),
+            "input_dirs": [
+                {
+                    "path": str(path.resolve()),
+                    "label": label,
+                }
+                for path, label in configured_dirs
+                if path is not None
+            ],
             "manifest_path": str(manifest_path.resolve()),
             "snapshot_dir": str(snapshot_dir.resolve()),
             "originals_dir": str(originals_dir.resolve()),
             "playback_format": "h264_yuv420p",
+            "source_signature": input_signature,
             "privacy_note": "Program and human annotations stay server-side.",
         },
     }
@@ -282,13 +342,20 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Build the isolated AI quality rating dataset."
     )
-    parser.add_argument("--input-dir", type=Path, default=DEFAULT_INPUT_DIR)
-    parser.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
-    parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
+    parser.add_argument(
+        "--input-dir",
+        type=Path,
+        action="append",
+        default=None,
+        help="Input folder; repeat this option to add multiple folders.",
+    )
+    parser.add_argument("--manifest", type=Path, default=None)
+    parser.add_argument("--source-queue", type=Path, default=DEFAULT_SOURCE_QUEUE)
+    parser.add_argument("--output-dir", type=Path, default=None)
     parser.add_argument("--db", type=Path, default=DEFAULT_DB)
     parser.add_argument(
         "--dataset-id",
-        default="ai_quality_25plus5_v1",
+        default=None,
         help="Use a new version, such as ai_quality_25plus5_v2, after adding videos.",
     )
     parser.add_argument(
@@ -302,13 +369,36 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+    queue = load_source_queue(args.source_queue)
+    queue_dirs = [
+        (
+            Path(item["path"]),
+            item.get("label"),
+        )
+        for item in queue.get("input_dirs", [])
+        if item.get("enabled", True)
+    ]
+    if args.input_dir:
+        input_dirs = [(path, None) for path in args.input_dir]
+    else:
+        input_dirs = queue_dirs
+    dataset_id = args.dataset_id or queue.get(
+        "dataset_id",
+        "ai_quality_25plus5_v1",
+    )
+    manifest_value = args.manifest or queue.get("manifest")
+    manifest_path = Path(manifest_value) if manifest_value else DEFAULT_MANIFEST
+    output_dir = args.output_dir or Path(
+        queue.get("output_dir", str(DEFAULT_OUTPUT_DIR))
+    )
     dataset = build_dataset(
-        input_dir=args.input_dir,
-        manifest_path=args.manifest,
-        output_dir=args.output_dir,
+        input_dir=None,
+        manifest_path=manifest_path,
+        output_dir=output_dir,
         db_path=args.db,
-        dataset_id=args.dataset_id,
+        dataset_id=dataset_id,
         per_reviewer_quota=max(0, args.per_reviewer_quota),
+        input_dirs=input_dirs,
     )
     print(
         json.dumps(
@@ -316,7 +406,7 @@ def main() -> None:
                 "dataset_id": dataset["dataset_id"],
                 "task_count": dataset["task_count"],
                 "asset_count": dataset["asset_count"],
-                "output_dir": str(args.output_dir.resolve()),
+                "output_dir": str(output_dir.resolve()),
             },
             ensure_ascii=False,
         )

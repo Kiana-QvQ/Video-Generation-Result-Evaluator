@@ -133,6 +133,7 @@ python human_review/build_dataset.py `
 ```text
 human_review/data/ai_quality/videos/
 human_review/data/ai_quality/manifest.json
+human_review/data/ai_quality/source_queue.json
 human_review/data/datasets/ai_quality_25plus5_v1/
 ```
 
@@ -148,6 +149,10 @@ human_review/data/datasets/ai_quality_25plus5_v1/
 ```powershell
 python human_review/build_ai_quality_dataset.py
 ```
+
+构建器默认读取 `source_queue.json` 中的 `input_dirs`，因此新增一批视频时只需要
+在队列中添加文件夹路径，不需要手动复制到多个目录。每个文件夹建议使用独立的
+`dataset_id`，避免不同批次混在同一个评分版本中。
 
 已有评分的数据集不能原地重建。添加新视频后应使用新版本：
 
