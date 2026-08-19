@@ -73,6 +73,13 @@ $env:FRAME_AUDIT_TRUST_PROXY_HEADERS = "true"
 | `requirements.txt` / `requirements/` | 依赖 |
 | `web/` / `config/` / `docker/` / `tools/` | Frame Audit / 可选后端资源 |
 | `data/` | 数据集与 AU |
+| `data/test/with_reference/` | 原始带参考生成实验的可读导出，不是 `performance_v8` 投票题库 |
+
+带参考实验的唯一源数据位于
+`human_review/data/raw_archive/experiments_20260811`。导出副本由
+`scripts/export_human_review_reference_set.py` 生成：每组实验包含
+`prompt.txt`、`reference_inputs/`、`generated_videos/` 和 `experiment.json`；
+当前源归档共 18 组，其中 14 组有提示词并导出，4 组无提示词而跳过。
 
 ## 可选后端
 

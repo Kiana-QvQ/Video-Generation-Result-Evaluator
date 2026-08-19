@@ -1,4 +1,4 @@
-"""Build two local 25-real + 25-AI evaluation sets.
+"""Build the local 25-real + 25-AI single-video evaluation set.
 
 The AI side is composed of:
 - 20 uniformly selected samples from the official Seedance holdout;
@@ -6,6 +6,10 @@ The AI side is composed of:
 
 This is intentionally marked as overlapping the official holdout. The output
 is evaluation-only and is never added to any training manifest.
+
+Pairwise reference-content tasks are exported separately by
+``scripts/export_human_review_reference_set.py`` into ``with_reference/``.
+This builder must not recreate the old 25+25 fake-reference copy.
 """
 
 from __future__ import annotations
@@ -170,29 +174,9 @@ def _build_sample(
     return payload
 
 
-def _write_readme(root: Path) -> None:
-    text = """# 25+25 Independent Evaluation Sets
-
-This local evaluation bundle contains two views of the same 50 samples:
-
-- `single_video/`: result video + AU CSV only.
-- `with_reference/`: result video + AU CSV + reference images/video + prompt.
-
-The AI set contains 20 samples from the official Seedance holdout and the five
-`data/test/AI` Change clips. Therefore `overlaps_official_holdout` is recorded
-per sample. These files are evaluation-only and must not be added to training.
-"""
-    readme_name = (
-        "test_independent_25x25_README.md"
-        if root.resolve() == (PROJECT_ROOT / "data" / "test").resolve()
-        else "README.md"
-    )
-    (root / readme_name).write_text(text, encoding="utf-8")
-
-
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Build single-video and reference-content 25+25 test sets."
+        description="Build the single-video 25+25 forensics test set."
     )
     parser.add_argument(
         "--output-root",
@@ -225,13 +209,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             }
         )
 
-    for split in ("single_video", "with_reference"):
-        (output_root / split).mkdir(parents=True, exist_ok=True)
+    (output_root / "single_video").mkdir(parents=True, exist_ok=True)
 
     manifests: dict[str, dict[str, Any]] = {}
     for split, include_reference in (
         ("single_video", False),
-        ("with_reference", True),
     ):
         samples: list[dict[str, Any]] = []
         for index, item in enumerate(selected_real, start=1):
@@ -294,17 +276,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         _write_json(manifest_path, manifest)
         manifests[split] = manifest
 
-    _write_readme(output_root)
     summary = {
         "output_root": str(output_root),
         "single_video": {
             "real": manifests["single_video"]["real_count"],
             "ai": manifests["single_video"]["ai_count"],
         },
-        "with_reference": {
-            "real": manifests["with_reference"]["real_count"],
-            "ai": manifests["with_reference"]["ai_count"],
-        },
+        "with_reference": "exported separately from performance_v8",
         "ai_sources": {
             "seedance_holdout": 20,
             "change_ood": 5,

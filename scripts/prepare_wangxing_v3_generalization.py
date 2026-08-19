@@ -16,8 +16,9 @@ import hashlib
 import json
 import subprocess
 import sys
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any
 
 import cv2
 import numpy as np
@@ -52,23 +53,42 @@ def _write_json(path: Path, payload: dict[str, Any]) -> None:
 
 def _resolve(value: str | Path) -> Path:
     path = Path(value)
-    return path if path.is_absolute() else PROJECT_ROOT / path
+    if not path.is_absolute():
+        return PROJECT_ROOT / path
+    if path.exists():
+        return path
+
+    # Recover manifests created before the workspace directory was renamed.
+    parts = list(path.parts)
+    data_index = next(
+        (
+            index
+            for index, part in enumerate(parts)
+            if str(part).casefold() == "data"
+        ),
+        None,
+    )
+    if data_index is not None:
+        candidate = PROJECT_ROOT.joinpath(*parts[data_index:])
+        if candidate.exists():
+            return candidate
+    return path
 
 
 def _relative(path: Path) -> str:
     try:
-        return str(path.resolve().relative_to(PROJECT_ROOT.resolve()))
+        return path.resolve().relative_to(PROJECT_ROOT.resolve()).as_posix()
     except ValueError:
         return str(path.resolve())
 
 
 def _group_id(video: Path) -> str:
-    digest = hashlib.sha1(str(video.resolve()).encode("utf-8")).hexdigest()
+    digest = hashlib.sha1(_relative(video).encode("utf-8")).hexdigest()
     return digest[:16]
 
 
 def _safe_stem(video: Path) -> str:
-    digest = hashlib.sha1(str(video.resolve()).encode("utf-8")).hexdigest()
+    digest = hashlib.sha1(_relative(video).encode("utf-8")).hexdigest()
     return f"{video.stem[:32]}_{digest[:10]}"
 
 
@@ -84,8 +104,8 @@ def _run_ffmpeg(
     if destination.is_file() and destination.stat().st_size > 0:
         return
     vf = (
-        f"scale=if(gt(iw,ih),{long_edge},-2):"
-        f"if(gt(iw,ih),-2,{long_edge}),"
+        f"scale=if(gt(iw\\,ih)\\,{long_edge}\\,-2):"
+        f"if(gt(iw\\,ih)\\,-2\\,{long_edge}),"
         "scale=trunc(iw/2)*2:trunc(ih/2)*2,"
         f"fps={fps}"
     )
@@ -220,13 +240,13 @@ def _record(
     if is_forbidden_train_video(video):
         raise ValueError(f"Forbidden Change video entered v3 train: {video}")
     return {
-        "video": str(video.resolve()),
-        "au": str(au.resolve()),
+        "video": _relative(video),
+        "au": _relative(au),
         "label_generated": int(label),
         "base_label": int(base_label),
         "group_id": str(group_id),
         "augmentation": augmentation,
-        "source_video": str(source_video.resolve()),
+        "source_video": _relative(source_video),
     }
 
 
@@ -431,25 +451,29 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
             )
 
+    def _test_record(
+        item: dict[str, Any],
+        *,
+        label: int,
+    ) -> dict[str, Any]:
+        video = _resolve(str(item["video"]))
+        au = _resolve(str(item["au"]))
+        return {
+            "video": _relative(video),
+            "au": _relative(au),
+            "label_generated": label,
+            "base_label": label,
+            "group_id": _group_id(video),
+            "augmentation": "official_holdout",
+        }
+
     test_pairs = {
         "real": [
-            {
-                **dict(item),
-                "label_generated": 0,
-                "base_label": 0,
-                "group_id": _group_id(_resolve(str(item["video"]))),
-                "augmentation": "official_holdout",
-            }
+            _test_record(item, label=0)
             for item in manifest["pairs"]["test"]["real"]
         ],
         "fake": [
-            {
-                **dict(item),
-                "label_generated": 1,
-                "base_label": 1,
-                "group_id": _group_id(_resolve(str(item["video"]))),
-                "augmentation": "official_holdout",
-            }
+            _test_record(item, label=1)
             for item in manifest["pairs"]["test"]["fake"]
         ],
     }
@@ -490,7 +514,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             "pseudo_fake": len(pseudo_records),
             "media_variants": len(media_records),
         },
-        "source_manifest": str(base_path),
+        "source_manifest": _relative(base_path),
     }
     output_path = _resolve(args.output_manifest)
     _write_json(output_path, output)

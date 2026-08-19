@@ -1,8 +1,11 @@
 """Build the web-forensics v2 test set without the old holdout-50 samples.
 
-Outputs both:
+Outputs the single-video set only:
 - full set: 25 real + 30 AI (25 WangXing candidates + 5 Change);
 - balanced view: 25 real + 25 AI (20 WangXing + 5 Change).
+
+Do not attach dummy reference packs. Pairwise reference-content tasks live in
+``data/test/with_reference`` and are exported from ``performance_v8``.
 
 The selected WangXing videos come from the old training candidate pool, but
 the new web profile/fusion pipeline must exclude them before fitting.
@@ -280,7 +283,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     manifests: dict[str, list[dict[str, Any]]] = {}
     for split, reference in (
         ("single_video", False),
-        ("with_reference", True),
     ):
         split_root = output_root / split
         samples: list[dict[str, Any]] = []
