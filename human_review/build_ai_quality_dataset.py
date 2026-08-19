@@ -6,8 +6,10 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
 import shutil
+import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -55,6 +57,97 @@ def file_sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def probe_video(path: Path) -> dict[str, str | None]:
+    ffprobe = os.getenv("FFPROBE_BIN") or shutil.which("ffprobe")
+    if not ffprobe:
+        return {"codec_name": None, "pix_fmt": None}
+    try:
+        result = subprocess.run(
+            [
+                ffprobe,
+                "-v",
+                "error",
+                "-select_streams",
+                "v:0",
+                "-show_entries",
+                "stream=codec_name,pix_fmt",
+                "-of",
+                "json",
+                str(path),
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        streams = json.loads(result.stdout).get("streams", [])
+        stream = streams[0] if streams else {}
+        return {
+            "codec_name": stream.get("codec_name"),
+            "pix_fmt": stream.get("pix_fmt"),
+        }
+    except (OSError, subprocess.CalledProcessError, json.JSONDecodeError):
+        return {"codec_name": None, "pix_fmt": None}
+
+
+def make_browser_playback_copy(
+    source: Path,
+    destination: Path,
+    probe: dict[str, str | None],
+) -> bool:
+    """Create a browser-compatible H.264 copy when the source needs one."""
+
+    if not probe["codec_name"] or not probe["pix_fmt"]:
+        shutil.copy2(source, destination)
+        return False
+
+    if probe["codec_name"] == "h264" and probe["pix_fmt"] == "yuv420p":
+        shutil.copy2(source, destination)
+        return False
+
+    ffmpeg = os.getenv("FFMPEG_BIN") or shutil.which("ffmpeg")
+    if not ffmpeg:
+        raise RuntimeError(
+            f"{source.name} uses {probe['codec_name']}/{probe['pix_fmt']}; "
+            "FFMPEG_BIN or ffmpeg is required to create a browser copy."
+        )
+
+    temporary = destination.with_name(f".{destination.stem}.tmp.mp4")
+    temporary.unlink(missing_ok=True)
+    try:
+        subprocess.run(
+            [
+                ffmpeg,
+                "-y",
+                "-i",
+                str(source),
+                "-map",
+                "0:v:0",
+                "-map",
+                "0:a?",
+                "-c:v",
+                "libx264",
+                "-preset",
+                "fast",
+                "-crf",
+                "18",
+                "-pix_fmt",
+                "yuv420p",
+                "-c:a",
+                "aac",
+                "-b:a",
+                "160k",
+                "-movflags",
+                "+faststart",
+                str(temporary),
+            ],
+            check=True,
+        )
+        temporary.replace(destination)
+    finally:
+        temporary.unlink(missing_ok=True)
+    return True
+
+
 def build_dataset(
     input_dir: Path,
     manifest_path: Path,
@@ -84,7 +177,9 @@ def build_dataset(
     tasks: list[dict[str, Any]] = []
     created_at = utc_now()
     snapshot_dir = output_dir / "assets"
+    originals_dir = output_dir / "originals"
     snapshot_dir.mkdir(parents=True, exist_ok=True)
+    originals_dir.mkdir(parents=True, exist_ok=True)
 
     for index, path in enumerate(videos, start=1):
         annotation = manifest.get(path.name, {})
@@ -98,8 +193,15 @@ def build_dataset(
 
         asset_id = f"quality_asset_{stable_slug(sample_id)}"
         task_id = f"{dataset_id}__{stable_slug(sample_id)}"
-        snapshot_path = snapshot_dir / path.name
-        shutil.copy2(path, snapshot_path)
+        original_snapshot_path = originals_dir / path.name
+        playback_path = snapshot_dir / path.name
+        shutil.copy2(path, original_snapshot_path)
+        probe = probe_video(path)
+        transcoded = make_browser_playback_copy(
+            original_snapshot_path,
+            playback_path,
+            probe,
+        )
         metadata = {
             "sample_id": sample_id,
             "file_name": path.name,
@@ -109,17 +211,21 @@ def build_dataset(
             "human_band": annotation.get("human_band"),
             "expression_score": annotation.get("expression_score"),
             "source_results": annotation.get("source_results"),
+            "original_snapshot_path": str(original_snapshot_path.resolve()),
+            "source_codec": probe["codec_name"],
+            "source_pix_fmt": probe["pix_fmt"],
+            "playback_transcoded": transcoded,
         }
-        digest = file_sha256(path)
+        digest = file_sha256(playback_path)
         assets.append(
             {
                 "dataset_id": dataset_id,
                 "asset_id": asset_id,
-                "source_path": str(snapshot_path.resolve()),
+                "source_path": str(playback_path.resolve()),
                 "media_type": "video/mp4",
                 "original_name": path.name,
                 "sha256": digest,
-                "size_bytes": path.stat().st_size,
+                "size_bytes": playback_path.stat().st_size,
                 "metadata": metadata,
             }
         )
@@ -150,6 +256,8 @@ def build_dataset(
             "input_dir": str(input_dir.resolve()),
             "manifest_path": str(manifest_path.resolve()),
             "snapshot_dir": str(snapshot_dir.resolve()),
+            "originals_dir": str(originals_dir.resolve()),
+            "playback_format": "h264_yuv420p",
             "privacy_note": "Program and human annotations stay server-side.",
         },
     }

@@ -507,6 +507,7 @@ class ReviewStore:
             raise ValueError(
                 f"Quality asset {task['asset_id']} is not an available video."
             )
+        cache_version = asset["sha256"] or asset["size_bytes"] or "current"
         return {
             "task_id": task["task_id"],
             "task_type": "ai_quality_rating",
@@ -519,6 +520,7 @@ class ReviewStore:
                     f"/media/quality/"
                     f"{quote(self.quality_dataset_id, safe='')}/"
                     f"{quote(str(task['asset_id']), safe='')}"
+                    f"?v={quote(str(cache_version), safe='')}"
                 ),
                 "media_type": asset["media_type"],
                 "duration": task.get("metadata", {}).get("duration"),
