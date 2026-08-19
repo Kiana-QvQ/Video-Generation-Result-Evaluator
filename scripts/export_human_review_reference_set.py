@@ -30,11 +30,7 @@ AUDIO_EXTENSIONS = {".wav", ".mp3", ".m4a", ".aac"}
 
 README_TEXT = f"""# 带参考生成实验
 
-这里保存原始参考内容生成实验的可读导出，不是 `performance_v8` 的人工投票题库。
-源归档共 18 组，其中 14 组有提示词并被导出；另外 4 组没有提示词，因此只保留在
-`human_review/data/raw_archive/experiments_20260811`，没有复制到这里。
-
-每组实验中，提示词、参考输入和生成结果有什么就保留什么，不要求每一种参考媒介都存在。
+共 14 组，都有提示词。参考图、音频、视频有什么留什么。
 
 数据来源：{CONFLUENCE_SOURCE}
 
@@ -42,24 +38,16 @@ README_TEXT = f"""# 带参考生成实验
 .
 ├── experiments/
 │   └── exp_001__helmet_identity_views/
-│       ├── prompt.txt
-│       ├── reference_inputs/
+│       ├── prompt.txt                 生成提示词
+│       ├── reference_inputs/          生成时的参考输入
 │       │   ├── images/
 │       │   ├── audio/
 │       │   └── videos/
-│       ├── generated_videos/
+│       ├── generated_videos/          模型输出
+│       │   └── run_01__seedance_2_0.mp4
 │       └── experiment.json
-├── manifest.json
-└── README.md
+└── manifest.json
 ```
-
-命名约定：
-
-- `reference_inputs/` 表示生成时使用的参考输入，不再使用容易和评审题混淆的 `references/`。
-- `generated_videos/` 表示模型生成结果，不再使用暗示二选一的 `candidates/`。
-- 实验目录使用 `exp_###__slug`；前半段是稳定 ID，后半段只用于人工浏览。
-- 生成结果使用 `run_XX__model_id.mp4`，不把单个结果称为 `candidate`。
-- `experiment.json` 记录稳定实验 ID、短名称、相对路径、媒介类型、模型信息和源归档位置。
 """
 
 

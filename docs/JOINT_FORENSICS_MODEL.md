@@ -54,7 +54,7 @@ Create a manual annotation template for the Seedance videos:
 
 ```powershell
 & .\.venv\Scripts\python.exe `
-  scripts\create_joint_forensics_annotation_template.py
+  scripts\archive\create_joint_forensics_annotation_template.py
 ```
 
 The important labels are:

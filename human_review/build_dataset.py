@@ -1047,43 +1047,9 @@ class DatasetBuilder:
             asset["normalized_path"] = str(target.resolve())
             asset["source_path"] = str(target.resolve())
 
-    def _write_case_directories(self) -> None:
-        case_dir = self.output_dir / "cases"
-        case_dir.mkdir(parents=True, exist_ok=True)
-        by_case: dict[str, list[dict[str, Any]]] = {}
-        for task in self.tasks:
-            by_case.setdefault(task["case_id"], []).append(task)
-        for case_id, tasks in by_case.items():
-            current = case_dir / stable_slug(case_id)
-            current.mkdir(parents=True, exist_ok=True)
-            first = tasks[0]
-            (current / "prompt.txt").write_text(
-                first.get("prompt", ""),
-                encoding="utf-8",
-            )
-            (current / "metadata.json").write_text(
-                json.dumps(
-                    {
-                        "case_id": case_id,
-                        "task_ids": [task["task_id"] for task in tasks],
-                        "focus": first.get("metadata", {}).get("focus"),
-                        "references": first.get("references", []),
-                        "candidates": [
-                            candidate["candidate_id"]
-                            for candidate in first["candidates"]
-                        ],
-                        "source": first.get("metadata", {}),
-                    },
-                    ensure_ascii=False,
-                    indent=2,
-                ),
-                encoding="utf-8",
-            )
-
     def write_outputs(self) -> dict[str, Any]:
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self._materialize_assets()
-        self._write_case_directories()
         version = self.dataset_id.rsplit("_", 1)[-1]
         reviewable_task_count = sum(
             1

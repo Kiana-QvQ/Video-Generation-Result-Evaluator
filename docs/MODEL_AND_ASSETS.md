@@ -41,7 +41,7 @@ $env:EVALUATOR_GPU_MEMORY_GB = "8"
 
 ```powershell
 .\setup.ps1 -Optional
-.\scripts\download-optional-assets.ps1 -SkipPythonPackages
+.\scripts\tools\download-optional-assets.ps1 -SkipPythonPackages
 ```
 
 下载脚本会生成 `model_cache/OPTIONAL_ASSETS.json`，记录资源大小、来源和
@@ -55,14 +55,14 @@ SHA256。基础评估不依赖这些大模型；缺失时网页端会显示 `OPT
 
 ```powershell
 .\setup.ps1 -VLM
-.\scripts\download-vlm-judge.ps1
+.\scripts\tools\download-vlm-judge.ps1
 .\run.ps1
 ```
 
 12GB 升级模型：
 
 ```powershell
-.\scripts\download-vlm-judge.ps1 -JudgeModel 2.5-3b
+.\scripts\tools\download-vlm-judge.ps1 -JudgeModel 2.5-3b
 .\run.ps1 -WithVlm -VlmModel 2.5-3b -VlmBackend local
 ```
 
@@ -88,7 +88,7 @@ VBench 是独立的可选后端，建议使用 Docker 运行：
 
 ```powershell
 # VBench is not installed into the main .venv.
-.\scripts\download-vbench-models.ps1 -SkipDinoRepository
+.\scripts\tools\download-vbench-models.ps1 -SkipDinoRepository
 .\docker\build-vbench.ps1
 ```
 

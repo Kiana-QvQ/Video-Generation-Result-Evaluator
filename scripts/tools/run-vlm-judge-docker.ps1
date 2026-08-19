@@ -6,7 +6,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$root = (Resolve-Path (Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) "..")).Path
+$root = (Resolve-Path (Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) "..\..")).Path
 $env:DOCKER_CONFIG = Join-Path $root ".docker"
 New-Item -ItemType Directory -Force -Path $env:DOCKER_CONFIG | Out-Null
 if ([string]::IsNullOrWhiteSpace($SglangImage)) {
@@ -30,7 +30,7 @@ $modelPath = Join-Path $root "model_cache\vlm_judge\$($modelSpec.Name)"
 $weightFiles = Get-ChildItem -LiteralPath $modelPath -File -ErrorAction SilentlyContinue |
     Where-Object { $_.Extension -eq ".safetensors" -or $_.Name -eq "pytorch_model.bin" }
 if (-not (Test-Path $modelPath -PathType Container) -or -not $weightFiles) {
-    throw "$($modelSpec.Name) is missing. Run .\scripts\download-vlm-judge.ps1 -JudgeModel $JudgeModel first."
+    throw "$($modelSpec.Name) is missing. Run .\scripts\tools\download-vlm-judge.ps1 -JudgeModel $JudgeModel first."
 }
 
 & docker image inspect $SglangImage *> $null

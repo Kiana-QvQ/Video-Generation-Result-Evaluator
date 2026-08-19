@@ -53,7 +53,7 @@ python scripts/pack_evaluator_bundle.py --flat-host "对方工程"
 先在 `evaluator/` 完成修改和测试，再运行：
 
 ```powershell
-.\scripts\sync_forensics_bundle.ps1
+.\scripts\tools\sync_forensics_bundle.ps1
 ```
 
 该命令只同步公共评估入口、MediaPipe/AU 运行时、forensics 模块、

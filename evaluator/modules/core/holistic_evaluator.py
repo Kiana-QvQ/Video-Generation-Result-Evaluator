@@ -1252,7 +1252,7 @@ def evaluate_text_alignment(
             "status": "unavailable",
             "backend": "openai_clip_framewise",
             "reason": f"CLIP 权重不存在：{weight_path}",
-            "note": "请先运行 scripts/download-optional-assets.ps1 下载 ViT-B/32。",
+            "note": "请先运行 scripts/tools/download-optional-assets.ps1 下载 ViT-B/32。",
             "metrics": {},
             "frame_records": [],
             "warnings": (

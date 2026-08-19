@@ -1,5 +1,5 @@
 param(
-    [string]$RepositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path,
+    [string]$RepositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path,
     [string[]]$Targets = @()
 )
 

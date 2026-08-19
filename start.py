@@ -18,8 +18,8 @@ from typing import Sequence
 
 ROOT = Path(__file__).resolve().parent
 VENV_PYTHON = ROOT / ".venv" / "Scripts" / "python.exe"
-VLM_SCRIPT = ROOT / "scripts" / "run-vlm-judge-docker.ps1"
-VLM_LOCAL_SCRIPT = ROOT / "scripts" / "run-vlm-judge-local.py"
+VLM_SCRIPT = ROOT / "scripts" / "tools" / "run-vlm-judge-docker.ps1"
+VLM_LOCAL_SCRIPT = ROOT / "scripts" / "tools" / "run-vlm-judge-local.py"
 VLM_MODEL_PATHS = {
     "2b": ROOT / "model_cache" / "vlm_judge" / "Qwen2-VL-2B-Instruct-AWQ",
     "2.5-3b": ROOT / "model_cache" / "vlm_judge" / "Qwen2.5-VL-3B-Instruct-AWQ",

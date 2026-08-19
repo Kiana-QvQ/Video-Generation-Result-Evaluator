@@ -5,7 +5,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$root = (Resolve-Path (Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) "..")).Path
+$root = (Resolve-Path (Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) "..\..")).Path
 $python = Join-Path $root ".venv\Scripts\python.exe"
 $modelSpec = @{
     "2b" = @{

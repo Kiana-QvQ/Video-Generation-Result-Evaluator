@@ -124,39 +124,22 @@ python human_review/build_dataset.py `
 
 ## 带参考生成实验
 
-原始参考内容实验与人工投票题库分开保存：
-
-- `human_review/data/raw_archive/experiments_20260811`：唯一原始归档，保留全部 18 组实验。
-- `data/test/with_reference`：从原始归档导出的可读实验副本，目前导出 14 组。
-- `human_review/data/datasets/performance_v8`：人工投票运行时数据集，不作为带参考实验归档。
-
-导出命令：
+原始实验只保存在 `human_review/data/raw_archive/experiments_20260811`。
+可读导出在 `data/test/with_reference`。
 
 ```powershell
-python scripts/export_human_review_reference_set.py --desktop-output ""
+python scripts/export_human_review_reference_set.py
 ```
 
-导出目录使用以下结构：
+导出结构：
 
 ```text
-with_reference/
-├── experiments/
-│   └── exp_001__helmet_identity_views/
-│       ├── prompt.txt
-│       ├── reference_inputs/
-│       │   ├── images/
-│       │   ├── audio/
-│       │   └── videos/
-│       ├── generated_videos/
-│       └── experiment.json
-├── manifest.json
-└── README.md
+with_reference/experiments/exp_001__helmet_identity_views/
+  prompt.txt
+  reference_inputs/images|audio|videos
+  generated_videos/run_01__seedance_2_0.mp4
+  experiment.json
 ```
-
-原始归档共 18 组，其中 14 组有提示词并导出；4 组没有提示词，不进入
-`with_reference`。参考图、参考音频、参考视频按原始数据实际存在的内容保留，
-不再把它们和人工评审中的 `candidates` 概念混用。实验目录采用
-`exp_###__slug`，生成视频采用 `run_XX__model_id.mp4`。
 
 如果服务位于可信反向代理之后，再显式开启代理 IP 读取：
 

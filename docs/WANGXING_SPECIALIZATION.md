@@ -133,7 +133,7 @@ ordinary expression score or weighted total.
 Run the implementation/data audit with:
 
 ```powershell
-.\.venv\Scripts\python.exe scripts\check_wangxing_redesign.py `
+.\.venv\Scripts\python.exe scripts\archive\check_wangxing_redesign.py `
   --output outputs\wangxing_redesign_check.json
 ```
 

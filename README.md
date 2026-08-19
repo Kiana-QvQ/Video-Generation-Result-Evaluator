@@ -86,7 +86,7 @@ $env:FRAME_AUDIT_TRUST_PROXY_HEADERS = "true"
 基础环境不依赖重模型，也不会把代理结果标记成精确模型结果。可选资源：
 
 ```powershell
-.\scripts\download-optional-assets.ps1 -SkipPythonPackages
+.\scripts\tools\download-optional-assets.ps1 -SkipPythonPackages
 ```
 
 显存和模型选择、VLM Judge、ViCLIP 与 VBench 的完整说明见
@@ -96,11 +96,11 @@ $env:FRAME_AUDIT_TRUST_PROXY_HEADERS = "true"
 
 ```powershell
 # VBench（隔离 Docker，不要装进 .venv）
-.\scripts\download-vbench-models.ps1 -SkipDinoRepository
+.\scripts\tools\download-vbench-models.ps1 -SkipDinoRepository
 .\docker\build-vbench.ps1
 
 # 本地 VLM Judge
-.\scripts\download-vlm-judge.ps1
+.\scripts\tools\download-vlm-judge.ps1
 .\.venv\Scripts\python.exe start.py --with-vlm
 # 或
 .\run-grpc.ps1 -WithVlm
