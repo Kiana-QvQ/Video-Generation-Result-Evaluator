@@ -435,12 +435,6 @@ function resetQualityMedia(asset) {
   if (!asset?.url) return;
 
   qualityVideo.src = asset.url;
-  const enforceLimit = () => {
-    if (qualityVideo.currentTime >= MAX_VIDEO_SECONDS) {
-      qualityVideo.currentTime = MAX_VIDEO_SECONDS;
-      qualityVideo.pause();
-    }
-  };
   const onLoadedMetadata = () => {
     qualityVideo.currentTime = 0;
     qualityVideo.play().catch(() => {});
@@ -459,14 +453,10 @@ function resetQualityMedia(asset) {
 
   qualityVideo.addEventListener("loadedmetadata", onLoadedMetadata);
   qualityVideo.addEventListener("loadeddata", onLoadedData, { once: true });
-  qualityVideo.addEventListener("timeupdate", enforceLimit);
-  qualityVideo.addEventListener("seeking", enforceLimit);
   qualityVideo.addEventListener("error", onError, { once: true });
   qualityVideo._reviewCleanup = () => {
     qualityVideo.removeEventListener("loadedmetadata", onLoadedMetadata);
     qualityVideo.removeEventListener("loadeddata", onLoadedData);
-    qualityVideo.removeEventListener("timeupdate", enforceLimit);
-    qualityVideo.removeEventListener("seeking", enforceLimit);
     qualityVideo.removeEventListener("error", onError);
   };
   qualityVideo.load();

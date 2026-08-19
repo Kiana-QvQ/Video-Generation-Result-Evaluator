@@ -1398,3 +1398,150 @@ body {
     min-height: 64px;
   }
 }
+
+/* Keep the single-video section on the same light review skin as pairwise. */
+.topbar {
+  min-height: 94px;
+}
+
+.brand {
+  gap: 15px;
+}
+
+.brand-mark {
+  padding: 10px 9px 9px;
+  font-size: 13px;
+}
+
+.brand-copy {
+  gap: 5px;
+}
+
+.brand-copy strong {
+  font-size: 15px;
+}
+
+.brand-copy small {
+  font-size: 11px;
+}
+
+.topbar-right {
+  gap: 13px;
+  font-size: 12px;
+}
+
+.mode-switch {
+  border-color: var(--line-dark);
+  background: rgba(32, 42, 40, 0.045);
+}
+
+.mode-tab {
+  padding: 8px 12px;
+  color: var(--muted-dark);
+  font-size: 12px;
+}
+
+.mode-tab:hover,
+.mode-tab.is-active {
+  background: var(--coral);
+  color: #fffaf0;
+}
+
+.quality-review-stage {
+  max-width: 1240px;
+  padding: 22px;
+  border: 1px solid rgba(32, 42, 40, 0.16);
+  border-radius: var(--radius);
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.78), transparent 36%),
+    var(--ink-raised);
+  box-shadow: 0 24px 70px rgba(74, 60, 42, 0.12);
+}
+
+.quality-video-card {
+  background: #fbf8f0;
+  border-color: rgba(32, 42, 40, 0.17);
+  box-shadow: 0 12px 28px rgba(74, 60, 42, 0.08);
+}
+
+.quality-video-card .candidate-head {
+  border-color: var(--line-dark);
+}
+
+.quality-video-frame {
+  background: #e8e0d2;
+}
+
+.quality-decision-panel {
+  border-color: rgba(231, 101, 88, 0.42);
+  background:
+    linear-gradient(125deg, rgba(231, 101, 88, 0.12), transparent 48%),
+    #fff8ef;
+}
+
+.quality-rating-button {
+  border-color: rgba(32, 42, 40, 0.16);
+  background: #fffdf8;
+  color: var(--paper);
+}
+
+.quality-rating-button:hover {
+  border-color: var(--coral);
+  background: rgba(231, 101, 88, 0.09);
+}
+
+.quality-rating-button.is-selected {
+  border-color: var(--coral);
+  background: var(--coral);
+  color: #fffaf0;
+}
+
+.quality-rating-button small,
+.quality-rating-button.is-selected small {
+  color: var(--muted);
+}
+
+.quality-rating-button.is-selected small {
+  color: rgba(255, 250, 240, 0.82);
+}
+
+.quality-rating-upper:hover,
+.quality-rating-upper.is-selected {
+  border-color: var(--lime);
+}
+
+.quality-rating-lower:hover,
+.quality-rating-lower.is-selected {
+  border-color: var(--coral);
+}
+
+.quality-decision-panel .decision-footer {
+  color: var(--muted-dark);
+}
+
+@media (max-width: 700px) {
+  .topbar {
+    min-height: 82px;
+  }
+
+  .brand-copy strong {
+    font-size: 13px;
+  }
+
+  .brand-copy small {
+    font-size: 10px;
+  }
+
+  .topbar-right {
+    gap: 7px;
+  }
+
+  .mode-tab {
+    padding: 7px 9px;
+    font-size: 11px;
+  }
+
+  .quality-review-stage {
+    padding: 15px;
+  }
+}
