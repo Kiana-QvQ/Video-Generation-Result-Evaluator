@@ -15,6 +15,15 @@
 .\.venv\Scripts\python.exe scripts\pt_training\run_wangxing_v3_pipeline.py --device cuda
 ```
 
+## PT v4: 25+25 and 32+32
+
+```powershell
+.\.venv\Scripts\python.exe scripts\pt_training\run_wangxing_v4_pipeline.py `
+  --device cuda `
+  --test-set "25+25" data\test\single_video `
+  --test-set "32+32" data\test\wangxing_32x32
+```
+
 ## AU
 
 ```powershell

@@ -18,6 +18,7 @@
 ### PT 训练
 
 - `pt_training/run_wangxing_v3_pipeline.py`：v3 数据、训练和测试一键流程；
+- `pt_training/run_wangxing_v4_pipeline.py`：v4 数据、训练和多测试集一键流程；
 - `pt_training/run_wangxing_v3_pipeline.cmd`：v3 Windows 入口；
 - `pt_training/prepare_wangxing_v3_generalization.py`：准备 v3 泛化数据；
 - `pt_training/train_wangxing_v3_generalization.py`：训练和评估 v3；
