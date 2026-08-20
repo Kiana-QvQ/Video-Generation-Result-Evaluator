@@ -26,6 +26,10 @@ from wangxing_project.face_geometry import (
     FACE_GEOMETRY_DIM,
     extract_face_geometry_features,
 )
+from wangxing_project.temporal_expression import (
+    TRANSITION_FEATURE_NAMES,
+    transition_feature_vector,
+)
 from wangxing_project.joint_au_pt import resolve_torch_device
 from wangxing_project.joint_au_pt import resolve_au_csv_for_video
 from wangxing_project.joint_au_pt_v3 import (
@@ -40,6 +44,8 @@ from wangxing_project.joint_au_pt_v3 import (
 
 V4_MODEL_TYPE = "wangxing_face_geometry_v4"
 FACE_HIDDEN = 32
+TRANSITION_DIM = len(TRANSITION_FEATURE_NAMES)
+TRANSITION_HIDDEN = 64
 
 
 def _sigmoid(values: np.ndarray) -> np.ndarray:
@@ -58,12 +64,18 @@ class FaceGeometryAwareClassifier(nn.Module):
             nn.GELU(),
             nn.Dropout(0.10),
         )
+        self.transition_encoder = nn.Sequential(
+            nn.Linear(TRANSITION_DIM, TRANSITION_HIDDEN),
+            nn.LayerNorm(TRANSITION_HIDDEN),
+            nn.GELU(),
+            nn.Dropout(0.10),
+        )
         self.fusion = nn.Sequential(
-            nn.Linear(1 + FACE_HIDDEN, 64),
-            nn.LayerNorm(64),
+            nn.Linear(1 + FACE_HIDDEN + TRANSITION_HIDDEN, 96),
+            nn.LayerNorm(96),
             nn.GELU(),
             nn.Dropout(0.15),
-            nn.Linear(64, 1),
+            nn.Linear(96, 1),
         )
         self.face_head = nn.Linear(FACE_HIDDEN, 1)
 
@@ -75,6 +87,7 @@ class FaceGeometryAwareClassifier(nn.Module):
         temporal_b: torch.Tensor,
         au: torch.Tensor,
         face_geometry: torch.Tensor,
+        transition_features: torch.Tensor,
         *,
         return_aux: bool = False,
     ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -87,8 +100,12 @@ class FaceGeometryAwareClassifier(nn.Module):
             return_aux=True,
         )
         face = self.face_encoder(face_geometry)
+        transition = self.transition_encoder(transition_features)
         joint = self.fusion(
-            torch.cat([base_joint.unsqueeze(1), face], dim=1)
+            torch.cat(
+                [base_joint.unsqueeze(1), face, transition],
+                dim=1,
+            )
         ).squeeze(1)
         if not return_aux:
             return joint
@@ -117,6 +134,39 @@ def _face_matrix(paths: list[str]) -> np.ndarray:
     return np.stack(
         [extract_face_geometry_features(path) for path in paths]
     ).astype(np.float32)
+
+
+def _transition_matrix(
+    video_paths: list[str],
+    au_paths: list[str],
+    cache_dir: Path,
+) -> np.ndarray:
+    cache_path = cache_dir / "wangxing_v4_transition.npz"
+    wanted = np.asarray(
+        [f"{video}|{au}" for video, au in zip(video_paths, au_paths)],
+        dtype=object,
+    )
+    if cache_path.is_file():
+        try:
+            with np.load(str(cache_path), allow_pickle=True) as payload:
+                cached_paths = payload["paths"].astype(object)
+                if np.array_equal(cached_paths, wanted):
+                    return payload["features"].astype(np.float32)
+        except (KeyError, OSError, ValueError):
+            pass
+    values = np.stack(
+        [
+            transition_feature_vector(video_path=video, au_path=au)
+            for video, au in zip(video_paths, au_paths)
+        ]
+    ).astype(np.float32)
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    np.savez_compressed(
+        str(cache_path),
+        paths=wanted,
+        features=values,
+    )
+    return values
 
 
 def train_wangxing_v4(
@@ -152,20 +202,49 @@ def train_wangxing_v4(
     test_features = _normalize_features(prepared["test_features"], stats)
     face_train_raw = _face_matrix(prepared["train_au_paths"])
     face_test_raw = _face_matrix(prepared["test_au_paths"])
+    transition_train_raw = _transition_matrix(
+        prepared["train_video_paths"],
+        prepared["train_au_paths"],
+        Path(cache_dir),
+    )
+    transition_test_raw = _transition_matrix(
+        prepared["test_video_paths"],
+        prepared["test_au_paths"],
+        Path(cache_dir) / "test",
+    )
     face_mean, face_scale = _standardize_face(face_train_raw, fit_idx)
     face_train = _normalize_face(face_train_raw, face_mean, face_scale)
     face_test = _normalize_face(face_test_raw, face_mean, face_scale)
+    transition_mean, transition_scale = _standardize_face(
+        transition_train_raw,
+        fit_idx,
+    )
+    transition_train = _normalize_face(
+        transition_train_raw,
+        transition_mean,
+        transition_scale,
+    )
+    transition_test = _normalize_face(
+        transition_test_raw,
+        transition_mean,
+        transition_scale,
+    )
 
     labels = prepared["train_labels"]
     x_fit = {name: value[fit_idx] for name, value in train_features.items()}
     x_val = {name: value[val_idx] for name, value in train_features.items()}
     face_fit = face_train[fit_idx]
     face_val = face_train[val_idx]
+    transition_fit = transition_train[fit_idx]
+    transition_val = transition_train[val_idx]
     tensors = [
         torch.from_numpy(np.ascontiguousarray(x_fit[name]))
         for name in ("frame_a", "temporal_a", "frame_b", "temporal_b", "au")
     ]
     tensors.append(torch.from_numpy(np.ascontiguousarray(face_fit)))
+    tensors.append(
+        torch.from_numpy(np.ascontiguousarray(transition_fit))
+    )
     y_fit = labels[fit_idx].astype(np.float32)
     tensors.append(torch.from_numpy(y_fit))
     counts = np.bincount(y_fit.astype(np.int64), minlength=2)
@@ -228,6 +307,9 @@ def train_wangxing_v4(
             for name in ("frame_a", "temporal_a", "frame_b", "temporal_b", "au")
         ]
         val_tensors.append(torch.from_numpy(face_val).to(torch_device))
+        val_tensors.append(
+            torch.from_numpy(transition_val).to(torch_device)
+        )
         with torch.no_grad():
             val_logits = model(*val_tensors).detach().cpu().numpy()
         val_prob = _sigmoid(val_logits)
@@ -265,11 +347,17 @@ def train_wangxing_v4(
         for name in ("frame_a", "temporal_a", "frame_b", "temporal_b", "au")
     ]
     val_tensors.append(torch.from_numpy(face_val).to(torch_device))
+    val_tensors.append(
+        torch.from_numpy(transition_val).to(torch_device)
+    )
     test_tensors = [
         torch.from_numpy(np.ascontiguousarray(test_features[name])).to(torch_device)
         for name in ("frame_a", "temporal_a", "frame_b", "temporal_b", "au")
     ]
     test_tensors.append(torch.from_numpy(face_test).to(torch_device))
+    test_tensors.append(
+        torch.from_numpy(transition_test).to(torch_device)
+    )
     with torch.no_grad():
         val_logits = model(*val_tensors).detach().cpu().numpy()
         test_logits = model(*test_tensors).detach().cpu().numpy()
@@ -296,12 +384,18 @@ def train_wangxing_v4(
         },
         "face_mean": face_mean,
         "face_scale": face_scale,
+        "transition_mean": transition_mean,
+        "transition_scale": transition_scale,
         "temperature": float(temperature),
         "config": {
             "face_geometry_dim": FACE_GEOMETRY_DIM,
             "face_hidden": FACE_HIDDEN,
+            "transition_dim": TRANSITION_DIM,
+            "transition_hidden": TRANSITION_HIDDEN,
             "modality_dropout": float(modality_dropout),
-            "fusion_mode": "v3_temporal_au_plus_face_geometry",
+            "fusion_mode": (
+                "v3_temporal_au_plus_face_geometry_plus_transition_windows"
+            ),
         },
         "dataset": prepared["counts"],
         "validation": {
@@ -394,11 +488,22 @@ def predict_wangxing_v4(
         -8.0,
         8.0,
     ).astype(np.float32)
+    transition = transition_feature_vector(
+        video_path=video_path,
+        au_path=au_path,
+    )[None, :]
+    transition = np.clip(
+        (transition - checkpoint["transition_mean"])
+        / np.maximum(checkpoint["transition_scale"], 1e-4),
+        -8.0,
+        8.0,
+    ).astype(np.float32)
     tensors = [
         torch.from_numpy(normalized[name])
         for name in ("frame_a", "temporal_a", "frame_b", "temporal_b", "au")
     ]
     tensors.append(torch.from_numpy(face))
+    tensors.append(torch.from_numpy(transition))
     with torch.no_grad():
         logit = float(model(*tensors).item())
     probability = float(
@@ -415,7 +520,9 @@ def predict_wangxing_v4(
         "generated_probability": probability,
         "real_probability": 1.0 - probability,
         "model_path": str(model_path),
-        "fusion_mode": "v3_temporal_au_plus_face_geometry",
+        "fusion_mode": (
+            "v3_temporal_au_plus_face_geometry_plus_transition_windows"
+        ),
     }
 
 

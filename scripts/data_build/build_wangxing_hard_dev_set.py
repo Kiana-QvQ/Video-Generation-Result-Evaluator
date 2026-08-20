@@ -110,15 +110,48 @@ def _make_sample(
 ) -> dict[str, Any]:
     label = str(row["label"])
     sample_id = f"{label}_{index:02d}"
-    source_video = Path(str(row["video"])).resolve()
-    source_au = Path(str(row["au"])).resolve()
-    if not source_video.is_file() or not source_au.is_file():
+    local_video = Path(str(row["video"])).resolve()
+    local_au = Path(str(row["au"])).resolve()
+    source_video_value = row.get("source_video")
+    source_video = (
+        PROJECT_ROOT / str(source_video_value)
+        if source_video_value and not Path(str(source_video_value)).is_absolute()
+        else Path(str(source_video_value or local_video))
+    ).resolve()
+    if "data/WangXing_Seedance" in source_video.as_posix():
+        source_au = (
+            PROJECT_ROOT
+            / "data"
+            / "au"
+            / "WangXing_Seedance"
+            / f"{source_video.stem}.csv"
+        )
+    elif "data/test/AI" in source_video.as_posix():
+        source_au = (
+            PROJECT_ROOT
+            / "data"
+            / "au"
+            / "test"
+            / "AI"
+            / f"{source_video.stem}.csv"
+        )
+    elif "data/MD_CL" in source_video.as_posix():
+        relative = source_video.relative_to(
+            (PROJECT_ROOT / "data" / "MD_CL").resolve()
+        )
+        source_au = (
+            PROJECT_ROOT / "data" / "au" / "MD_CL" / relative
+        ).with_suffix(".csv")
+    else:
+        source_au = local_au
+    source_au = source_au.resolve()
+    if not local_video.is_file() or not local_au.is_file():
         raise FileNotFoundError(
-            f"Missing hard-dev pair: {source_video} / {source_au}"
+            f"Missing hard-dev pair: {local_video} / {local_au}"
         )
     sample_root = output_root / "single_video" / label / sample_id
-    _link_or_copy(source_video, sample_root / "video.mp4")
-    _link_or_copy(source_au, sample_root / "au.csv")
+    _link_or_copy(local_video, sample_root / "video.mp4")
+    _link_or_copy(local_au, sample_root / "au.csv")
     return {
         "sample_id": sample_id,
         "label": label,

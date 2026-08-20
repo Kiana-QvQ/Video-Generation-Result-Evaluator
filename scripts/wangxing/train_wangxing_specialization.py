@@ -98,11 +98,25 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.seedance_label_manifest
         else None
     )
+    exclude_au: set[str] = set()
+    if args.holdout_manifest:
+        holdout_path = project_path(args.holdout_manifest)
+        exclude_au |= holdout_paths(
+            holdout_path,
+            domain="real",
+            kind="au",
+        )
+        exclude_au |= holdout_paths(
+            holdout_path,
+            domain="seedance",
+            kind="au",
+        )
     expression = build_expression_profile(
         project_path(args.au_root),
         project_path(args.expression_output),
         pseudo_label_manifest=pseudo_manifest,
         max_pseudo_per_class=args.max_pseudo_per_class,
+        exclude_au_paths=exclude_au,
     )
     result: dict[str, object] = {
         "expression_profile": {
@@ -115,19 +129,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         }
     }
     if pseudo_manifest is not None:
-        exclude_au: set[str] = set()
-        if args.holdout_manifest:
-            holdout_path = project_path(args.holdout_manifest)
-            exclude_au |= holdout_paths(
-                holdout_path,
-                domain="real",
-                kind="au",
-            )
-            exclude_au |= holdout_paths(
-                holdout_path,
-                domain="seedance",
-                kind="au",
-            )
         source = build_source_profile(
             real_au_root=project_path(args.au_root),
             seedance_label_manifest=pseudo_manifest,

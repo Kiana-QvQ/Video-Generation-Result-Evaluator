@@ -445,6 +445,7 @@ def build_expression_profile(
     pseudo_label_manifest: str | Path | None = None,
     max_pseudo_per_class: int = 40,
     real_paths: Iterable[str | Path] | None = None,
+    exclude_au_paths: set[str] | None = None,
 ) -> dict[str, Any]:
     """Fit class support domains from real data plus trusted pseudo-labels."""
     au_root = Path(au_root)
@@ -458,7 +459,13 @@ def build_expression_profile(
         if real_paths is not None
         else sorted(au_root.rglob("*.csv"))
     )
+    excluded = {
+        str(Path(path).resolve()).casefold()
+        for path in (exclude_au_paths or set())
+    }
     for path in source_paths:
+        if str(path.resolve()).casefold() in excluded:
+            continue
         expression_class = _expression_class_from_path(path)
         if expression_class is None:
             continue
@@ -519,6 +526,8 @@ def build_expression_profile(
             if not au_path_value:
                 continue
             au_path = Path(str(au_path_value))
+            if str(au_path.resolve()).casefold() in excluded:
+                continue
             if not au_path.is_file():
                 skipped.append(
                     {

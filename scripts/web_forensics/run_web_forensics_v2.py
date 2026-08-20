@@ -53,6 +53,10 @@ from scripts.web_forensics.evaluate_single_video_forensics_dataset import (
 from scripts.web_forensics.web_authenticity_policy import (
     apply_policy,
 )
+from wangxing_project.temporal_expression import (
+    TRANSITION_FEATURE_NAMES,
+    extract_transition_features,
+)
 
 FEATURE_NAMES = (
     "wx_real_probability_0_1",
@@ -121,6 +125,7 @@ FEATURE_NAMES = (
     "texture_face_crop_temporal_residual_0_1",
     "texture_full_face_temporal_residual_gap_0_1",
 )
+FEATURE_NAMES_WITH_TRANSITION = FEATURE_NAMES + TRANSITION_FEATURE_NAMES
 
 
 def _load_json(path: Path) -> dict[str, Any]:
@@ -529,6 +534,8 @@ def _feature_vector(
     source_profile: dict[str, Any],
     profiles: dict[str, Any],
     device: str,
+    feature_names: tuple[str, ...] = FEATURE_NAMES,
+    transition_features: bool = False,
 ) -> tuple[np.ndarray, dict[str, Any]]:
     report = analyze_forensics(
         facial_motion=au_path,
@@ -554,8 +561,15 @@ def _feature_vector(
             device=device,
         ),
     }
+    if transition_features:
+        merged.update(
+            extract_transition_features(
+                video_path=video_path,
+                au_path=au_path,
+            )
+        )
     vector = np.asarray(
-        [_finite(merged.get(name)) for name in FEATURE_NAMES],
+        [_finite(merged.get(name)) for name in feature_names],
         dtype=np.float64,
     )
     return vector, report
@@ -567,6 +581,7 @@ def _train_logistic(
     *,
     groups: list[str],
     seed: int,
+    feature_names: tuple[str, ...],
 ) -> dict[str, Any]:
     from sklearn.linear_model import LogisticRegression
     from sklearn.model_selection import GroupShuffleSplit
@@ -624,8 +639,12 @@ def _train_logistic(
             best = candidate
     assert best is not None
     return {
-        "schema_version": "web_forensics_fusion_v2",
-        "feature_names": list(FEATURE_NAMES),
+        "schema_version": (
+            "web_forensics_fusion_v3"
+            if any(name in TRANSITION_FEATURE_NAMES for name in feature_names)
+            else "web_forensics_fusion_v2"
+        ),
+        "feature_names": list(feature_names),
         "scaler_mean": scaler.mean_.astype(float).tolist(),
         "scaler_scale": scaler.scale_.astype(float).tolist(),
         "coef": model.coef_.reshape(-1).astype(float).tolist(),
@@ -734,13 +753,22 @@ def cmd_train(args: argparse.Namespace) -> None:
     if len(rows) < 8 or len({label for label, _, _ in rows}) < 2:
         raise SystemExit("Insufficient web-forensics fusion training rows.")
     cache_path = project_path(args.feature_cache)
+    feature_names = (
+        FEATURE_NAMES_WITH_TRANSITION
+        if args.transition_features
+        else FEATURE_NAMES
+    )
     cached: dict[str, np.ndarray] = {}
     if cache_path.is_file():
         with np.load(str(cache_path), allow_pickle=True) as payload:
-            cached = {
-                str(path): payload["features"][index]
-                for index, path in enumerate(payload["paths"].tolist())
-            }
+            cached_names = tuple(
+                str(value) for value in payload.get("feature_names", [])
+            )
+            if cached_names == feature_names:
+                cached = {
+                    str(path): payload["features"][index]
+                    for index, path in enumerate(payload["paths"].tolist())
+                }
     features: list[np.ndarray] = []
     labels: list[int] = []
     paths: list[str] = []
@@ -756,6 +784,8 @@ def cmd_train(args: argparse.Namespace) -> None:
                 source_profile=source,
                 profiles=profiles,
                 device=args.device,
+                feature_names=feature_names,
+                transition_features=args.transition_features,
             )
             cached[key] = vector
         features.append(vector)
@@ -770,13 +800,14 @@ def cmd_train(args: argparse.Namespace) -> None:
         str(cache_path),
         paths=np.asarray(paths, dtype=object),
         features=matrix,
-        feature_names=np.asarray(FEATURE_NAMES, dtype=object),
+        feature_names=np.asarray(feature_names, dtype=object),
     )
     head = _train_logistic(
         matrix,
         np.asarray(labels),
         groups=groups,
         seed=args.seed,
+        feature_names=feature_names,
     )
     head.update(
         {
@@ -800,6 +831,9 @@ def cmd_evaluate(args: argparse.Namespace) -> None:
     profiles = _load_json(profiles_path)
     source = _load_json(source_path)
     head = _load_json(project_path(args.fusion_head))
+    head_feature_names = tuple(
+        str(name) for name in head.get("feature_names", FEATURE_NAMES)
+    )
     authenticity_policy = None
     if args.authenticity_policy:
         authenticity_policy = _load_json(
@@ -821,6 +855,11 @@ def cmd_evaluate(args: argparse.Namespace) -> None:
             source_profile=source,
             profiles=profiles,
             device=args.device,
+            feature_names=head_feature_names,
+            transition_features=any(
+                name in TRANSITION_FEATURE_NAMES
+                for name in head_feature_names
+            ),
         )
         fusion = _predict_fusion(vector, head)
         fusion["decision"] = fusion["prediction"]
@@ -1000,6 +1039,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     train.add_argument("--seed", type=int, default=42)
     train.add_argument("--device", default="cuda")
+    train.add_argument(
+        "--transition-features",
+        action="store_true",
+        help="Add expression-transition and local face temporal features.",
+    )
     train.set_defaults(func=cmd_train)
 
     evaluate = sub.add_parser("evaluate")
@@ -1072,6 +1116,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     all_command.add_argument("--device", default="cuda")
     all_command.add_argument("--wangxing-device", choices=("cpu", "cuda"), default="cuda")
+    all_command.add_argument(
+        "--transition-features",
+        action="store_true",
+        help="Add expression-transition and local face temporal features.",
+    )
     all_command.add_argument(
         "--output-root",
         default="outputs/forensics/web_forensics_v2_results",
