@@ -50,6 +50,9 @@ from scripts.web_forensics.evaluate_single_video_forensics_dataset import (
     _build_web_card,
     _run_one,
 )
+from scripts.web_forensics.web_authenticity_policy import (
+    apply_policy,
+)
 
 FEATURE_NAMES = (
     "wx_real_probability_0_1",
@@ -797,6 +800,11 @@ def cmd_evaluate(args: argparse.Namespace) -> None:
     profiles = _load_json(profiles_path)
     source = _load_json(source_path)
     head = _load_json(project_path(args.fusion_head))
+    authenticity_policy = None
+    if args.authenticity_policy:
+        authenticity_policy = _load_json(
+            project_path(args.authenticity_policy)
+        )
     identity, expression, _source_identity = (
         resolve_profile("wangxing_identity_profile.json", required=True),
         resolve_profile("wangxing_expression_profile.json", required=True),
@@ -843,21 +851,46 @@ def cmd_evaluate(args: argparse.Namespace) -> None:
         )
         card_result["web_fusion"] = fusion
         card_result["web_fusion"]["raw_feature_count"] = len(vector)
+        if authenticity_policy:
+            policy_result = apply_policy(
+                card_result,
+                authenticity_policy["policy"],
+            )
+            card_result["web_policy"] = policy_result
         card_result.setdefault("web_card", {})[
             "optimized_forensics"
         ] = {
-            "conclusion": fusion["conclusion"],
-            "detail": fusion["detail"],
-            "real_probability": fusion["real_probability"],
-            "generated_probability": fusion["generated_probability"],
-            "threshold_generated": fusion["threshold_generated"],
+            "conclusion": (
+                "偏向 AI 生成"
+                if (
+                    card_result.get("web_policy", fusion)["prediction"]
+                    == "generated"
+                )
+                else "偏向真实拍摄"
+            ),
+            "detail": (
+                f"网页真实性策略真实拍摄概率为 "
+                f"{card_result.get('web_policy', fusion)['real_probability'] * 100.0:.1f}%。"
+            ),
+            "real_probability": card_result.get(
+                "web_policy", fusion
+            )["real_probability"],
+            "generated_probability": card_result.get(
+                "web_policy", fusion
+            )["generated_probability"],
+            "threshold_generated": card_result.get(
+                "web_policy", fusion
+            )["threshold_generated"],
         }
         results.append(card_result)
     output = project_path(args.output_root)
     output.mkdir(parents=True, exist_ok=True)
     labels = [int(row.get("label_generated", 0)) for row in results]
     predictions = [
-        int(row["web_fusion"]["prediction"] == "generated")
+        int(
+            row.get("web_policy", row["web_fusion"])["prediction"]
+            == "generated"
+        )
         for row in results
     ]
     tp = sum(y == 1 and p == 1 for y, p in zip(labels, predictions))
@@ -883,6 +916,11 @@ def cmd_evaluate(args: argparse.Namespace) -> None:
         {
             "schema_version": "web_forensics_v2_results_v1",
             "fusion_head": str(project_path(args.fusion_head)),
+            "authenticity_policy": (
+                str(project_path(args.authenticity_policy))
+                if args.authenticity_policy
+                else None
+            ),
             "forensics_profile": str(profiles_path),
             "source_profile": str(source_path),
             "summary": summary,
@@ -985,6 +1023,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--output-root",
         default="outputs/forensics/web_forensics_v2_results",
     )
+    evaluate.add_argument(
+        "--authenticity-policy",
+        default=None,
+        help=(
+            "Optional development-fitted policy that keeps identity out of "
+            "the authenticity probability."
+        ),
+    )
     evaluate.add_argument("--device", default="cuda")
     evaluate.add_argument("--wangxing-device", choices=("cpu", "cuda"), default="cuda")
     evaluate.set_defaults(func=cmd_evaluate)
@@ -1029,6 +1075,10 @@ def build_parser() -> argparse.ArgumentParser:
     all_command.add_argument(
         "--output-root",
         default="outputs/forensics/web_forensics_v2_results",
+    )
+    all_command.add_argument(
+        "--authenticity-policy",
+        default=None,
     )
 
     def cmd_all(args: argparse.Namespace) -> None:

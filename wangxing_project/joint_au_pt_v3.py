@@ -468,6 +468,8 @@ def _prepare_data(
         labels: list[int] = []
         groups: list[str] = []
         base_labels: list[int] = []
+        video_paths: list[str] = []
+        au_paths: list[str] = []
         missing: list[str] = []
         for item in pairs:
             video = project_path(str(item["video"]))
@@ -490,11 +492,15 @@ def _prepare_data(
                 str(item.get("group_id") or video_key)
             )
             base_labels.append(int(item.get("base_label", label)))
+            video_paths.append(str(video.resolve()))
+            au_paths.append(str(au_path.resolve()))
         return {
             "rows": rows,
             "labels": np.asarray(labels, dtype=np.int64),
             "groups": groups,
             "base_labels": np.asarray(base_labels, dtype=np.int64),
+            "video_paths": video_paths,
+            "au_paths": au_paths,
             "missing": missing,
         }
 
@@ -521,11 +527,19 @@ def _prepare_data(
         "train_base_labels": np.concatenate(
             [train["base_labels"], fake["base_labels"]]
         ),
+        "train_video_paths": train["video_paths"] + fake["video_paths"],
+        "train_au_paths": train["au_paths"] + fake["au_paths"],
         "test_features": _stack(
             test_real_data["rows"] + test_fake_data["rows"]
         ),
         "test_labels": np.concatenate(
             [test_real_data["labels"], test_fake_data["labels"]]
+        ),
+        "test_video_paths": (
+            test_real_data["video_paths"] + test_fake_data["video_paths"]
+        ),
+        "test_au_paths": (
+            test_real_data["au_paths"] + test_fake_data["au_paths"]
         ),
         "counts": {
             "train_real": len(train["labels"]),

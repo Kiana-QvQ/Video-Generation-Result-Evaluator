@@ -9,6 +9,7 @@
 
 - `web_forensics/evaluate_single_video_forensics_dataset.py`：网页卡片式单视频评估；
 - `web_forensics/run_web_forensics_v2.py`：网页 v2 融合流程；
+- `web_forensics/web_authenticity_policy.py`：困难开发集真实性策略；
 - `data_build/build_web_forensics_v2_dataset.py`：构建网页测试集；
 - `data_build/build_independent_25x25_test_sets.py`：构建 25+25 测试集；
 - `data_build/build_wangxing_32x32_final_test.py`：构建新的 32+32 最终测试集；
@@ -20,6 +21,8 @@
 - `pt_training/run_wangxing_v3_pipeline.cmd`：v3 Windows 入口；
 - `pt_training/prepare_wangxing_v3_generalization.py`：准备 v3 泛化数据；
 - `pt_training/train_wangxing_v3_generalization.py`：训练和评估 v3；
+- `pt_training/prepare_wangxing_v4_photometric.py`：准备光照/压缩增强；
+- `pt_training/train_wangxing_v4_face.py`：训练和评估人脸几何分支 v4；
 - `pt_training/train_wangxing_joint_au_pt.py`：AU+PT v1；
 - `pt_training/train_wangxing_joint_au_pt_v2.py`：AU+PT v2；
 - `pt_training/prepare_res1k_au_pt_training.py`：准备 Res1k AU+PT 数据。
