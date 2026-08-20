@@ -58,7 +58,7 @@ environment:
 - Local VLM: `requirements/vlm_local.txt`, Transformers 4.46.3.
 - LibreFace: `.\setup-libreface.ps1`, Torch 2.0.
 
-Run `python scripts/audit_dataset.py --strict` before training. Missing clips
+Run `python scripts/archive/audit_dataset.py --strict` before training. Missing clips
 or AU CSV files must be repaired or deliberately excluded; they are not
 silently treated as complete training data.
 

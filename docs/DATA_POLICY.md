@@ -7,7 +7,7 @@ the source repository as ordinary Git blobs.
 - Store large media/checkpoints with Git LFS, DVC, or object storage.
 - Record source URL, license, file size, SHA256, and extraction version in a
   manifest.
-- Run `python scripts/audit_dataset.py` after restoring a dataset.
+- Run `python scripts/archive/audit_dataset.py` after restoring a dataset.
 - Use `--strict` in CI or before AU profile/classifier training.
 
 The existing checked-in data is intentionally not deleted by this change.

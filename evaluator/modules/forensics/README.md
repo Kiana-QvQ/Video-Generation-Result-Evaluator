@@ -101,7 +101,7 @@ report = analyze_forensics(
 ## 评估候选样本
 
 ```powershell
-.\.venv\Scripts\python.exe scripts\evaluate_forensics.py `
+.\.venv\Scripts\python.exe scripts\history\old_experiments\evaluate_forensics.py `
   --profile outputs\forensics\forensics_profiles.json `
   --au-csv data\au\WangXing_Seedance\candidate.csv `
   --video data\WangXing_Seedance\candidate.mp4 `

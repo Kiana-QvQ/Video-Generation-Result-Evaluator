@@ -217,13 +217,13 @@ def write_commands_file(path: Path) -> None:
 在仓库根目录、`.venv`：
 
 ```powershell
-.\\.venv\\Scripts\\python.exe scripts\\PT训练\\prepare_res1k_au_pt_training.py
+.\\.venv\\Scripts\\python.exe scripts\\pt_training\\prepare_res1k_au_pt_training.py
 ```
 
 ## 1) 联合 AU+视频 .pt（新路径）
 
 ```powershell
-.\\.venv\\Scripts\\python.exe scripts\\PT训练\\train_wangxing_joint_au_pt.py train `
+.\\.venv\\Scripts\\python.exe scripts\\pt_training\\train_wangxing_joint_au_pt.py train `
   --manifest outputs\\vedio_pred\\wangxing_dual_pt_split_res1k.json `
   --cache-dir outputs\\vedio_pred\\cache_joint_au_pt_res1k `
   --model-path outputs\\vedio_pred\\models\\wangxing_joint_au_pt_res1k.pt `
@@ -240,7 +240,7 @@ def write_commands_file(path: Path) -> None:
 ## 2) 评估：官方 holdout（防回退）
 
 ```powershell
-.\\.venv\\Scripts\\python.exe scripts\\PT训练\\train_wangxing_joint_au_pt.py evaluate `
+.\\.venv\\Scripts\\python.exe scripts\\pt_training\\train_wangxing_joint_au_pt.py evaluate `
   --holdout-manifest data\\forensics\\holdout_split.json `
   --model-path outputs\\vedio_pred\\models\\wangxing_joint_au_pt_res1k.pt `
   --source-profile outputs\\forensics\\wangxing_source_profile_holdout_excluded.json `
@@ -251,7 +251,7 @@ def write_commands_file(path: Path) -> None:
 ## 3) 评估：test/AI 五条（只测）
 
 ```powershell
-.\\.venv\\Scripts\\python.exe scripts\\PT训练\\train_wangxing_joint_au_pt.py evaluate `
+.\\.venv\\Scripts\\python.exe scripts\\pt_training\\train_wangxing_joint_au_pt.py evaluate `
   --holdout-manifest data\\forensics\\holdout_test_AI.json `
   --model-path outputs\\vedio_pred\\models\\wangxing_joint_au_pt_res1k.pt `
   --source-profile outputs\\forensics\\wangxing_source_profile_holdout_excluded.json `
@@ -264,7 +264,7 @@ def write_commands_file(path: Path) -> None:
 若还想单独训纯视频 res1k dual（对比基线）：
 
 ```powershell
-.\\.venv\\Scripts\\python.exe scripts\\PT训练\\train_wangxing_video_pt.py train `
+.\\.venv\\Scripts\\python.exe scripts\\pt_training\\train_wangxing_video_pt.py train `
   --manifest outputs\\vedio_pred\\wangxing_dual_pt_split_res1k.json `
   --cache-dir outputs\\vedio_pred\\cache_res1k `
   --model-path outputs\\vedio_pred\\models\\wangxing_dual_scale_classifier_res1k.pt `
