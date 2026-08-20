@@ -23,13 +23,13 @@ evaluator/
 å¯¹æ–¹å·¥ç¨‹å·²æ˜¯ã€Œæ ¹ç›®å½• `detail_expression_metrics.py` + `modules/`ã€æ—¶ï¼Œæ‰§è¡Œï¼š
 
 ```powershell
-python scripts/pack_evaluator_bundle.py --flat-host "å¯¹æ–¹å·¥ç¨‹"
+python scripts/data_tools/pack_evaluator_bundle.py --flat-host "å¯¹æ–¹å·¥ç¨‹"
 ```
 
 æˆ–è¦†ç›–åˆ° `Evaluator/`ï¼ˆè‹¥è¯¥ç›®å½•å³å¯¹æ–¹å®Œæ•´å·¥ç¨‹æ ¹ï¼‰ï¼š
 
 ```powershell
-python scripts/pack_evaluator_bundle.py --flat-host "Evaluator"
+python scripts/data_tools/pack_evaluator_bundle.py --flat-host "Evaluator"
 ```
 
 åªè¦†ç›– `detail_expression_metrics.py` ä¸ `modules/`ï¼Œ**ä¸æ”¹**å¯¹æ–¹çš„
@@ -74,13 +74,13 @@ print(expression.name, expression.score, expression.status)
 ## æ‰“ zip
 
 ```powershell
-python scripts/pack_evaluator_bundle.py --output outputs/evaluator.zip
+python scripts/data_tools/pack_evaluator_bundle.py --output outputs/evaluator.zip
 ```
 
 åˆ·æ–°ç”»åƒå‰¯æœ¬ï¼š
 
 ```powershell
-python scripts/pack_evaluator_bundle.py --sync-only
+python scripts/data_tools/pack_evaluator_bundle.py --sync-only
 ```
 
 ## æ¨¡å—èŒè´£
@@ -93,7 +93,7 @@ python scripts/pack_evaluator_bundle.py --sync-only
 | `modules/core/` | è·¯å¾„ã€è§†é¢‘é‡‡æ ·ã€Face Landmarkerã€Expression å›é€€ |
 | `modules/assets/profiles/` | æ‰“åŒ…ç”»åƒä¸æ ¡å‡†å™¨ |
 
-## ÑµÁ·×Ê²úÊÇ·ñ»á±»¶Ô·½ÓÃÉÏ
+## Ñµï¿½ï¿½ï¿½Ê²ï¿½ï¿½Ç·ï¿½á±»ï¿½Ô·ï¿½ï¿½ï¿½ï¿½ï¿½
 
-Ïê¼û `modules/assets/ASSET_USAGE.md`¡£±íÇéÖ÷Â·¾¶ÓÃ 648 Ñù±¾ profile£»ÎŞÅÔÂ· AU »á×Ô¶¯ºÏ³É AU£»Éí·İ/À´Ô´»­ÏñĞ´Èë details¡£
+ï¿½ï¿½ï¿½ `modules/assets/ASSET_USAGE.md`ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Â·ï¿½ï¿½ï¿½ï¿½ 648 ï¿½ï¿½ï¿½ï¿½ profileï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Â· AU ï¿½ï¿½ï¿½Ô¶ï¿½ï¿½Ï³ï¿½ AUï¿½ï¿½ï¿½ï¿½ï¿½/ï¿½ï¿½Ô´ï¿½ï¿½ï¿½ï¿½Ğ´ï¿½ï¿½ detailsï¿½ï¿½
 

@@ -9,7 +9,7 @@
 在仓库根目录、`.venv`：
 
 ```powershell
-.\.venv\Scripts\python.exe scripts\prepare_res1k_au_pt_training.py
+.\.venv\Scripts\python.exe scripts\pt_training\prepare_res1k_au_pt_training.py
 ```
 
 若 1k 降采样文件已存在，prepare 会跳过 ffmpeg，只补写 `pairs`（video↔AU）。
@@ -17,7 +17,7 @@
 ## 1) 联合 AU+视频 .pt（新路径）
 
 ```powershell
-.\.venv\Scripts\python.exe scripts\train_wangxing_joint_au_pt.py train `
+.\.venv\Scripts\python.exe scripts\pt_training\train_wangxing_joint_au_pt.py train `
   --manifest outputs\vedio_pred\wangxing_dual_pt_split_res1k.json `
   --cache-dir outputs\vedio_pred\cache_joint_au_pt_res1k `
   --model-path outputs\vedio_pred\models\wangxing_joint_au_pt_res1k.pt `
@@ -34,7 +34,7 @@
 ## 2) 评估：官方 holdout（防回退）
 
 ```powershell
-.\.venv\Scripts\python.exe scripts\train_wangxing_joint_au_pt.py evaluate `
+.\.venv\Scripts\python.exe scripts\pt_training\train_wangxing_joint_au_pt.py evaluate `
   --holdout-manifest data\forensics\holdout_split.json `
   --model-path outputs\vedio_pred\models\wangxing_joint_au_pt_res1k.pt `
   --source-profile outputs\forensics\wangxing_source_profile_holdout_excluded.json `
@@ -45,7 +45,7 @@
 ## 3) 评估：test/AI 五条（只测）
 
 ```powershell
-.\.venv\Scripts\python.exe scripts\train_wangxing_joint_au_pt.py evaluate `
+.\.venv\Scripts\python.exe scripts\pt_training\train_wangxing_joint_au_pt.py evaluate `
   --holdout-manifest data\forensics\holdout_test_AI.json `
   --model-path outputs\vedio_pred\models\wangxing_joint_au_pt_res1k.pt `
   --source-profile outputs\forensics\wangxing_source_profile_holdout_excluded.json `
@@ -58,7 +58,7 @@
 若还想单独训纯视频 res1k dual（对比基线）：
 
 ```powershell
-.\.venv\Scripts\python.exe scripts\train_wangxing_video_pt.py train `
+.\.venv\Scripts\python.exe scripts\pt_training\train_wangxing_video_pt.py train `
   --manifest outputs\vedio_pred\wangxing_dual_pt_split_res1k.json `
   --cache-dir outputs\vedio_pred\cache_res1k `
   --model-path outputs\vedio_pred\models\wangxing_dual_scale_classifier_res1k.pt `
@@ -78,7 +78,7 @@ v2 使用视频分支、AU 分支、AU 条件门控，以及 joint/video/AU 三�
 训练时加入轻量 modality dropout，`data/test/AI` 的 Change 样本仍只用于测试。
 
 ```powershell
-.\.venv\Scripts\python.exe scripts\train_wangxing_joint_au_pt_v2.py train `
+.\.venv\Scripts\python.exe scripts\pt_training\train_wangxing_joint_au_pt_v2.py train `
   --manifest outputs\vedio_pred\wangxing_dual_pt_split_res1k.json `
   --cache-dir outputs\vedio_pred\cache_joint_au_pt_v2_res1k `
   --model-path outputs\vedio_pred\models\wangxing_joint_au_pt_v2_res1k.pt `
@@ -93,7 +93,7 @@ v2 使用视频分支、AU 分支、AU 条件门控，以及 joint/video/AU 三�
 官方 holdout：
 
 ```powershell
-.\.venv\Scripts\python.exe scripts\train_wangxing_joint_au_pt_v2.py evaluate `
+.\.venv\Scripts\python.exe scripts\pt_training\train_wangxing_joint_au_pt_v2.py evaluate `
   --holdout-manifest data\forensics\holdout_split.json `
   --model-path outputs\vedio_pred\models\wangxing_joint_au_pt_v2_res1k.pt `
   --source-profile outputs\forensics\wangxing_source_profile_holdout_excluded.json `
@@ -104,7 +104,7 @@ v2 使用视频分支、AU 分支、AU 条件门控，以及 joint/video/AU 三�
 5 条 Change 仅测试：
 
 ```powershell
-.\.venv\Scripts\python.exe scripts\train_wangxing_joint_au_pt_v2.py evaluate `
+.\.venv\Scripts\python.exe scripts\pt_training\train_wangxing_joint_au_pt_v2.py evaluate `
   --holdout-manifest data\forensics\holdout_test_AI.json `
   --model-path outputs\vedio_pred\models\wangxing_joint_au_pt_v2_res1k.pt `
   --source-profile outputs\forensics\wangxing_source_profile_holdout_excluded.json `
@@ -117,7 +117,7 @@ v2 使用视频分支、AU 分支、AU 条件门控，以及 joint/video/AU 三�
 `data/test/AI`，并生成媒体域增强与 real-derived pseudo-fake：
 
 ```powershell
-.\.venv\Scripts\python.exe scripts\prepare_wangxing_v3_generalization.py `
+.\.venv\Scripts\python.exe scripts\pt_training\prepare_wangxing_v3_generalization.py `
   --manifest outputs\vedio_pred\wangxing_dual_pt_split_res1k.json `
   --output-manifest outputs\vedio_pred\wangxing_v3_generalization_manifest_res1k.json `
   --output-root data\_aug\wangxing_v3_generalization `
@@ -129,7 +129,7 @@ v2 使用视频分支、AU 分支、AU 条件门控，以及 joint/video/AU 三�
 再训练 v3。视频特征抽取仍在 CPU，时序 AU+视频模型训练使用 CUDA：
 
 ```powershell
-.\.venv\Scripts\python.exe scripts\train_wangxing_v3_generalization.py train `
+.\.venv\Scripts\python.exe scripts\pt_training\train_wangxing_v3_generalization.py train `
   --manifest outputs\vedio_pred\wangxing_v3_generalization_manifest_res1k.json `
   --cache-dir outputs\vedio_pred\cache_wangxing_v3_res1k `
   --model-path outputs\vedio_pred\models\wangxing_v3_res1k.pt `
@@ -144,7 +144,7 @@ v2 使用视频分支、AU 分支、AU 条件门控，以及 joint/video/AU 三�
 官方 holdout：
 
 ```powershell
-.\.venv\Scripts\python.exe scripts\train_wangxing_v3_generalization.py evaluate `
+.\.venv\Scripts\python.exe scripts\pt_training\train_wangxing_v3_generalization.py evaluate `
   --holdout-manifest data\forensics\holdout_split.json `
   --model-path outputs\vedio_pred\models\wangxing_v3_res1k.pt `
   --source-profile outputs\forensics\wangxing_source_profile_holdout_excluded.json `
@@ -155,7 +155,7 @@ v2 使用视频分支、AU 分支、AU 条件门控，以及 joint/video/AU 三�
 5 条 Change 只做最终测试：
 
 ```powershell
-.\.venv\Scripts\python.exe scripts\train_wangxing_v3_generalization.py evaluate `
+.\.venv\Scripts\python.exe scripts\pt_training\train_wangxing_v3_generalization.py evaluate `
   --holdout-manifest data\forensics\holdout_test_AI.json `
   --model-path outputs\vedio_pred\models\wangxing_v3_res1k.pt `
   --source-profile outputs\forensics\wangxing_source_profile_holdout_excluded.json `

@@ -22,7 +22,7 @@ training. Their filenames are not treated as labels. Run the automatic
 content-labeling pass first:
 
 ```powershell
-.\scripts\run_seedance_expression_labeling.cmd `
+.\scripts\wangxing\run_seedance_expression_labeling.cmd `
   --device cpu
 ```
 
@@ -38,7 +38,7 @@ The identity build can take longer than ten minutes on CPU. Run it manually
 in the project root so progress stays visible:
 
 ```powershell
-.\scripts\run_wangxing_specialization_training.ps1 `
+.\scripts\wangxing\run_wangxing_specialization_training.ps1 `
   -Device cpu `
   -IdentityLimit 240 `
   -IdentityFrames 1
@@ -49,14 +49,14 @@ command without changing the machine policy:
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File `
-  .\scripts\run_wangxing_specialization_training.ps1 `
+  .\scripts\wangxing\run_wangxing_specialization_training.ps1 `
   -Device cpu -IdentityLimit 0 -IdentityFrames 1
 ```
 
 Or use the CMD launcher, which does not depend on PowerShell script policy:
 
 ```powershell
-.\scripts\run_wangxing_specialization_training.cmd `
+.\scripts\wangxing\run_wangxing_specialization_training.cmd `
   --device cpu --identity-limit 0 --identity-frames 1
 ```
 
@@ -93,7 +93,7 @@ are not present in the current workspace and were not downloaded in this
 iteration. RAVDESS can be expanded with the existing resumable downloader:
 
 ```powershell
-.\.venv\Scripts\python.exe scripts\download_ravdess_negative.py `
+.\.venv\Scripts\python.exe scripts\au\download_ravdess_negative.py `
   --actors 1,2,3,4,5,6 `
   --max-videos 240
 ```

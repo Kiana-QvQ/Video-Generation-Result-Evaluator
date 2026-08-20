@@ -9,7 +9,7 @@ Install the official LibreFace CLI in its supported environment first. The
 CLI writes one row per video frame.
 
 ```powershell
-.\.venv\Scripts\python.exe scripts\extract_libreface_au.py `
+.\.venv\Scripts\python.exe scripts\au\extract_libreface_au.py `
     --input-root data\MD_CL `
     --output-root data\au\MD_CL `
     --exclude-dir "CL_FACS*" `
@@ -23,7 +23,7 @@ CLI writes one row per video frame.
 For a generated video or a driver video outside the dataset:
 
 ```powershell
-.\.venv\Scripts\python.exe scripts\extract_libreface_au.py `
+.\.venv\Scripts\python.exe scripts\au\extract_libreface_au.py `
     --input .\generated.mp4 `
     --output-root data\au\generated `
     --device cpu
@@ -34,7 +34,7 @@ The output keeps the same relative directory structure, so files with the
 same name in different `CL_*` directories do not overwrite each other:
 
 ```powershell
-.\.venv\Scripts\python.exe scripts\extract_libreface_au.py `
+.\.venv\Scripts\python.exe scripts\au\extract_libreface_au.py `
     --input-root data\MD_CL `
     --output-root data\au\MD_CL `
     --exclude-dir "CL_FACS*" `
@@ -52,7 +52,7 @@ For difficult side-profile or extreme-pose clips, use the local InsightFace
 detector as a frame-alignment fallback:
 
 ```powershell
-.\.venv\Scripts\python.exe scripts\extract_libreface_au.py `
+.\.venv\Scripts\python.exe scripts\au\extract_libreface_au.py `
     --input-root data\MD_CL `
     --output-root data\au\MD_CL `
     --exclude-dir "CL_FACS*" `
@@ -90,7 +90,7 @@ and `CL_beishang` -> `sadness`.
 `CL_yanwu` -> `disgust`.
 
 ```powershell
-.\.venv\Scripts\python.exe scripts\build_original_emotion_au_profile.py `
+.\.venv\Scripts\python.exe scripts\data_build\build_original_emotion_au_profile.py `
     --au-root data\au\MD_CL `
     --video-root data\MD_CL `
     --output data\au\original_emotion_au_profile.json
@@ -128,7 +128,7 @@ Missing columns remain `NaN` internally and reduce evidence confidence; they
 are never silently interpreted as zero activation.
 
 ```powershell
-.\.venv\Scripts\python.exe scripts\build_au_profile.py `
+.\.venv\Scripts\python.exe scripts\data_build\build_au_profile.py `
     --au-root data\au\MD_CL `
     --input-root data\au\MD_CL `
     --video-root data\MD_CL `
@@ -146,7 +146,7 @@ Validate the rebuilt CSV-only classifiers without using reference images,
 reference videos, or GT videos:
 
 ```powershell
-.\.venv\Scripts\python.exe scripts\validate_au_models.py `
+.\.venv\Scripts\python.exe scripts\au\validate_au_models.py `
     --au-root data\au\MD_CL `
     --negative-root data\au\negative `
     --output outputs\au_validation\au_validation_report.json `
@@ -163,7 +163,7 @@ The positive directory must contain real Wang Xing AU CSV files. The negative
 directory must contain other-person or known-bad AI AU CSV files.
 
 ```powershell
-.\.venv\Scripts\python.exe scripts\fit_au_leakage_classifier.py `
+.\.venv\Scripts\python.exe scripts\au\fit_au_leakage_classifier.py `
     --positive-root data\au\MD_CL `
     --negative-root data\au\negative `
     --output data\au\au_leakage_classifier.json
@@ -184,7 +184,7 @@ The default is two actors and 48 videos, balanced over the eight RAVDESS
 emotion codes:
 
 ```powershell
-.\scripts\run_au_training_pipeline.ps1 `
+.\scripts\au\run_au_training_pipeline.ps1 `
     -NegativeDataset RAVDESS `
     -RavdessActors 1,2 `
     -MaxNegativeVideos 48 `
@@ -205,7 +205,7 @@ For a one-command launcher without opening PowerShell parameters:
 ```
 
 `start.py --train-au` calls the shared Python runner
-`scripts/run_au_training_pipeline.py`. The normal HTTP webpage remains
+`scripts/au/run_au_training_pipeline.py`. The normal HTTP webpage remains
 independent from this training command.
 
 `HUGGINGFACE` is an optional mirror source for the actor ZIP files. Keep its
@@ -215,7 +215,7 @@ cache directory separate from a partially downloaded Zenodo archive. Use
 To use a slightly broader but still bounded subset:
 
 ```powershell
-.\scripts\run_au_training_pipeline.ps1 `
+.\scripts\au\run_au_training_pipeline.ps1 `
     -NegativeDataset RAVDESS `
     -RavdessActors 1,2,3,4 `
     -RavdessEmotions 1,3,4,5,6,7,8 `
@@ -245,7 +245,7 @@ profile, and leakage classifier without extracting videos or downloading
 any data:
 
 ```powershell
-.\.venv\Scripts\python.exe scripts\retrain_au_from_csv.py
+.\.venv\Scripts\python.exe scripts\au\retrain_au_from_csv.py
 ```
 
 ## 3.2 One-click licensed Synthesized MetaHuman negative-data pipeline
@@ -254,7 +254,7 @@ The Synthesized MetaHuman dataset is access-controlled. Complete its
 agreement process and use the official ZIP received from EURECOM:
 
 ```powershell
-.\scripts\run_au_training_pipeline.ps1 `
+.\scripts\au\run_au_training_pipeline.ps1 `
     -NegativeDataset MetaHuman `
     -MetaHumanArchive .\licenses\SynthesizedMetaHuman.zip `
     -Device cuda
@@ -278,7 +278,7 @@ AU CSV automatically, loads the two JSON model artifacts, and writes the
 final evaluation report.
 
 ```powershell
-.\.venv\Scripts\python.exe scripts\evaluate_generated_video.py `
+.\.venv\Scripts\python.exe scripts\web_forensics\evaluate_generated_video.py `
     --generated-video .\generated.mp4 `
     --au-profile data\au\wangxing_au_profile.json `
     --leakage-classifier data\au\au_leakage_classifier.json `
@@ -297,7 +297,7 @@ CSV unless `--force` is supplied.
 ## 4. Evaluate one generated result
 
 ```powershell
-.\.venv\Scripts\python.exe scripts\evaluate_au_compliance.py `
+.\.venv\Scripts\python.exe scripts\au\evaluate_au_compliance.py `
     --generated-video .\generated.mp4 `
     --generated-au data\au\generated\generated.csv `
     --driver-au data\au\driver\driver.csv `
@@ -356,7 +356,7 @@ The evaluator reports these controls separately:
 Rebuild the Wang Xing profile after changing the training dataset:
 
 ```powershell
-.\.venv\Scripts\python.exe scripts\build_au_profile.py `
+.\.venv\Scripts\python.exe scripts\data_build\build_au_profile.py `
     --au-root data\au\MD_CL `
     --input-root data\au\MD_CL `
     --video-root data\MD_CL `

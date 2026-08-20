@@ -25,7 +25,7 @@
 |------|------|
 | `../core/face_landmarker.py` | FaceLandmarker / Face Mesh 姿态归一化、blendshape、虹膜 |
 | `au_ssl.py` | 自监督 AU 时序一致性代理（无需人工 AU 标注） |
-| `au_ssl_backbone.py` | 可训练 TCAE/遮挡帧 AU 时序自编码骨干（`scripts/train_au_ssl_backbone.py`） |
+| `au_ssl_backbone.py` | 可训练 TCAE/遮挡帧 AU 时序自编码骨干（`scripts/au/train_au_ssl_backbone.py`） |
 | `physiological_rhythm.py` | 眨眼 / 眼裂生理节律（关键点 EAR） |
 | `frequency_forensics.py` | 无参考 DCT/FFT 压缩与频谱伪影 |
 | `fused_hard_detector.py` | 王兴 source + forensics 融合**硬判**（无不确定类） |
@@ -35,15 +35,15 @@
 | `perturbation.py` | 自动退化探针（模糊、噪声、闪烁、丢帧、乱序） |
 
 ```powershell
-.\.venv\Scripts\python.exe scripts\train_au_ssl_backbone.py `
+.\.venv\Scripts\python.exe scripts\au\train_au_ssl_backbone.py `
   --au-roots data\au\MD_CL data\au\WangXing_Seedance `
   --limit 120 --epochs 12
 
-.\.venv\Scripts\python.exe scripts\calibrate_pseudo_labels.py `
+.\.venv\Scripts\python.exe scripts\calibration_validation\calibrate_pseudo_labels.py `
   --scored-manifest outputs\forensics\scored_manifest.json `
   --output outputs\forensics\pseudo_calibrator.json
 
-.\.venv\Scripts\python.exe scripts\run_perturbation_robustness.py `
+.\.venv\Scripts\python.exe scripts\web_forensics\run_perturbation_robustness.py `
   --video data\WangXing_Seedance\candidate.mp4 `
   --output outputs\forensics\perturbation.json
 ```
@@ -82,7 +82,7 @@ report = analyze_forensics(
 画像构建可与另一次 AU 提取任务并行：
 
 ```powershell
-.\.venv\Scripts\python.exe scripts\build_forensics_profiles.py `
+.\.venv\Scripts\python.exe scripts\data_build\build_forensics_profiles.py `
   --real-au-root data\au\MD_CL `
   --seedance-au-root outputs\au_cache\wangxing_seedance_expression_v1 `
   --output outputs\forensics\forensics_profiles.json
@@ -115,7 +115,7 @@ report = analyze_forensics(
 画像训练完成后构建校准器：
 
 ```powershell
-.\.venv\Scripts\python.exe scripts\calibrate_forensics.py `
+.\.venv\Scripts\python.exe scripts\calibration_validation\calibrate_forensics.py `
   --profile outputs\forensics\forensics_profiles.json `
   --holdout-manifest data\forensics\holdout_split.json `
   --output outputs\forensics\forensics_authenticity_calibrator.json `

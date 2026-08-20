@@ -316,7 +316,7 @@ def extract_backbone_features(
             "manual_labels_required": False,
             "note": (
                 "No trained AU SSL backbone found; using training-free proxy. "
-                "Run scripts/train_au_ssl_backbone.py on data/au."
+                "Run scripts/au/train_au_ssl_backbone.py on data/au."
             ),
         }
 

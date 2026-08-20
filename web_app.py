@@ -615,7 +615,7 @@ def _run_wangxing_au_assessment(
     output_path.unlink(missing_ok=True)
     command = [
         sys.executable,
-        str(PROJECT_ROOT / "scripts/evaluate_wangxing_specialization.py"),
+        str(PROJECT_ROOT / "scripts/wangxing/evaluate_wangxing_specialization.py"),
         "--generated-video",
         str(result_path),
         "--identity-profile",

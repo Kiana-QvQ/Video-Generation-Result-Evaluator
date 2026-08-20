@@ -194,7 +194,7 @@ python human_review/export_ai_quality_results.py `
 可读导出在 `data/test/with_reference`。
 
 ```powershell
-python scripts/export_human_review_reference_set.py
+python scripts/data_tools/export_human_review_reference_set.py
 ```
 
 导出结构：

@@ -42,9 +42,9 @@ $relativeFiles = @(
 )
 
 $toolFiles = @(
-    "scripts/calibrate_pseudo_labels.py",
-    "scripts/run_perturbation_robustness.py",
-    "scripts/train_au_ssl_backbone.py"
+    "scripts/calibration_validation\calibrate_pseudo_labels.py",
+    "scripts/web_forensics/run_perturbation_robustness.py",
+    "scripts/au/train_au_ssl_backbone.py"
 )
 
 foreach ($targetName in $Targets) {

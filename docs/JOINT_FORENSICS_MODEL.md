@@ -42,7 +42,7 @@ Create a path-only manifest:
 
 ```powershell
 & .\.venv\Scripts\python.exe `
-  scripts\build_joint_forensics_manifest.py
+  scripts\data_build\build_joint_forensics_manifest.py
 ```
 
 The manifest records the current real/Seedance source label and marks the
@@ -78,7 +78,7 @@ extraction job:
 
 ```powershell
 & .\.venv\Scripts\python.exe `
-  scripts\train_joint_forensics.py `
+  scripts\web_forensics\train_joint_forensics.py `
   --manifest outputs\forensics\joint_forensics_manifest.json `
   --feature-root outputs\forensics\joint_features `
   --device cuda
@@ -96,7 +96,7 @@ Evaluate one feature file after a checkpoint exists:
 
 ```powershell
 & .\.venv\Scripts\python.exe `
-  scripts\evaluate_joint_forensics.py `
+  scripts\web_forensics\evaluate_joint_forensics.py `
   --checkpoint outputs\forensics\joint_forensics_model.pt `
   --features outputs\forensics\joint_features\data\WangXing_Seedance\candidate.npz
 ```

@@ -12,7 +12,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from evaluator.modules.core.paths import project_path
 from evaluator.modules.wangxing.wangxing_quality_supplement import evaluate_quality_supplement
-from scripts.evaluate_generated_video import _run_extraction
+from scripts.web_forensics.evaluate_generated_video import _run_extraction
 
 
 def _build_parser() -> argparse.ArgumentParser:

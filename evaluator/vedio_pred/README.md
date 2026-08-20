@@ -30,13 +30,13 @@ video_pred/
 
 ```powershell
 # 1) 只建划分清单（快）
-.\.venv\Scripts\python.exe scripts\train_wangxing_video_pt.py build-split
+.\.venv\Scripts\python.exe scripts\pt_training\train_wangxing_video_pt.py build-split
 
 # 2) 抽帧+归一化+训练+holdout 测试（慢：1k/2k 解码）
-.\.venv\Scripts\python.exe scripts\train_wangxing_video_pt.py train
+.\.venv\Scripts\python.exe scripts\pt_training\train_wangxing_video_pt.py train
 
 # 3) 单条预测
-.\.venv\Scripts\python.exe scripts\train_wangxing_video_pt.py predict --video data\WangXing_Seedance\xxx.mp4
+.\.venv\Scripts\python.exe scripts\pt_training\train_wangxing_video_pt.py predict --video data\WangXing_Seedance\xxx.mp4
 ```
 
 看结果：
