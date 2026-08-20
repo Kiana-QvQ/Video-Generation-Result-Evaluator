@@ -11,6 +11,7 @@
 - `web_forensics/run_web_forensics_v2.py`：网页 v2 融合流程；
 - `data_build/build_web_forensics_v2_dataset.py`：构建网页测试集；
 - `data_build/build_independent_25x25_test_sets.py`：构建 25+25 测试集；
+- `data_build/build_wangxing_32x32_final_test.py`：构建新的 32+32 最终测试集；
 - `data_tools/export_human_review_reference_set.py`：导出真实带参考人审任务。
 
 ### PT 训练

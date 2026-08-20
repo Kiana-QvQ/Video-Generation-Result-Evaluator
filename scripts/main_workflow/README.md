@@ -20,3 +20,11 @@
 ```powershell
 .\.venv\Scripts\python.exe scripts\au\extract_libreface_au.py
 ```
+
+## New Final 32+32 Test Set
+
+Build only; this does not train or modify the old 25+25 set:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\data_build\build_wangxing_32x32_final_test.py
+```
