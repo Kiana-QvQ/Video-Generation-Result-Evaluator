@@ -159,11 +159,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--v4-manifest",
-        default="outputs/vedio_pred/wangxing_v4_generalization_manifest_res1k.json",
+        default="outputs/vedio_pred/wangxing_v4_expression_generalization_manifest_res1k.json",
     )
     parser.add_argument(
         "--augmentation-root",
-        default="data/_aug/wangxing_v4_photometric",
+        default="data/_aug/wangxing_v4_expression_photometric",
     )
     parser.add_argument(
         "--cache-dir",
