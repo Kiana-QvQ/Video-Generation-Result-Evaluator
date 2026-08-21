@@ -18,6 +18,10 @@ from typing import Sequence
 
 ROOT = Path(__file__).resolve().parent
 VENV_PYTHON = ROOT / ".venv" / "Scripts" / "python.exe"
+HUMAN_REVIEW_MODULE = "human_review.server"
+PUBLIC_SHOWCASE_BUILDER = (
+    ROOT / "scripts" / "web_forensics" / "build_public_showcase.py"
+)
 VLM_SCRIPT = ROOT / "scripts" / "tools" / "run-vlm-judge-docker.ps1"
 VLM_LOCAL_SCRIPT = ROOT / "scripts" / "tools" / "run-vlm-judge-local.py"
 VLM_MODEL_PATHS = {
@@ -345,6 +349,27 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Start HTTP and gRPC together.",
     )
+    parser.add_argument(
+        "--with-human-review",
+        action="store_true",
+        help="Start the standalone human-review website alongside Frame Audit.",
+    )
+    parser.add_argument(
+        "--human-review-host",
+        default=None,
+        help="Human-review bind address; defaults to HUMAN_REVIEW_HOST or 127.0.0.1.",
+    )
+    parser.add_argument(
+        "--human-review-port",
+        type=int,
+        default=None,
+        help="Human-review port; defaults to HUMAN_REVIEW_PORT or 5001.",
+    )
+    parser.add_argument(
+        "--skip-public-showcase-refresh",
+        action="store_true",
+        help="Keep the existing public showcase index when starting.",
+    )
     vlm_group = parser.add_mutually_exclusive_group()
     vlm_group.add_argument(
         "--with-vlm",
@@ -463,6 +488,13 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     args.grpc_port = args.grpc_port or int(
         os.environ.get("EVALUATOR_GRPC_PORT", "50051")
     )
+    args.human_review_host = args.human_review_host or os.environ.get(
+        "HUMAN_REVIEW_HOST",
+        "127.0.0.1",
+    )
+    args.human_review_port = args.human_review_port or int(
+        os.environ.get("HUMAN_REVIEW_PORT", "5001")
+    )
     args.tls_certfile = args.tls_certfile or os.environ.get(
         "EVALUATOR_TLS_CERTFILE",
         "",
@@ -488,6 +520,57 @@ def _start_grpc_process(args: argparse.Namespace) -> subprocess.Popen[bytes]:
         env=environment,
     )
     return process
+
+
+def _start_human_review_process(
+    args: argparse.Namespace,
+) -> subprocess.Popen[bytes]:
+    environment = os.environ.copy()
+    environment.setdefault("PYTHONIOENCODING", "utf-8")
+    environment.setdefault("PYTHONUTF8", "1")
+    command = [
+        sys.executable,
+        "-m",
+        HUMAN_REVIEW_MODULE,
+        "--host",
+        args.human_review_host,
+        "--port",
+        str(args.human_review_port),
+    ]
+    print(
+        "Human Review website starting on "
+        f"{args.human_review_host}:{args.human_review_port}",
+        flush=True,
+    )
+    return subprocess.Popen(
+        command,
+        cwd=ROOT,
+        env=environment,
+    )
+
+
+def _refresh_public_showcase() -> None:
+    if not PUBLIC_SHOWCASE_BUILDER.is_file():
+        print(
+            f"Public showcase builder missing: {PUBLIC_SHOWCASE_BUILDER}",
+            file=sys.stderr,
+        )
+        return
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(PUBLIC_SHOWCASE_BUILDER),
+            "--max-items",
+            "1000",
+        ],
+        cwd=ROOT,
+        check=False,
+    )
+    if result.returncode != 0:
+        print(
+            "Public showcase refresh failed; keeping the existing index.",
+            file=sys.stderr,
+        )
 
 
 def _run_au_training(args: argparse.Namespace) -> int:
@@ -585,9 +668,14 @@ def main(argv: Sequence[str] | None = None) -> None:
         os.environ["FRAME_AUDIT_REQUIRE_AUTH"] = "1"
 
     grpc_process = None
+    human_review_process = None
     vlm_handle = None
+    if not args.skip_public_showcase_refresh:
+        _refresh_public_showcase()
     if args.transport == "grpc":
         try:
+            if args.with_human_review:
+                human_review_process = _start_human_review_process(args)
             if args.with_vlm:
                 vlm_handle = _start_vlm_judge(
                     args.vlm_model,
@@ -611,9 +699,12 @@ def main(argv: Sequence[str] | None = None) -> None:
             return
         finally:
             _stop_process(grpc_process)
+            _stop_process(human_review_process)
             _stop_vlm_judge(vlm_handle)
 
     try:
+        if args.with_human_review:
+            human_review_process = _start_human_review_process(args)
         if args.with_vlm:
             vlm_handle = _start_vlm_judge(
                 args.vlm_model,
@@ -646,6 +737,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         raise SystemExit(1) from exc
     finally:
         _stop_process(grpc_process)
+        _stop_process(human_review_process)
         _stop_vlm_judge(vlm_handle)
 
 if __name__ == "__main__":

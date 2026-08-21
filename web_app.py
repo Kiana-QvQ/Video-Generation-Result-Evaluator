@@ -646,6 +646,17 @@ def _run_wangxing_au_assessment(
     if expected_class is not None:
         command.extend(["--expected-class", expected_class])
 
+    evaluator_script = Path(command[1])
+    if not evaluator_script.is_file():
+        return {
+            "status": "unavailable",
+            "reason": (
+                "Wang Xing AU 评估脚本不存在，已停止任务。"
+                f"当前路径：{evaluator_script}"
+            ),
+            "error_type": "missing_evaluator_script",
+        }
+
     environment = os.environ.copy()
     environment["PYTHONIOENCODING"] = "utf-8"
     environment["PYTHONUTF8"] = "1"
@@ -690,6 +701,13 @@ def _run_wangxing_au_assessment(
                 "Wang Xing AU 提取失败。请检查 LibreFace、ffmpeg "
                 "和输入视频格式。"
             )
+        diagnostic_preview = " ".join(
+            line.strip()
+            for line in diagnostics.splitlines()[-3:]
+            if line.strip()
+        )[:800]
+        if diagnostic_preview:
+            reason = f"{reason} 具体错误：{diagnostic_preview}"
         return {
             "status": "unavailable",
             "reason": reason,

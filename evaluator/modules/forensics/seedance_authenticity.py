@@ -184,6 +184,8 @@ def fuse_authenticity_evidence(
         return {
             "status": "unavailable",
             "decision": "uncertain",
+            "binary_decision": "seedance_like",
+            "binary_conclusion": "偏向 AI 生成",
             "raw_real_capture_likelihood_0_1": None,
             "raw_real_domain_evidence_0_1": None,
             "calibrated_real_probability_0_1": None,
@@ -260,9 +262,25 @@ def fuse_authenticity_evidence(
         )
     elif decision == "uncertain" and 0.40 < calibrated < 0.60:
         uncertainty_reasons.append("calibrated_probability_in_uncertain_band")
+    binary_score = (
+        calibrated
+        if calibrated is not None
+        else raw_fused
+    )
+    binary_decision = (
+        "real_capture"
+        if binary_score >= 0.50
+        else "seedance_like"
+    )
     return {
         "status": "calibrated" if calibrated is not None else "uncalibrated",
         "decision": decision,
+        "binary_decision": binary_decision,
+        "binary_conclusion": (
+            "偏向真实拍摄"
+            if binary_decision == "real_capture"
+            else "偏向 AI 生成"
+        ),
         "raw_evidence_direction": raw_direction,
         "raw_real_capture_likelihood_0_1": float(raw_fused),
         "raw_real_domain_evidence_0_1": float(raw_fused),

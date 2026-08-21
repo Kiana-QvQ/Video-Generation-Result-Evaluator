@@ -114,26 +114,30 @@ function formatPercent01(value) {
 function summarizeForensicsDecision(decision, probability) {
   const normalizedDecision = String(decision ?? "uncertain");
   const probabilityLabel = formatPercent01(probability);
-  const reviewRequired = normalizedDecision === "uncertain";
+  const numericProbability = Number(probability);
+  const binaryDecision =
+    normalizedDecision === "real_capture"
+      ? "real_capture"
+      : normalizedDecision === "seedance_like"
+        ? "seedance_like"
+        : Number.isFinite(numericProbability) && numericProbability >= 0.5
+          ? "real_capture"
+          : "seedance_like";
   const conclusion = {
     real_capture: "偏向真实拍摄",
     seedance_like: "偏向 AI 生成",
-    uncertain: "待复核 / 人工检查",
-  }[normalizedDecision] ?? "待复核 / 人工检查";
+  }[binaryDecision];
   const detail =
     probabilityLabel === "--"
-      ? "当前仅有原始取证证据，不能直接作为最终的真实 / AI 结论。"
-      : reviewRequired
-        ? `校准后的真实拍摄概率为 ${probabilityLabel}。当前证据仍有歧义，建议继续人工复核。`
-        : `校准后的真实拍摄概率为 ${probabilityLabel}。`;
+      ? "当前没有校准概率，已按二分类策略输出偏向 AI 生成。"
+      : `校准后的真实拍摄概率为 ${probabilityLabel}。`;
   return {
+    decision: binaryDecision,
     conclusion,
-    detail,
-    reviewRequired,
-    scoreLabel: reviewRequired ? "待复核 / 人工检查" : probabilityLabel,
-    scoreCaption: reviewRequired
-      ? "需要人工复核"
-      : "校准后真实拍摄概率",
+    detail: `${detail} 身份、表情和取证分数是证据维度，不等同于真实拍摄概率。`,
+    reviewRequired: false,
+    scoreLabel: probabilityLabel,
+    scoreCaption: "校准后真实拍摄概率",
   };
 }
 
@@ -1313,15 +1317,26 @@ function renderWangxingSpecializationDashboard(payload) {
     seedance_like: "更接近 AI 生成",
     uncertain: "真实性证据不足，暂不确定",
   };
-  const authenticityConclusion =
+  let authenticityConclusion =
     authenticityConclusionLabels[forensicDecision] ??
     "真实性证据不足，暂不确定";
-  const authenticityDetail =
+  let authenticityDetail =
     calibratedAuthenticity === null
       ? "当前只有未校准真实性证据，不能直接判定来源"
       : forensicDecision === "uncertain"
         ? `校准后真人拍摄概率 ${percent(calibratedAuthenticity)}，证据尚不足以给出明确结论`
         : `校准后的真人拍摄概率 ${percent(calibratedAuthenticity)}`;
+  if (forensicDecision === "uncertain") {
+    const binaryReal =
+      calibratedAuthenticity !== null && calibratedAuthenticity >= 0.5;
+    authenticityConclusion = binaryReal
+      ? "偏向真实拍摄"
+      : "偏向 AI 生成";
+    authenticityDetail =
+      calibratedAuthenticity === null
+        ? "当前没有校准概率，已按二分类策略输出偏向 AI 生成。"
+        : `校准后的真实拍摄概率为 ${percent(calibratedAuthenticity)}。`;
+  }
   const hasForensics = [
     forensicRaw,
     forensicProbability,
@@ -1391,6 +1406,11 @@ function renderWangxingSpecializationDashboard(payload) {
         <small>${escapeHtml(profileDetail)}</small>
       </div>
     </div>
+    <p class="wangxing-result-note">
+      口径说明：身份证据、表情证据和取证证据分别表示身份匹配、表情画像贴合和取证证据强度；
+      它们不是“真实拍摄概率”。真实拍摄概率是独立的真伪校准结果，主要由面部运动、
+      纹理残差、频域和时间连续性共同决定。
+    </p>
     <div class="wangxing-specialization-radar-grid">
       ${specializationRadarMarkup(
         [
@@ -1678,7 +1698,8 @@ function renderWangxingSpecializationDashboardV2(payload) {
     profileDetailLabels[finalDecision] ??
     "专项证据仍需进一步复核。";
   const forensicsDecision = String(
-    forensics.authenticity?.decision ??
+    forensics.authenticity?.binary_decision ??
+      forensics.authenticity?.decision ??
       forensicFusion.decision ??
       "uncertain",
   );

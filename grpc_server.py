@@ -94,6 +94,8 @@ def _abort(context: grpc.ServicerContext, exc: Exception) -> None:
         raise exc
     if isinstance(exc, _GrpcRequestError):
         context.abort(exc.code, exc.detail)
+    if isinstance(exc, FileNotFoundError):
+        context.abort(grpc.StatusCode.NOT_FOUND, str(exc))
     if isinstance(exc, HTTPException):
         context.abort(_status_code(exc.status_code), str(exc.detail))
     if isinstance(exc, ValueError):

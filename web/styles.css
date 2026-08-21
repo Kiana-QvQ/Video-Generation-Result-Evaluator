@@ -3820,3 +3820,54 @@ input[type="text"]::placeholder {
   display: none !important;
 }
 
+/* Keep long job history inside the queue instead of stretching the page. */
+.bench-shell .process-queue.queue-dock {
+  height: auto;
+  max-height: 680px;
+  overflow: hidden;
+  align-self: start;
+}
+
+.bench-shell .process-queue.queue-dock .queue-list {
+  max-height: 560px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding-right: 5px;
+  scrollbar-color: #a4c53a #eeece6;
+  scrollbar-width: thin;
+}
+
+.bench-shell .process-queue.queue-dock .queue-list::-webkit-scrollbar {
+  width: 7px;
+}
+
+.bench-shell .process-queue.queue-dock .queue-list::-webkit-scrollbar-track {
+  border-radius: 999px;
+  background: #eeece6;
+}
+
+.bench-shell .process-queue.queue-dock .queue-list::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: #a4c53a;
+}
+
+@media (max-width: 1180px) {
+  .bench-shell .process-queue.queue-dock {
+    height: auto;
+    max-height: 640px;
+  }
+
+  .bench-shell .process-queue.queue-dock .queue-list {
+    max-height: 520px;
+  }
+}
+
+@media (max-width: 640px) {
+  .bench-shell .process-queue.queue-dock {
+    max-height: 560px;
+  }
+
+  .bench-shell .process-queue.queue-dock .queue-list {
+    max-height: 440px;
+  }
+}

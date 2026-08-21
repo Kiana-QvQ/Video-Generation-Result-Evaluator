@@ -13,13 +13,17 @@ from typing import Sequence
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 PYTHON = Path(sys.executable)
-EXTRACTOR = PROJECT_ROOT / "scripts" / "extract_libreface_au.py"
-EVALUATOR = PROJECT_ROOT / "scripts" / "evaluate_au_compliance.py"
+EXTRACTOR = (
+    PROJECT_ROOT / "scripts" / "au" / "extract_libreface_au.py"
+)
+EVALUATOR = (
+    PROJECT_ROOT / "scripts" / "au" / "evaluate_au_compliance.py"
+)
 SHARED_AU_CACHE_NAMESPACE = "libreface_shared_v1"
 AU_CACHE_SCHEMA_VERSION = "libreface_extract_cache_v2"
 AU_CACHE_SIGNATURE_FILES = (
     EXTRACTOR,
-    PROJECT_ROOT / "scripts" / "libreface_worker.py",
+    PROJECT_ROOT / "scripts" / "au" / "libreface_worker.py",
 )
 
 
