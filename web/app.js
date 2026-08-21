@@ -2089,15 +2089,19 @@ function setQueueBusy(isBusy) {
   newEvaluationButton.disabled = isBusy;
   evaluateButton.querySelector("span:first-child").textContent = isBusy
     ? "上传中..."
-    : retryableStatuses.has(selectedJob?.status)
-      ? "重新评估"
-      : "加入队列";
+    : selectedJob?.public_showcase
+      ? "加入队列"
+      : retryableStatuses.has(selectedJob?.status)
+        ? "重新评估"
+        : "加入队列";
 }
 
 function setFormEditState(job) {
   formLocked = Boolean(job && formLockedStatuses.has(job.status));
+  const publicReadOnly = Boolean(job?.public_showcase);
   const canReuseStoredFiles = Boolean(
     job &&
+      !publicReadOnly &&
       retryableStatuses.has(job.status) &&
       job.uploaded_files?.result_video,
   );
@@ -2181,15 +2185,6 @@ function formatQueueTimestamp(value) {
   return `${values.year}-${values.month}-${values.day} ${values.hour}:${values.minute}:${values.second}`;
 }
 
-function formatDuration(seconds) {
-  const value = Number(seconds);
-  if (!Number.isFinite(value) || value < 0) return "时间未知";
-  if (value < 60) return `${Math.max(1, Math.round(value))} 秒`;
-  const minutes = Math.floor(value / 60);
-  const remainder = Math.round(value % 60);
-  return remainder ? `${minutes} 分 ${remainder} 秒` : `${minutes} 分钟`;
-}
-
 function queueItemTimestamp(job) {
   return `评分时间 ${formatQueueTimestamp(
     job.finished_at || job.started_at || job.created_at || job.updated_at,
@@ -2215,29 +2210,23 @@ function renderQueue(payload) {
   } 个等待`;
   queueActive.classList.toggle("is-hidden", !active);
   if (active) {
+    const publicReadOnly = Boolean(active.public_showcase);
     activeJobName.textContent = active.name || active.job_id;
     activeJobStage.textContent =
       queueStageLabels[active.stage]?.[1] ?? active.stage;
-    const startedAt = Date.parse(
-      active.started_at || active.created_at || active.updated_at || "",
-    );
-    const elapsed = Number.isFinite(startedAt)
-      ? Math.max(0, (Date.now() - startedAt) / 1000)
-      : 0;
-    const remaining = Math.max(
-      0,
-      Number(active.estimated_seconds ?? 0) - elapsed,
-    );
     activeJobTime.textContent = `开始时间 ${formatQueueTimestamp(
       active.started_at || active.created_at || active.updated_at,
-    )} · 预计还需 ${formatDuration(remaining)}`;
+    )}`;
     activeJobStatus.textContent = queueStatusText(active.status);
     activeJobStatus.className = `queue-status ${escapeHtml(active.status)}`;
     activeJobCancel.dataset.jobId = active.job_id;
     activeJobCancel.textContent =
       active.status === "canceling" ? "中断中..." : "中断任务";
     activeJobCancel.disabled =
-      active.status === "canceling" || queueMutationJobId === active.job_id;
+      publicReadOnly ||
+      active.status === "canceling" ||
+      queueMutationJobId === active.job_id;
+    activeJobCancel.classList.toggle("is-hidden", publicReadOnly);
     queueActive.dataset.jobId = active.job_id;
     queueActive.classList.add("is-selectable");
     activeJobProgress.style.width = `${Math.max(
@@ -2248,6 +2237,7 @@ function renderQueue(payload) {
     activeJobCancel.dataset.jobId = "";
     activeJobCancel.disabled = true;
     activeJobCancel.textContent = "中断任务";
+    activeJobCancel.classList.remove("is-hidden");
     activeJobTime.textContent = "评分时间 --";
     queueActive.dataset.jobId = "";
     queueActive.classList.remove("is-selectable");
@@ -2262,13 +2252,17 @@ function renderQueue(payload) {
           ? String(job.queue_position).padStart(2, "0")
           : "·";
       const actions = [];
-      if (job.status === "queued") {
+      if (!job.public_showcase && job.status === "queued") {
         actions.push(["cancel", "取消"]);
       }
-      if (retryableStatuses.has(job.status)) {
+      if (!job.public_showcase && retryableStatuses.has(job.status)) {
         actions.push(["retry", "重试"]);
       }
-      if (job.status !== "running" && job.status !== "canceling") {
+      if (
+        !job.public_showcase &&
+        job.status !== "running" &&
+        job.status !== "canceling"
+      ) {
         actions.push(["delete", "删除"]);
       }
       const actionMarkup = actions
@@ -2284,7 +2278,14 @@ function renderQueue(payload) {
             <span class="queue-item-copy">
               <strong>${escapeHtml(job.name || job.job_id)}</strong>
               <span class="queue-item-meta">
-                <small class="queue-item-stage">${escapeHtml(queueStageLabels[job.stage]?.[1] ?? queueStatusText(job.status))}</small>
+                <small class="queue-item-stage">${
+                  job.public_showcase
+                    ? "公共展示示例"
+                    : escapeHtml(
+                        queueStageLabels[job.stage]?.[1] ??
+                          queueStatusText(job.status),
+                      )
+                }</small>
                 <small class="queue-item-time">${escapeHtml(queueItemTimestamp(job))}</small>
               </span>
             </span>

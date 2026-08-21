@@ -35,12 +35,6 @@ stores that selection and `start.py` preserves it across service restarts.
 
 ## HTTP
 
-Open the management page:
-
-```text
-/showcase
-```
-
 To start the main evaluation website and the separate human-review website
 from one command:
 
@@ -54,8 +48,8 @@ from one command:
 ```
 
 The two-site mode is the default for `start.py`. Use `--no-human-review` to
-start only Frame Audit. The public showcase is on the main site at
-`/showcase`; the human-review website is on port `5001`.
+start only Frame Audit. The selected public examples are shown inside the
+main page queue; the human-review website is on port `5001`.
 
 Read-only endpoints:
 

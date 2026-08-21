@@ -600,9 +600,6 @@ Frame Audit / 视频评估网页
         print("局域网访问:   当前绑定本机地址，局域网设备不可访问")
     else:
         print(f"局域网访问:   {main_scheme}://{lan_ip}:{args.http_port}")
-    print(
-        f"公共展示:     {main_scheme}://{lan_ip}:{args.http_port}/showcase"
-    )
     if args.with_human_review:
         print(
             """

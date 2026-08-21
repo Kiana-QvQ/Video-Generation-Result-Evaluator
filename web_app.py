@@ -42,6 +42,7 @@ from evaluator.modules.core.paths import resolve_profile
 from evaluator.modules.core.public_showcase import (
     get_public_showcase as _get_public_showcase,
     list_public_showcase as _list_public_showcase,
+    public_showcase_job_ids as _public_showcase_job_ids,
     public_showcase_status as _public_showcase_status,
     resolve_public_showcase_file as _resolve_public_showcase_file,
 )
@@ -1194,6 +1195,8 @@ def _job_response(
         "original_files": job.get("original_files", {}),
         "uploaded_files": _job_uploaded_urls(job),
         "result_available": result_available,
+        "public_showcase": bool(job.get("public_showcase", False)),
+        "read_only": bool(job.get("read_only", False)),
     }
     if job.get("status") == "completed":
         response["downloads"] = _result_downloads(job)
@@ -1204,6 +1207,23 @@ def _job_response(
             except (OSError, json.JSONDecodeError):
                 response["result"] = None
     return _json_safe(response)
+
+
+def _public_showcase_jobs() -> list[dict[str, Any]]:
+    jobs: list[dict[str, Any]] = []
+    for job_id in _public_showcase_job_ids():
+        job = _read_job(job_id)
+        if job is None:
+            continue
+        copy = dict(job)
+        copy["public_showcase"] = True
+        copy["read_only"] = True
+        jobs.append(copy)
+    return jobs
+
+
+def _is_public_showcase_job(job_id: str) -> bool:
+    return str(job_id) in set(_public_showcase_job_ids())
 
 
 def _all_jobs() -> list[dict[str, Any]]:
@@ -2634,11 +2654,6 @@ def index() -> Path:
     return WEB_DIR / "index.html"
 
 
-@app.get("/showcase", response_class=FileResponse)
-def public_showcase_page() -> Path:
-    return WEB_DIR / "showcase.html"
-
-
 @app.get("/api/health")
 def health() -> dict[str, Any]:
     return {
@@ -2799,9 +2814,14 @@ def list_jobs(
     if ensure_worker:
         _ensure_queue_worker()
     client_ip = _client_ip(request)
-    jobs = _jobs_for_ip(_all_jobs(), client_ip)
+    private_jobs = _jobs_for_ip(_all_jobs(), client_ip)
+    public_jobs = _public_showcase_jobs()
+    public_ids = {str(job["job_id"]) for job in public_jobs}
+    jobs = public_jobs + [
+        job for job in private_jobs if str(job["job_id"]) not in public_ids
+    ]
     display_jobs = _display_jobs(jobs)
-    positions = _queued_positions(jobs, client_ip)
+    positions = _queued_positions(private_jobs, client_ip)
     items = [
         _job_response(
             job,
@@ -2819,6 +2839,7 @@ def list_jobs(
         "active_job_id": active["job_id"] if active else None,
         "queued_count": queued_count,
         "total_count": len(jobs),
+        "public_showcase_count": len(public_jobs),
     }
 
 
@@ -2829,12 +2850,21 @@ def get_job(job_id: str, request: Request) -> dict[str, Any]:
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found")
     client_ip = _client_ip(request)
-    _assert_job_owner(job, client_ip)
-    positions = _queued_positions(_jobs_for_ip(_all_jobs(), client_ip), client_ip)
+    if _is_public_showcase_job(job_id):
+        job = dict(job)
+        job["public_showcase"] = True
+        job["read_only"] = True
+        positions = None
+    else:
+        _assert_job_owner(job, client_ip)
+        positions = _queued_positions(
+            _jobs_for_ip(_all_jobs(), client_ip),
+            client_ip,
+        ).get(str(job["job_id"]))
     return _job_response(
         job,
         include_result=True,
-        queue_position=positions.get(str(job["job_id"])),
+        queue_position=positions,
     )
 
 
@@ -2852,6 +2882,11 @@ def update_job(
         job = _read_job(job_id)
         if job is None:
             raise HTTPException(status_code=404, detail="Job not found")
+        if _is_public_showcase_job(job_id):
+            raise HTTPException(
+                status_code=403,
+                detail="Public showcase jobs are read-only.",
+            )
         _assert_job_owner(job, _client_ip(request))
         status = str(job.get("status"))
         requested_name: str | None = None
@@ -3025,6 +3060,11 @@ def delete_job(job_id: str, request: Request) -> dict[str, Any]:
         job = _read_job(job_id)
         if job is None:
             raise HTTPException(status_code=404, detail="Job not found")
+        if _is_public_showcase_job(job_id):
+            raise HTTPException(
+                status_code=403,
+                detail="Public showcase jobs are read-only.",
+            )
         _assert_job_owner(job, _client_ip(request))
         if job.get("status") in {"running", "canceling"}:
             raise HTTPException(
@@ -3059,7 +3099,8 @@ def download_run_file(
         raise HTTPException(status_code=404, detail="File not found")
     job = _read_job(run_id)
     if job is not None:
-        _assert_job_owner(job, _client_ip(request))
+        if not _is_public_showcase_job(run_id):
+            _assert_job_owner(job, _client_ip(request))
         if filename in GENERATED_REPORT_FILES and job.get("status") != "completed":
             raise HTTPException(status_code=404, detail="File not found")
     else:

@@ -286,6 +286,24 @@ def public_showcase_status() -> dict[str, Any]:
     }
 
 
+def public_showcase_job_ids() -> list[str]:
+    """Return selected web-run ids for the main page's read-only queue."""
+    ids: list[str] = []
+    for item in _read_index().get("items", []):
+        if not isinstance(item, dict):
+            continue
+        source = item.get("source") or {}
+        if not isinstance(source, dict) or source.get("kind") != "web_run":
+            continue
+        path = Path(str(source.get("path") or ""))
+        if path.name != "result.json":
+            continue
+        job_id = path.parent.name
+        if job_id and job_id not in ids:
+            ids.append(job_id)
+    return ids
+
+
 def write_public_showcase_index(
     items: list[dict[str, Any]],
     *,
