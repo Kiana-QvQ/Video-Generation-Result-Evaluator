@@ -225,6 +225,7 @@ function specializationRadarMarkup(
   labels,
   title,
   variant = "acid",
+  scoreLabel = "本组均分",
 ) {
   const width = 250;
   const height = 210;
@@ -298,7 +299,7 @@ function specializationRadarMarkup(
           <span class="specialization-radar-title">${escapeHtml(title)}</span>
         </div>
         <div class="specialization-radar-meta">
-          <small class="specialization-radar-score-label">本组均分</small>
+          <small class="specialization-radar-score-label">${escapeHtml(scoreLabel)}</small>
           <strong class="specialization-radar-score">${escapeHtml(compositeLabel)}</strong>
         </div>
       </div>
@@ -1759,14 +1760,19 @@ function renderWangxingSpecializationDashboardV2(payload) {
   const textureFlicker = normalizeScore(
     forensicBranches.texture_detail?.metrics?.texture_flicker_0_1,
   );
-  const textureClarity =
-    textureFlicker === null ? null : Math.max(0, Math.min(1, 1 - textureFlicker));
-  const textureHomogeneity = normalizeScore(
-    forensicBranches.texture_detail?.metrics?.optical_flow_homogeneity_0_1,
+  const textureRealDomainFit = normalizeScore(
+    forensicBranches.texture_detail?.metrics?.real_domain_fit_0_1,
   );
-  const textureMicroTemporal = normalizeScore(
-    forensicBranches.texture_detail?.metrics?.micro_temporal_naturalness_0_1,
+  const textureAiDomainFit = normalizeScore(
+    forensicBranches.texture_detail?.metrics?.seedance_domain_fit_0_1,
   );
+  const textureResidual =
+    textureStability === null ? null : 1 - textureStability;
+  const frequencyNaturalness = normalizeScore(
+    forensicBranches.texture_detail?.metrics?.freq_forensics_score_0_1,
+  );
+  const frequencyAnomaly =
+    frequencyNaturalness === null ? null : 1 - frequencyNaturalness;
   const score100 = (value) => {
     const normalized = normalizeScore(value);
     return normalized === null ? "--" : `${(normalized * 100).toFixed(1)}/100`;
@@ -1841,23 +1847,22 @@ function renderWangxingSpecializationDashboardV2(payload) {
         hasForensics
           ? specializationRadarMarkup(
               [
-                forensicsTexture,
-                textureMicroTemporal ?? textureStability,
-                textureHomogeneity ?? textureClarity,
-                normalizeScore(
-                  forensicBranches.texture_detail?.metrics?.real_domain_fit_0_1,
-                ),
-                forensicsRaw,
+                textureRealDomainFit,
+                textureAiDomainFit,
+                textureFlicker,
+                textureResidual,
+                frequencyAnomaly,
               ],
               [
-                "纹理分支",
-                "微时序",
-                "残差多样性",
                 "真实域贴合",
-                "原始证据",
+                "AI 域贴合",
+                "时序异常",
+                "纹理残差",
+                "频域异常",
               ],
-              "取证证据",
+              "真假方向性证据",
               "forensics",
+              "方向性证据均值",
             )
           : ""
       }

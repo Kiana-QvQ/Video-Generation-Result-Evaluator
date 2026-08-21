@@ -6,6 +6,7 @@ import ipaddress
 import importlib
 import importlib.util
 import json
+import socket
 import time
 import urllib.error
 import urllib.request
@@ -349,11 +350,21 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Start HTTP and gRPC together.",
     )
-    parser.add_argument(
+    human_review_group = parser.add_mutually_exclusive_group()
+    human_review_group.add_argument(
         "--with-human-review",
+        dest="with_human_review",
         action="store_true",
         help="Start the standalone human-review website alongside Frame Audit.",
     )
+    human_review_group.add_argument(
+        "--without-human-review",
+        "--no-human-review",
+        dest="with_human_review",
+        action="store_false",
+        help="Start only the main Frame Audit website.",
+    )
+    parser.set_defaults(with_human_review=True)
     parser.add_argument(
         "--human-review-host",
         default=None,
@@ -369,6 +380,11 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         "--skip-public-showcase-refresh",
         action="store_true",
         help="Keep the existing public showcase index when starting.",
+    )
+    parser.add_argument(
+        "--require-api-key",
+        action="store_true",
+        help="Require FRAME_AUDIT_API_KEY for public API access.",
     )
     vlm_group = parser.add_mutually_exclusive_group()
     vlm_group.add_argument(
@@ -549,6 +565,73 @@ def _start_human_review_process(
     )
 
 
+def _local_lan_ip() -> str:
+    """Resolve the LAN address used for the startup access hint."""
+    probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        probe.connect(("8.8.8.8", 80))
+        return str(probe.getsockname()[0])
+    except OSError:
+        try:
+            return socket.gethostbyname(socket.gethostname())
+        except OSError:
+            return "本机局域网IP"
+    finally:
+        probe.close()
+
+
+def _print_web_endpoints(args: argparse.Namespace) -> None:
+    """Print both website endpoints in the same style as human_review/server."""
+    lan_ip = _local_lan_ip()
+    main_scheme = (
+        "https"
+        if args.tls_certfile and args.tls_keyfile
+        else "http"
+    )
+    print(
+        """
+============================================================
+Frame Audit / 视频评估网页
+------------------------------------------------------------"""
+    )
+    print(f"本机访问:     {main_scheme}://127.0.0.1:{args.http_port}")
+    print(f"绑定地址:     {main_scheme}://{args.http_host}:{args.http_port}")
+    if args.http_host in {"127.0.0.1", "::1", "localhost"}:
+        print("局域网访问:   当前绑定本机地址，局域网设备不可访问")
+    else:
+        print(f"局域网访问:   {main_scheme}://{lan_ip}:{args.http_port}")
+    print(
+        f"公共展示:     {main_scheme}://{lan_ip}:{args.http_port}/showcase"
+    )
+    if args.with_human_review:
+        print(
+            """
+------------------------------------------------------------
+Human Review / 人工审核网页
+------------------------------------------------------------"""
+        )
+        print(
+            f"本机访问:     http://127.0.0.1:{args.human_review_port}"
+        )
+        print(
+            f"绑定地址:     http://{args.human_review_host}:"
+            f"{args.human_review_port}"
+        )
+        if args.human_review_host in {"127.0.0.1", "::1", "localhost"}:
+            print("局域网访问:   当前绑定本机地址，局域网设备不可访问")
+        else:
+            print(
+                f"局域网访问:   http://{lan_ip}:{args.human_review_port}"
+            )
+    print(
+        """
+------------------------------------------------------------
+按 Ctrl+C 停止两个网页
+============================================================""",
+        flush=True,
+    )
+
+
 def _refresh_public_showcase() -> None:
     if not PUBLIC_SHOWCASE_BUILDER.is_file():
         print(
@@ -556,13 +639,25 @@ def _refresh_public_showcase() -> None:
             file=sys.stderr,
         )
         return
+    command = [
+        sys.executable,
+        str(PUBLIC_SHOWCASE_BUILDER),
+        "--max-items",
+        "1000",
+    ]
+    index_path = ROOT / "outputs" / "public_showcase" / "index.json"
+    if index_path.is_file():
+        try:
+            selection = json.loads(
+                index_path.read_text(encoding="utf-8-sig")
+            ).get("selection", {})
+        except (OSError, json.JSONDecodeError):
+            selection = {}
+        if isinstance(selection, dict) and selection.get("mode") == "selected_jobs":
+            for job_id in selection.get("job_ids", []):
+                command.extend(["--job-id", str(job_id)])
     result = subprocess.run(
-        [
-            sys.executable,
-            str(PUBLIC_SHOWCASE_BUILDER),
-            "--max-items",
-            "1000",
-        ],
+        command,
         cwd=ROOT,
         check=False,
     )
@@ -653,8 +748,6 @@ def main(argv: Sequence[str] | None = None) -> None:
             if host != "localhost":
                 public_hosts.append(host)
     if public_hosts:
-        if not os.environ.get("FRAME_AUDIT_API_KEY", "").strip():
-            raise SystemExit("Public binding requires FRAME_AUDIT_API_KEY.")
         if (
             args.transport in {"http", "both"}
             and (not args.tls_certfile or not args.tls_keyfile)
@@ -665,7 +758,17 @@ def main(argv: Sequence[str] | None = None) -> None:
                 "Public HTTP binding requires --tls-certfile/--tls-keyfile "
                 "or an explicit insecure override."
             )
-        os.environ["FRAME_AUDIT_REQUIRE_AUTH"] = "1"
+        if args.require_api_key:
+            if not os.environ.get("FRAME_AUDIT_API_KEY", "").strip():
+                raise SystemExit(
+                    "--require-api-key requires FRAME_AUDIT_API_KEY."
+                )
+            os.environ["FRAME_AUDIT_REQUIRE_AUTH"] = "1"
+        else:
+            # Public HTTP is intentionally address-only by default. Keep an
+            # explicit opt-in for deployments that want API-key protection.
+            os.environ.pop("FRAME_AUDIT_API_KEY", None)
+            os.environ.pop("FRAME_AUDIT_REQUIRE_AUTH", None)
 
     grpc_process = None
     human_review_process = None
@@ -688,6 +791,8 @@ def main(argv: Sequence[str] | None = None) -> None:
             grpc_process = _start_grpc_process(args)
             if grpc_process.poll() is not None:
                 raise SystemExit("gRPC service failed to start.")
+            if args.with_human_review:
+                _print_web_endpoints(args)
             return_code = grpc_process.wait() if grpc_process else 0
             if return_code:
                 raise SystemExit(return_code)
@@ -724,6 +829,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             f"HTTP listening on {args.http_host}:{args.http_port}",
             flush=True,
         )
+        _print_web_endpoints(args)
         uvicorn.run(
             "web_app:app",
             host=args.http_host,

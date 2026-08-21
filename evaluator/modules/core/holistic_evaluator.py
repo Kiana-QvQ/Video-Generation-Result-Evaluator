@@ -844,6 +844,8 @@ def _optional_iqa(
         checkpoint = prepare_pyiqa_checkpoint(metric_name)
         if checkpoint is None:
             return None, f"{metric_name} 权重未完整缓存，已跳过自动下载"
+        os.environ["TORCH_HOME"] = str(MODEL_CACHE_DIR)
+        torch.hub.set_dir(str(MODEL_CACHE_DIR / "hub"))
         requested_device = os.environ.get("EVALUATOR_IQA_DEVICE", "").lower()
         if requested_device not in {"cpu", "cuda"}:
             requested_device = device

@@ -125,6 +125,44 @@ def _source_payload(item: dict[str, Any]) -> Any:
     return payload
 
 
+def _effective_item(item: dict[str, Any]) -> dict[str, Any]:
+    """Refresh live web-run metadata without rebuilding the showcase index."""
+    refreshed = dict(item)
+    source = item.get("source") or {}
+    if not isinstance(source, dict) or source.get("kind") != "web_run":
+        return refreshed
+    result_path = _project_path(str(source.get("path") or ""))
+    status_path = result_path.parent / "status.json"
+    if not status_path.is_file():
+        return refreshed
+    try:
+        status = _load_json(status_path)
+    except (OSError, json.JSONDecodeError):
+        return refreshed
+    if not isinstance(status, dict):
+        return refreshed
+    for key in (
+        "name",
+        "status",
+        "stage",
+        "progress",
+        "created_at",
+        "queued_at",
+        "started_at",
+        "finished_at",
+        "updated_at",
+        "error",
+    ):
+        if key in status:
+            target_key = "title" if key == "name" else key
+            refreshed[target_key] = status[key]
+    refreshed["result_available"] = (
+        str(status.get("status")) == "completed"
+        and result_path.is_file()
+    )
+    return refreshed
+
+
 def _item_files(item: dict[str, Any]) -> dict[str, Path]:
     files = item.get("files") or {}
     if not isinstance(files, dict):
@@ -188,8 +226,11 @@ def list_public_showcase(
     )
     visible = []
     for item in items[:limit]:
-        copy = dict(item)
-        copy["result_available"] = _source_payload(item) is not None
+        copy = _effective_item(item)
+        copy["result_available"] = (
+            copy.get("result_available", False)
+            or _source_payload(item) is not None
+        )
         copy["downloads"] = {
             key: _public_file_url(str(item["item_id"]), key)
             for key in _item_files(item)
@@ -205,7 +246,7 @@ def list_public_showcase(
 
 
 def get_public_showcase(item_id: str) -> dict[str, Any]:
-    item = _find_item(item_id)
+    item = _effective_item(_find_item(item_id))
     result = _source_payload(item)
     downloads = {
         key: _public_file_url(str(item["item_id"]), key)
@@ -249,6 +290,7 @@ def write_public_showcase_index(
     items: list[dict[str, Any]],
     *,
     queue_name: str = "领导公共展示队列",
+    selection: dict[str, Any] | None = None,
 ) -> Path:
     PUBLIC_SHOWCASE_DIR.mkdir(parents=True, exist_ok=True)
     now = datetime.now().astimezone().isoformat(timespec="seconds")
@@ -256,6 +298,7 @@ def write_public_showcase_index(
         "schema_version": PUBLIC_SHOWCASE_SCHEMA,
         "queue_name": queue_name,
         "updated_at": now,
+        "selection": selection or {"mode": "all_results"},
         "items": _json_safe(items),
     }
     temporary = PUBLIC_SHOWCASE_INDEX.with_suffix(".tmp")
@@ -265,4 +308,3 @@ def write_public_showcase_index(
     )
     temporary.replace(PUBLIC_SHOWCASE_INDEX)
     return PUBLIC_SHOWCASE_INDEX
-

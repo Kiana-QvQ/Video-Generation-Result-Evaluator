@@ -106,24 +106,49 @@ def _add_web_run_items(
     *,
     root: Path,
     source_label: str,
+    only_ids: set[str] | None = None,
 ) -> None:
     if not root.is_dir():
         return
     for run_dir in sorted(root.iterdir()):
         if not run_dir.is_dir() or run_dir.name.startswith("."):
             continue
+        if only_ids is not None and run_dir.name not in only_ids:
+            continue
         status_path = run_dir / "status.json"
         result_path = run_dir / "result.json"
-        if not result_path.is_file():
-            continue
         status: dict[str, Any] = {}
         if status_path.is_file():
             try:
                 status = _load(status_path)
             except (OSError, json.JSONDecodeError):
                 status = {}
-        if status.get("status") not in {None, "completed"}:
+        allowed_statuses = (
+            {
+                None,
+                "queued",
+                "running",
+                "preparing",
+                "sampling",
+                "models",
+                "wangxing_au",
+                "report",
+                "completed",
+            }
+            if only_ids is not None
+            else {None, "completed"}
+        )
+        if status.get("status") not in allowed_statuses:
             continue
+        if not result_path.is_file() and only_ids is None:
+            continue
+        timestamp_path = (
+            result_path
+            if result_path.is_file()
+            else status_path
+            if status_path.is_file()
+            else run_dir
+        )
         job_id = str(status.get("job_id") or run_dir.name)
         item = {
             "item_id": _item_id("web_run_" + job_id, source_label),
@@ -135,9 +160,11 @@ def _add_web_run_items(
             "category": "网页任务",
             "sample_id": job_id,
             "label": "历史网页任务",
-            "status": "completed",
-            "created_at": status.get("created_at") or _mtime(result_path),
-            "published_at": status.get("finished_at") or _mtime(result_path),
+            "status": str(status.get("status") or "queued"),
+            "stage": status.get("stage"),
+            "progress": status.get("progress"),
+            "created_at": status.get("created_at") or _mtime(timestamp_path),
+            "published_at": status.get("finished_at") or _mtime(timestamp_path),
             "source": {
                 "kind": "web_run",
                 "path": _relative(result_path),
@@ -157,7 +184,7 @@ def _add_web_run_items(
             if candidate.is_file():
                 item["files"][key] = _relative(candidate)
         try:
-            result = _load(result_path)
+            result = _load(result_path) if result_path.is_file() else {}
         except (OSError, json.JSONDecodeError):
             result = {}
         if isinstance(result, dict):
@@ -284,6 +311,15 @@ def main() -> int:
     )
     parser.add_argument("--max-items", type=int, default=1000)
     parser.add_argument(
+        "--job-id",
+        action="append",
+        default=[],
+        help=(
+            "Replace the public queue with selected web job ids. "
+            "Can be repeated."
+        ),
+    )
+    parser.add_argument(
         "--without-archived",
         action="store_true",
         help="Do not import the archived web_runs history.",
@@ -296,26 +332,29 @@ def main() -> int:
     args = parser.parse_args()
 
     items: list[dict[str, Any]] = []
+    selected_job_ids = {str(value) for value in args.job_id if str(value)}
     _add_web_run_items(
         items,
         root=PROJECT_ROOT / "outputs" / "web_runs",
         source_label="outputs/web_runs",
+        only_ids=selected_job_ids or None,
     )
-    if not args.without_archived:
+    if not selected_job_ids and not args.without_archived:
         _add_web_run_items(
             items,
             root=PROJECT_ROOT / "outputs" / "历史归档" / "缓存" / "web_runs",
             source_label="outputs/历史归档/缓存/web_runs",
         )
-    _add_forensics_items(
-        items,
-        root=PROJECT_ROOT / "outputs" / "forensics",
-    )
-    if not args.without_metrics:
-        _add_metric_items(
+    if not selected_job_ids:
+        _add_forensics_items(
             items,
-            PROJECT_ROOT / "outputs" / "forensics",
+            root=PROJECT_ROOT / "outputs" / "forensics",
         )
+        if not args.without_metrics:
+            _add_metric_items(
+                items,
+                PROJECT_ROOT / "outputs" / "forensics",
+            )
 
     unique: dict[str, dict[str, Any]] = {}
     for item in items:
@@ -327,7 +366,18 @@ def main() -> int:
     )
     if args.max_items > 0:
         ordered = ordered[: args.max_items]
-    path = write_public_showcase_index(ordered)
+    selection = (
+        {
+            "mode": "selected_jobs",
+            "job_ids": sorted(selected_job_ids),
+        }
+        if selected_job_ids
+        else {"mode": "all_results"}
+    )
+    path = write_public_showcase_index(
+        ordered,
+        selection=selection,
+    )
     print(
         json.dumps(
             {

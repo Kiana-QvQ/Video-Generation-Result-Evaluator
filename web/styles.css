@@ -3822,10 +3822,10 @@ input[type="text"]::placeholder {
 
 /* Keep long job history inside the queue instead of stretching the page. */
 .bench-shell .process-queue.queue-dock {
-  height: auto;
-  max-height: 680px;
+  height: 100%;
+  max-height: none;
   overflow: hidden;
-  align-self: start;
+  align-self: stretch;
 }
 
 .bench-shell .process-queue.queue-dock .queue-list {

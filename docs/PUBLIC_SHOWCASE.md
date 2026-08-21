@@ -27,6 +27,9 @@ The builder imports:
 The original personal queue remains private and is not merged into the
 public scheduler.
 
+When the builder is run with repeated `--job-id` options, the public queue
+stores that selection and `start.py` preserves it across service restarts.
+
 `start.py` refreshes this index automatically on startup unless
 `--skip-public-showcase-refresh` is supplied.
 
@@ -46,13 +49,13 @@ from one command:
   --transport http `
   --http-host 127.0.0.1 `
   --http-port 7860 `
-  --with-human-review `
   --human-review-host 127.0.0.1 `
   --human-review-port 5001
 ```
 
-The public showcase is on the main site at `/showcase`; the human-review
-website is on port `5001`.
+The two-site mode is the default for `start.py`. Use `--no-human-review` to
+start only Frame Audit. The public showcase is on the main site at
+`/showcase`; the human-review website is on port `5001`.
 
 Read-only endpoints:
 
@@ -75,8 +78,14 @@ DownloadPublicShowcaseFile
 The generated bindings are in `grpc_api/frame_audit_pb2.py` and
 `grpc_api/frame_audit_pb2_grpc.py`.
 
-Public gRPC binding still requires the existing API-key and TLS protections.
-Do not expose an unauthenticated public port.
+The `start.py` HTTP entry point keeps HTTPS required for non-loopback
+bindings, but API-key authentication is optional by default so a management
+viewer can open the address directly. Use `--require-api-key` together with
+`FRAME_AUDIT_API_KEY` when the evaluator API must be protected.
+
+Without API-key protection, anyone who can reach the main HTTP address can
+also submit evaluation jobs. Use a firewall or trusted internal network if
+the address is shared without a key.
 
 ## Wang Xing Score Explanation
 

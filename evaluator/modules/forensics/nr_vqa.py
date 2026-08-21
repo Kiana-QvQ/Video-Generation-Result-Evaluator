@@ -207,7 +207,20 @@ def _try_pyiqa(
     try:
         import torch
         import pyiqa
+        from evaluator.modules.core.runtime import (
+            MODEL_CACHE_DIR,
+            prepare_pyiqa_checkpoint,
+        )
     except Exception:
+        return None
+    # pyiqa delegates checkpoint lookup to torch.hub. Set the hub directory
+    # explicitly because torch may have initialized it before project runtime
+    # environment variables were configured.
+    os.environ["TORCH_HOME"] = str(MODEL_CACHE_DIR)
+    torch.hub.set_dir(str(MODEL_CACHE_DIR / "hub"))
+    if metric_name == "musiq" and prepare_pyiqa_checkpoint("musiq") is None:
+        # Do not start an unbounded network download from a web request. The
+        # built-in NR-VQA fallback will be selected by the caller instead.
         return None
     requested_device = _resolve_torch_device(device)
     devices = (
