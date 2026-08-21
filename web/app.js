@@ -34,7 +34,14 @@ const queueList = document.querySelector("#queue-list");
 const queueEmpty = document.querySelector("#queue-empty");
 const refreshQueueButton = document.querySelector("#refresh-queue");
 const queueSearch = document.querySelector("#queue-search");
+const reportJobName = document.querySelector("#report-job-name");
 const previewUrls = new Map();
+
+function setReportJobName(name) {
+  if (!reportJobName) return;
+  const text = String(name || "").trim();
+  reportJobName.textContent = text || "未选择任务";
+}
 
 const categoryOrder = [
   ["identity", "1. 角色一致性", 35],
@@ -44,11 +51,24 @@ const categoryOrder = [
   ["aesthetics", "5. 美学质量", 10],
 ];
 
+const categoryExplain = {
+  identity:
+    "看生成人物是否像目标角色：脸是否对得上、身份是否稳定。在总分中约占 35%。",
+  texture:
+    "看画面清晰度、皮肤与材质细节是否自然、有无明显糊边或失真。在总分中约占 15%。",
+  expression:
+    "看表情是否符合提示或预期情绪，是否自然、到位。在总分中约占 15%。",
+  temporal:
+    "看整段视频是否稳定：有无抖动、闪烁、脸部或肢体突然变形。在总分中约占 25%。",
+  aesthetics:
+    "看整体观感是否干净、协调、适合展示。有评分时约占总分 10%；未评分则不计入本次总分。",
+};
+
 const modeLabels = {
-  full_reference: "FULL REFERENCE",
-  reference_material: "REFERENCE MATERIAL",
-  prompt_only: "PROMPT ONLY",
-  result_only: "RESULT ONLY",
+  full_reference: "全参考",
+  reference_material: "参考素材",
+  prompt_only: "仅提示词",
+  result_only: "仅结果视频",
 };
 
 function escapeHtml(value) {
@@ -200,7 +220,6 @@ function specializationRadarMarkup(
   values,
   labels,
   title,
-  subtitle,
   variant = "acid",
 ) {
   const width = 250;
@@ -273,12 +292,10 @@ function specializationRadarMarkup(
       <div class="specialization-radar-heading">
         <div class="specialization-radar-copy">
           <span class="specialization-radar-title">${escapeHtml(title)}</span>
-          <small class="specialization-radar-subtitle">${escapeHtml(subtitle)}</small>
         </div>
         <div class="specialization-radar-meta">
-          <small class="specialization-radar-score-label">综合得分</small>
+          <small class="specialization-radar-score-label">本组均分</small>
           <strong class="specialization-radar-score">${escapeHtml(compositeLabel)}</strong>
-          <span class="specialization-radar-scale">0-100</span>
         </div>
       </div>
       <div class="specialization-radar-chart">
@@ -293,8 +310,22 @@ function specializationRadarMarkup(
   `;
 }
 
+function categoryStatusMeta(status) {
+  const raw = String(status ?? "unavailable");
+  if (raw === "available" || raw === "ready") {
+    return { className: "available", text: "可用" };
+  }
+  if (raw === "manual") {
+    return { className: "manual", text: "人工" };
+  }
+  if (raw === "partial") {
+    return { className: "partial", text: "部分可用" };
+  }
+  return { className: "unavailable", text: "暂无" };
+}
+
 function statusLabel(status) {
-  return status === "available" ? "ready" : status === "manual" ? "manual" : status;
+  return categoryStatusMeta(status).text;
 }
 
 function attachFileInput(id) {
@@ -382,7 +413,11 @@ window.addEventListener("beforeunload", () => {
 });
 
 function renderModels(payload) {
-  modelTime.textContent = `cache checked / ${payload.generated_at?.slice(11, 19) ?? "local"}`;
+  if (!modelList && !modelTime) return;
+  if (modelTime) {
+    modelTime.textContent = `cache checked / ${payload.generated_at?.slice(11, 19) ?? "local"}`;
+  }
+  if (!modelList) return;
   modelList.innerHTML = payload.models
     .map((model) => {
       const label =
@@ -407,7 +442,7 @@ function renderModels(payload) {
 function renderWangxingReadiness(payload) {
   if (!wangxingReadiness) return;
   const ready = Boolean(payload?.ready);
-  wangxingReadiness.textContent = ready ? "READY" : "TRAIN FIRST";
+  wangxingReadiness.textContent = ready ? "就绪" : "需训练";
   wangxingReadiness.className = `au-readiness ${ready ? "ready" : "offline"}`;
   wangxingReadiness.title = payload?.note ?? "";
 }
@@ -417,12 +452,10 @@ async function loadModels() {
     const response = await fetch("/api/models");
     if (!response.ok) throw new Error("model endpoint unavailable");
     const payload = await response.json();
-    renderModels(payload);
+    // 模型状态区已隐藏，仅刷新王兴专项就绪状态。
     renderWangxingReadiness(payload.wangxing_au);
   } catch (error) {
-    modelTime.textContent = "model cache unavailable";
-    modelList.innerHTML =
-      '<div class="model-chip optional"><span class="status-dot"></span><span>LOCAL BACKENDS</span><small>CHECK FAILED</small></div>';
+    renderWangxingReadiness({ ready: false, note: "无法检查专项模型状态" });
   }
 }
 
@@ -437,16 +470,30 @@ function renderCategories(result) {
       const category = result.categories?.[key] ?? {};
       const score = categoryScore(key, category);
       const scoreText = score === null ? "—" : (score * 100).toFixed(2);
-      const status = statusLabel(category.status ?? "unavailable");
+      const statusMeta = categoryStatusMeta(category.status ?? "unavailable");
+      const explain = categoryExplain[key] ?? "";
       return `
         <div class="category-row">
           <div>
             <div class="category-topline">
-              <span>${label}</span>
+              <button
+                type="button"
+                class="category-name"
+                data-category-key="${escapeHtml(key)}"
+                aria-expanded="false"
+                aria-controls="category-tip-${escapeHtml(key)}"
+              >${escapeHtml(label)}</button>
               <small>${scoreText}${score === null ? "" : "/100"} · ${weight}%</small>
             </div>
+            <div
+              id="category-tip-${escapeHtml(key)}"
+              class="category-tip is-hidden"
+              role="tooltip"
+            >${escapeHtml(explain)}</div>
           </div>
-          <span class="category-status ${escapeHtml(status)}">${escapeHtml(status)}</span>
+          <span class="category-status ${escapeHtml(statusMeta.className)}">${escapeHtml(
+            statusMeta.text,
+          )}</span>
           <div class="category-track">
             <div class="category-fill" style="width: ${score === null ? 0 : score * 100}%"></div>
           </div>
@@ -454,6 +501,50 @@ function renderCategories(result) {
       `;
     })
     .join("");
+  bindCategoryTips();
+}
+
+function closeAllCategoryTips() {
+  categoryList?.querySelectorAll(".category-tip").forEach((tip) => {
+    tip.classList.add("is-hidden");
+  });
+  categoryList?.querySelectorAll(".category-name").forEach((button) => {
+    button.setAttribute("aria-expanded", "false");
+  });
+}
+
+function bindCategoryTips() {
+  if (!categoryList) return;
+  categoryList.querySelectorAll(".category-row").forEach((row) => {
+    const button = row.querySelector(".category-name");
+    const tip = row.querySelector(".category-tip");
+    if (!button || !tip) return;
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const willOpen = tip.classList.contains("is-hidden");
+      closeAllCategoryTips();
+      if (willOpen) {
+        tip.classList.remove("is-hidden");
+        button.setAttribute("aria-expanded", "true");
+      }
+    });
+    row.addEventListener("mouseleave", () => {
+      tip.classList.add("is-hidden");
+      button.setAttribute("aria-expanded", "false");
+    });
+  });
+}
+
+if (!window.__categoryTipOutsideBound) {
+  window.__categoryTipOutsideBound = true;
+  document.addEventListener("click", (event) => {
+    if (!categoryList || event.target.closest("#category-list")) return;
+    closeAllCategoryTips();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") closeAllCategoryTips();
+  });
 }
 
 function renderQwenFeedback(result) {
@@ -467,6 +558,14 @@ function renderQwenFeedback(result) {
     ? feedback.suggestions.filter(Boolean)
     : [];
   const isAvailable = judge.status === "available";
+  // 无诊断内容时不展示；有内容时默认折叠，需点击展开。
+  const hasContent =
+    isAvailable || problems.length > 0 || suggestions.length > 0;
+  if (!hasContent) {
+    qwenFeedback.classList.add("is-hidden");
+    qwenFeedback.innerHTML = "";
+    return;
+  }
   const unavailableReason = String(judge.reason ?? "");
   const isServiceActive =
     judge.service_active === true ||
@@ -500,62 +599,67 @@ function renderQwenFeedback(result) {
 
   qwenFeedback.classList.remove("is-hidden");
   qwenFeedback.innerHTML = `
-    <div class="qwen-feedback-head">
-      <div>
-        <span class="qwen-feedback-kicker">QWEN2-VL-2B AWQ / VIDEO REVIEW</span>
-        <h3>视频问题与调整建议</h3>
-        <p>${escapeHtml(statusText)}</p>
-      </div>
-      <span class="qwen-feedback-badge ${isAvailable ? "ready" : "muted"}">
-        ${
-          isAvailable
-            ? "AI REVIEW"
+    <details class="qwen-feedback-details">
+      <summary class="qwen-feedback-summary">
+        <div>
+          <span class="qwen-feedback-kicker">QWEN2-VL-2B AWQ / VIDEO REVIEW</span>
+          <strong>视频问题与调整建议</strong>
+          <small>${escapeHtml(statusText)}</small>
+        </div>
+        <span class="qwen-feedback-badge ${isAvailable ? "ready" : "muted"}">
+          ${
+            isAvailable
+              ? "点击展开"
               : isCachedButOffline
                 ? "已下载 / 未连接"
                 : hasInvalidResponse
-                  ? "Judge 已连接 / 诊断失败"
-                : "诊断不可用"
-        }
-      </span>
-    </div>
-    <div class="qwen-feedback-grid">
-      <div class="qwen-feedback-column problem">
-        <span class="qwen-feedback-label">模型发现的问题</span>
-        ${
-          problems.length
-            ? `<ul>${problems
-                .slice(0, 6)
-                .map((item) => `<li>${escapeHtml(item)}</li>`)
-                .join("")}</ul>`
-            : `<p class="qwen-feedback-empty">${
-                isAvailable
-                  ? "未发现明确问题。"
-                  : unavailableMessage
-              }</p>`
-        }
+                  ? "诊断失败"
+                  : "点击展开"
+          }
+        </span>
+      </summary>
+      <div class="qwen-feedback-body">
+        <div class="qwen-feedback-grid">
+          <div class="qwen-feedback-column problem">
+            <span class="qwen-feedback-label">模型发现的问题</span>
+            ${
+              problems.length
+                ? `<ul>${problems
+                    .slice(0, 6)
+                    .map((item) => `<li>${escapeHtml(item)}</li>`)
+                    .join("")}</ul>`
+                : `<p class="qwen-feedback-empty">${
+                    isAvailable
+                      ? "未发现明确问题。"
+                      : unavailableMessage
+                  }</p>`
+            }
+          </div>
+          <div class="qwen-feedback-column suggestion">
+            <span class="qwen-feedback-label">可以尝试的调整</span>
+            ${
+              suggestions.length
+                ? `<ul>${suggestions
+                    .slice(0, 6)
+                    .map((item) => `<li>${escapeHtml(item)}</li>`)
+                    .join("")}</ul>`
+                : `<p class="qwen-feedback-empty">${
+                    isAvailable
+                      ? "暂无额外调整建议。"
+                      : hasInvalidResponse
+                        ? "请检查 Judge 服务日志，确认模型返回的是有效 JSON 后再重新评估。"
+                        : "启动 Qwen Judge 服务后重新评估，这里会显示具体调整方向。"
+                  }</p>`
+            }
+          </div>
+        </div>
       </div>
-      <div class="qwen-feedback-column suggestion">
-        <span class="qwen-feedback-label">可以尝试的调整</span>
-        ${
-          suggestions.length
-            ? `<ul>${suggestions
-                .slice(0, 6)
-                .map((item) => `<li>${escapeHtml(item)}</li>`)
-                .join("")}</ul>`
-            : `<p class="qwen-feedback-empty">${
-                isAvailable
-                  ? "暂无额外调整建议。"
-                  : hasInvalidResponse
-                    ? "请检查 Judge 服务日志，确认模型返回的是有效 JSON 后再重新评估。"
-                    : "启动 Qwen Judge 服务后重新评估，这里会显示具体调整方向。"
-              }</p>`
-        }
-      </div>
-    </div>
+    </details>
   `;
 }
 
 function renderEvidence(result) {
+  if (!evidenceGrid) return;
   const categories = result.categories ?? {};
   const textureCategory = categories.texture ?? {};
   const texture = textureCategory.metrics ?? {};
@@ -1261,6 +1365,16 @@ function renderWangxingSpecializationDashboard(payload) {
         <span class="wangxing-result-kicker">专项评估 / 王兴</span>
         <h3>王兴身份与面部表情画像</h3>
       </div>
+      <div class="wangxing-specialization-score" aria-label="王兴专项分数">
+        <span>
+          <small>身份概率</small>
+          <strong>${escapeHtml(percent(score))}</strong>
+        </span>
+        <span>
+          <small>画像符合度</small>
+          <strong>${escapeHtml(percent(compatibility))}</strong>
+        </span>
+      </div>
       <span class="wangxing-result-status ${escapeHtml(identityStatus)}">
         ${escapeHtml(identityLabels[identityDecision] ?? "身份不确定")}
       </span>
@@ -1288,7 +1402,6 @@ function renderWangxingSpecializationDashboard(payload) {
         ],
         ["身份概率", "面部一致性", "有效脸帧", "帧质量", "正向信号"],
         "身份信息",
-        `${String(identity.valid_frame_count ?? "--")} 有效帧`,
         "identity",
       )}
       ${specializationRadarMarkup(
@@ -1301,7 +1414,6 @@ function renderWangxingSpecializationDashboard(payload) {
         ],
         ["画像符合度", "肌肉动作证据", "AU关系一致", "动态自然度", "关键点覆盖"],
         "表情与肌肉动态",
-        String(expression.selected_profile_display_name ?? "--"),
         "expression",
       )}
       ${
@@ -1318,7 +1430,6 @@ function renderWangxingSpecializationDashboard(payload) {
               ],
               ["质感证据", "微时序自然", "残差多样性", "真人域拟合", "融合证据"],
               "质感与细节",
-              "光流残差 / 频域 / 时序",
               "forensics",
             )
           : ""
@@ -1541,18 +1652,6 @@ function renderWangxingSpecializationDashboardV2(payload) {
   const forensicBranches = forensics.branches ?? {};
   const identityDecision = String(identity.decision ?? "uncertain");
   const finalDecision = String(payload.decision ?? "uncertain_identity");
-  const percent = formatPercent01;
-  const identityStatus =
-    identityDecision === "wangxing"
-      ? "allow"
-      : identityDecision === "not_wangxing"
-        ? "block"
-        : "review";
-  const identityLabels = {
-    wangxing: "王兴",
-    not_wangxing: "非王兴",
-    uncertain: "身份待复核",
-  };
   const profileConclusionLabels = {
     wangxing_expression_compatible: "画像匹配",
     wangxing_expression_incompatible: "画像漂移",
@@ -1615,9 +1714,6 @@ function renderWangxingSpecializationDashboardV2(payload) {
     identity.negative_class_probability_0_1,
   );
   const compatibility = normalizeScore(expression.compatibility_0_1);
-  const topProfiles = Array.isArray(expression.top_profiles)
-    ? expression.top_profiles
-    : [];
   const events = expression.event_statistics ?? {};
   const activeRatio = normalizeScore(events.active_ratio);
   const longestEventRatio = normalizeScore(events.longest_event_ratio);
@@ -1650,6 +1746,10 @@ function renderWangxingSpecializationDashboardV2(payload) {
   const textureMicroTemporal = normalizeScore(
     forensicBranches.texture_detail?.metrics?.micro_temporal_naturalness_0_1,
   );
+  const score100 = (value) => {
+    const normalized = normalizeScore(value);
+    return normalized === null ? "--" : `${(normalized * 100).toFixed(1)}/100`;
+  };
 
   wangxingResult.classList.remove("is-hidden");
   wangxingResult.innerHTML = `
@@ -1658,22 +1758,25 @@ function renderWangxingSpecializationDashboardV2(payload) {
         <span class="wangxing-result-kicker">定向专项 / 王兴</span>
         <h3>王兴身份与面部画像</h3>
       </div>
-      <span class="wangxing-result-status ${escapeHtml(identityStatus)}">
-        ${escapeHtml(identityLabels[identityDecision] ?? "身份待复核")}
-      </span>
+      <div class="wangxing-specialization-score" aria-label="王兴专项分数">
+        <span>
+          <small>真实拍摄概率</small>
+          <strong>${escapeHtml(score100(forensicsProbability))}</strong>
+        </span>
+      </div>
     </div>
     <div class="wangxing-specialization-conclusions">
+      <div class="wangxing-specialization-conclusion profile">
+        <span>身份与表情</span>
+        <strong>${escapeHtml(profileConclusion)}</strong>
+        <small>${escapeHtml(profileDetail)}</small>
+      </div>
       <div class="wangxing-specialization-conclusion authenticity ${
         forensicsSummary.reviewRequired ? "is-review" : ""
       }">
         <span>真实性取证</span>
         <strong>${escapeHtml(forensicsSummary.conclusion)}</strong>
         <small>${escapeHtml(forensicsSummary.detail)}</small>
-      </div>
-      <div class="wangxing-specialization-conclusion profile">
-        <span>身份与表情</span>
-        <strong>${escapeHtml(profileConclusion)}</strong>
-        <small>${escapeHtml(profileDetail)}</small>
       </div>
     </div>
     <div class="wangxing-specialization-radar-grid">
@@ -1693,7 +1796,6 @@ function renderWangxingSpecializationDashboardV2(payload) {
           "正向信号",
         ],
         "身份证据",
-        `${String(identity.valid_frame_count ?? "--")} 个有效帧`,
         "identity",
       )}
       ${specializationRadarMarkup(
@@ -1712,7 +1814,6 @@ function renderWangxingSpecializationDashboardV2(payload) {
           "关键点",
         ],
         "表情证据",
-        String(expression.selected_profile_display_name ?? "--"),
         "expression",
       )}
       ${
@@ -1735,7 +1836,6 @@ function renderWangxingSpecializationDashboardV2(payload) {
                 "原始证据",
               ],
               "取证证据",
-              "光流残差 / 频谱 / 时序",
               "forensics",
             )
           : ""
@@ -1749,35 +1849,21 @@ function renderWangxingSpecializationDashboardV2(payload) {
         forensicsSummary.scoreCaption,
       )}</span>
     </div>
-    ${
-      topProfiles.length
-        ? `<p class="wangxing-result-note">
-            最接近的画像：${topProfiles
-              .map(
-                (profile, index) =>
-                  `${index + 1}. ${escapeHtml(
-                    profile.display_name ?? profile.class ?? "--",
-                  )} ${escapeHtml(percent(profile.score_0_1))}`,
-              )
-              .join(" / ")}
-          </p>`
-        : ""
-    }
   `;
 }
 
 function renderDownloads(downloads) {
   const links = [
-    ["summary_csv", "summary.csv"],
-    ["frame_csv", "frame_metrics.csv"],
-    ["result_json", "result.json"],
-    ["wangxing_au_json", "wangxing_au_result.json"],
+    ["summary_csv", "summary.csv", "汇总报告：总分与五项评分"],
+    ["frame_csv", "frame_metrics.csv", "逐帧指标明细"],
+    ["result_json", "result.json", "完整评估结果（JSON）"],
+    ["wangxing_au_json", "wangxing_au_result.json", "王兴专项判定结果（JSON）"],
   ];
   downloadRow.innerHTML = links
     .filter(([key]) => downloads?.[key])
     .map(
-      ([key, label]) =>
-        `<a class="download-link" href="${escapeHtml(downloads[key])}" download>${label} ↗</a>`,
+      ([key, label, hint]) =>
+        `<a class="download-link" href="${escapeHtml(downloads[key])}" download title="${escapeHtml(hint)}" aria-label="${escapeHtml(hint)}">${label} ↗</a>`,
     )
     .join("");
 }
@@ -1791,6 +1877,7 @@ function renderResult(payload) {
   reportContent.classList.remove("is-hidden");
   reportMode.textContent = mode;
   reportMode.classList.add("success");
+  setReportJobName(payload.name || selectedJob?.name || "");
   overallScore.textContent = Number.isFinite(score) ? score.toFixed(1) : "—";
   coverageValue.textContent = coverage;
   const scoreStatusLabels = {
@@ -1832,26 +1919,27 @@ function renderEmptyReport(status = "queued", errorMessage = "") {
     emptyTitle.textContent = "本次评估失败。";
     emptyDescription.textContent =
       errorMessage || "请检查输入文件、模型服务和显存状态后重试。";
-    emptySignal.textContent = "EVALUATION FAILED";
+    emptySignal.textContent = "评估失败";
   } else if (status === "canceled") {
     emptyTitle.textContent = "本次任务已中断。";
     emptyDescription.textContent =
       "可以直接修改左侧参数并重新评估，已上传素材会继续复用。";
-    emptySignal.textContent = "TASK CANCELED";
+    emptySignal.textContent = "任务已中断";
   } else {
     emptyTitle.textContent = "上传视频后开始评分。";
     emptyDescription.textContent =
       "系统会根据你提供的 GT、参考图、参考视频和 Prompt，自动选择可用指标。";
-    emptySignal.textContent = "WAITING FOR VIDEO";
+    emptySignal.textContent = "等待视频";
   }
   emptyReport.classList.remove("is-hidden");
   reportContent.classList.add("is-hidden");
+  setReportJobName(selectedJob?.name || "");
   reportMode.textContent =
     status === "failed"
-      ? "FAILED"
+      ? "失败"
       : status === "canceled"
-        ? "CANCELED"
-        : "WAITING";
+        ? "已中断"
+        : "等待中";
   reportMode.classList.remove("success");
   overallScore.textContent = "--";
   scoreCaption.textContent = "覆盖情况";
@@ -1859,7 +1947,7 @@ function renderEmptyReport(status = "queued", errorMessage = "") {
   coverageRing.style.setProperty("--coverage", "0%");
   document.querySelector("#radar-chart").innerHTML = "";
   categoryList.innerHTML = "";
-  evidenceGrid.innerHTML = "";
+  if (evidenceGrid) evidenceGrid.innerHTML = "";
   downloadRow.innerHTML = "";
   wangxingResult.classList.add("is-hidden");
   wangxingResult.innerHTML = "";
@@ -1928,7 +2016,7 @@ function stopProgress(completed = false) {
 }
 
 loadModels();
-window.setInterval(loadModels, 15_000);
+window.setInterval(loadModels, 60_000);
 
 window.queueMode = true;
 
@@ -2271,14 +2359,15 @@ function startNewEvaluation() {
   selectedJob = null;
   setFormEditState(null);
   form.reset();
-  clearUploadState("result-video", "Drop video or browse");
-  clearUploadState("gt-video", "Optional reference");
+  clearUploadState("result-video", "点击或拖入");
+  clearUploadState("gt-video", "点击或拖入");
   clearUploadState("reference-images", "optional");
   clearUploadState("reference-video", "optional");
   document.querySelector("#result-video").required = true;
   updateQueueProgressPanel(null);
   progressBar.classList.remove("is-complete");
   progressBar.style.width = "0%";
+  setReportJobName("");
   renderEmptyReport();
   setQueueBusy(false);
   setFormNote("已清空当前表单，可以开始新的评估。", "success");
@@ -2363,6 +2452,7 @@ async function getQueueJob(jobId, shouldScroll = false) {
   syncFormWithJob(payload);
   setFormEditState(payload);
   updateQueueProgressPanel(payload);
+  setReportJobName(payload.name || "");
   if (payload.result) {
     renderResult(payload);
     if (shouldScroll) {
@@ -2502,6 +2592,12 @@ refreshQueueButton.addEventListener("click", refreshQueue);
 queueSearch?.addEventListener("input", () => {
   if (latestQueuePayload) renderQueue(latestQueuePayload);
 });
+queueSearch?.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") {
+    event.preventDefault();
+    event.stopPropagation();
+  }
+});
 newEvaluationButton.addEventListener("click", startNewEvaluation);
 queueActive.addEventListener("click", (event) => {
   if (event.target.closest("#active-job-cancel")) return;
@@ -2515,6 +2611,14 @@ activeJobCancel.addEventListener("click", () => {
 
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
+  // 队列搜索在表单内：回车不应触发评估提交。
+  if (
+    document.activeElement === queueSearch ||
+    (event.submitter == null &&
+      Boolean(document.activeElement?.closest?.("#process-queue")))
+  ) {
+    return;
+  }
   if (formLocked) {
     setFormNote("当前任务仅供查看，请先中断任务后再修改。");
     return;
@@ -2628,5 +2732,6 @@ form.addEventListener("submit", async (event) => {
 });
 
 setQueueBusy(false);
+renderEmptyReport();
 refreshQueue();
 window.setInterval(refreshQueue, 1200);

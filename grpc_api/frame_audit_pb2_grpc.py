@@ -2,7 +2,7 @@
 """Client and server classes corresponding to protobuf-defined services."""
 import grpc
 
-from . import frame_audit_pb2 as frame__audit__pb2
+from grpc_api import frame_audit_pb2 as grpc__api_dot_frame__audit__pb2
 
 
 class FrameAuditStub(object):
@@ -16,53 +16,68 @@ class FrameAuditStub(object):
         """
         self.Health = channel.unary_unary(
                 '/frame_audit.FrameAudit/Health',
-                request_serializer=frame__audit__pb2.Empty.SerializeToString,
-                response_deserializer=frame__audit__pb2.JsonResponse.FromString,
+                request_serializer=grpc__api_dot_frame__audit__pb2.Empty.SerializeToString,
+                response_deserializer=grpc__api_dot_frame__audit__pb2.JsonResponse.FromString,
                 )
         self.Models = channel.unary_unary(
                 '/frame_audit.FrameAudit/Models',
-                request_serializer=frame__audit__pb2.Empty.SerializeToString,
-                response_deserializer=frame__audit__pb2.JsonResponse.FromString,
+                request_serializer=grpc__api_dot_frame__audit__pb2.Empty.SerializeToString,
+                response_deserializer=grpc__api_dot_frame__audit__pb2.JsonResponse.FromString,
                 )
         self.Hardware = channel.unary_unary(
                 '/frame_audit.FrameAudit/Hardware',
-                request_serializer=frame__audit__pb2.HardwareRequest.SerializeToString,
-                response_deserializer=frame__audit__pb2.JsonResponse.FromString,
+                request_serializer=grpc__api_dot_frame__audit__pb2.HardwareRequest.SerializeToString,
+                response_deserializer=grpc__api_dot_frame__audit__pb2.JsonResponse.FromString,
                 )
         self.CreateJob = channel.stream_unary(
                 '/frame_audit.FrameAudit/CreateJob',
-                request_serializer=frame__audit__pb2.UploadRequest.SerializeToString,
-                response_deserializer=frame__audit__pb2.JsonResponse.FromString,
+                request_serializer=grpc__api_dot_frame__audit__pb2.UploadRequest.SerializeToString,
+                response_deserializer=grpc__api_dot_frame__audit__pb2.JsonResponse.FromString,
                 )
         self.Evaluate = channel.stream_unary(
                 '/frame_audit.FrameAudit/Evaluate',
-                request_serializer=frame__audit__pb2.UploadRequest.SerializeToString,
-                response_deserializer=frame__audit__pb2.JsonResponse.FromString,
+                request_serializer=grpc__api_dot_frame__audit__pb2.UploadRequest.SerializeToString,
+                response_deserializer=grpc__api_dot_frame__audit__pb2.JsonResponse.FromString,
                 )
         self.ListJobs = channel.unary_unary(
                 '/frame_audit.FrameAudit/ListJobs',
-                request_serializer=frame__audit__pb2.ListJobsRequest.SerializeToString,
-                response_deserializer=frame__audit__pb2.JsonResponse.FromString,
+                request_serializer=grpc__api_dot_frame__audit__pb2.ListJobsRequest.SerializeToString,
+                response_deserializer=grpc__api_dot_frame__audit__pb2.JsonResponse.FromString,
+                )
+        self.ListPublicShowcase = channel.unary_unary(
+                '/frame_audit.FrameAudit/ListPublicShowcase',
+                request_serializer=grpc__api_dot_frame__audit__pb2.PublicShowcaseRequest.SerializeToString,
+                response_deserializer=grpc__api_dot_frame__audit__pb2.JsonResponse.FromString,
+                )
+        self.GetPublicShowcase = channel.unary_unary(
+                '/frame_audit.FrameAudit/GetPublicShowcase',
+                request_serializer=grpc__api_dot_frame__audit__pb2.PublicShowcaseItemRequest.SerializeToString,
+                response_deserializer=grpc__api_dot_frame__audit__pb2.JsonResponse.FromString,
+                )
+        self.DownloadPublicShowcaseFile = channel.unary_stream(
+                '/frame_audit.FrameAudit/DownloadPublicShowcaseFile',
+                request_serializer=grpc__api_dot_frame__audit__pb2.PublicShowcaseFileRequest.SerializeToString,
+                response_deserializer=grpc__api_dot_frame__audit__pb2.DownloadChunk.FromString,
                 )
         self.GetJob = channel.unary_unary(
                 '/frame_audit.FrameAudit/GetJob',
-                request_serializer=frame__audit__pb2.JobRequest.SerializeToString,
-                response_deserializer=frame__audit__pb2.JsonResponse.FromString,
+                request_serializer=grpc__api_dot_frame__audit__pb2.JobRequest.SerializeToString,
+                response_deserializer=grpc__api_dot_frame__audit__pb2.JsonResponse.FromString,
                 )
         self.UpdateJob = channel.unary_unary(
                 '/frame_audit.FrameAudit/UpdateJob',
-                request_serializer=frame__audit__pb2.UpdateJobRequest.SerializeToString,
-                response_deserializer=frame__audit__pb2.JsonResponse.FromString,
+                request_serializer=grpc__api_dot_frame__audit__pb2.UpdateJobRequest.SerializeToString,
+                response_deserializer=grpc__api_dot_frame__audit__pb2.JsonResponse.FromString,
                 )
         self.DeleteJob = channel.unary_unary(
                 '/frame_audit.FrameAudit/DeleteJob',
-                request_serializer=frame__audit__pb2.JobRequest.SerializeToString,
-                response_deserializer=frame__audit__pb2.JsonResponse.FromString,
+                request_serializer=grpc__api_dot_frame__audit__pb2.JobRequest.SerializeToString,
+                response_deserializer=grpc__api_dot_frame__audit__pb2.JsonResponse.FromString,
                 )
         self.DownloadRunFile = channel.unary_stream(
                 '/frame_audit.FrameAudit/DownloadRunFile',
-                request_serializer=frame__audit__pb2.DownloadRequest.SerializeToString,
-                response_deserializer=frame__audit__pb2.DownloadChunk.FromString,
+                request_serializer=grpc__api_dot_frame__audit__pb2.DownloadRequest.SerializeToString,
+                response_deserializer=grpc__api_dot_frame__audit__pb2.DownloadChunk.FromString,
                 )
 
 
@@ -105,6 +120,24 @@ class FrameAuditServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def ListPublicShowcase(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetPublicShowcase(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def DownloadPublicShowcaseFile(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def GetJob(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
@@ -134,53 +167,68 @@ def add_FrameAuditServicer_to_server(servicer, server):
     rpc_method_handlers = {
             'Health': grpc.unary_unary_rpc_method_handler(
                     servicer.Health,
-                    request_deserializer=frame__audit__pb2.Empty.FromString,
-                    response_serializer=frame__audit__pb2.JsonResponse.SerializeToString,
+                    request_deserializer=grpc__api_dot_frame__audit__pb2.Empty.FromString,
+                    response_serializer=grpc__api_dot_frame__audit__pb2.JsonResponse.SerializeToString,
             ),
             'Models': grpc.unary_unary_rpc_method_handler(
                     servicer.Models,
-                    request_deserializer=frame__audit__pb2.Empty.FromString,
-                    response_serializer=frame__audit__pb2.JsonResponse.SerializeToString,
+                    request_deserializer=grpc__api_dot_frame__audit__pb2.Empty.FromString,
+                    response_serializer=grpc__api_dot_frame__audit__pb2.JsonResponse.SerializeToString,
             ),
             'Hardware': grpc.unary_unary_rpc_method_handler(
                     servicer.Hardware,
-                    request_deserializer=frame__audit__pb2.HardwareRequest.FromString,
-                    response_serializer=frame__audit__pb2.JsonResponse.SerializeToString,
+                    request_deserializer=grpc__api_dot_frame__audit__pb2.HardwareRequest.FromString,
+                    response_serializer=grpc__api_dot_frame__audit__pb2.JsonResponse.SerializeToString,
             ),
             'CreateJob': grpc.stream_unary_rpc_method_handler(
                     servicer.CreateJob,
-                    request_deserializer=frame__audit__pb2.UploadRequest.FromString,
-                    response_serializer=frame__audit__pb2.JsonResponse.SerializeToString,
+                    request_deserializer=grpc__api_dot_frame__audit__pb2.UploadRequest.FromString,
+                    response_serializer=grpc__api_dot_frame__audit__pb2.JsonResponse.SerializeToString,
             ),
             'Evaluate': grpc.stream_unary_rpc_method_handler(
                     servicer.Evaluate,
-                    request_deserializer=frame__audit__pb2.UploadRequest.FromString,
-                    response_serializer=frame__audit__pb2.JsonResponse.SerializeToString,
+                    request_deserializer=grpc__api_dot_frame__audit__pb2.UploadRequest.FromString,
+                    response_serializer=grpc__api_dot_frame__audit__pb2.JsonResponse.SerializeToString,
             ),
             'ListJobs': grpc.unary_unary_rpc_method_handler(
                     servicer.ListJobs,
-                    request_deserializer=frame__audit__pb2.ListJobsRequest.FromString,
-                    response_serializer=frame__audit__pb2.JsonResponse.SerializeToString,
+                    request_deserializer=grpc__api_dot_frame__audit__pb2.ListJobsRequest.FromString,
+                    response_serializer=grpc__api_dot_frame__audit__pb2.JsonResponse.SerializeToString,
+            ),
+            'ListPublicShowcase': grpc.unary_unary_rpc_method_handler(
+                    servicer.ListPublicShowcase,
+                    request_deserializer=grpc__api_dot_frame__audit__pb2.PublicShowcaseRequest.FromString,
+                    response_serializer=grpc__api_dot_frame__audit__pb2.JsonResponse.SerializeToString,
+            ),
+            'GetPublicShowcase': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetPublicShowcase,
+                    request_deserializer=grpc__api_dot_frame__audit__pb2.PublicShowcaseItemRequest.FromString,
+                    response_serializer=grpc__api_dot_frame__audit__pb2.JsonResponse.SerializeToString,
+            ),
+            'DownloadPublicShowcaseFile': grpc.unary_stream_rpc_method_handler(
+                    servicer.DownloadPublicShowcaseFile,
+                    request_deserializer=grpc__api_dot_frame__audit__pb2.PublicShowcaseFileRequest.FromString,
+                    response_serializer=grpc__api_dot_frame__audit__pb2.DownloadChunk.SerializeToString,
             ),
             'GetJob': grpc.unary_unary_rpc_method_handler(
                     servicer.GetJob,
-                    request_deserializer=frame__audit__pb2.JobRequest.FromString,
-                    response_serializer=frame__audit__pb2.JsonResponse.SerializeToString,
+                    request_deserializer=grpc__api_dot_frame__audit__pb2.JobRequest.FromString,
+                    response_serializer=grpc__api_dot_frame__audit__pb2.JsonResponse.SerializeToString,
             ),
             'UpdateJob': grpc.unary_unary_rpc_method_handler(
                     servicer.UpdateJob,
-                    request_deserializer=frame__audit__pb2.UpdateJobRequest.FromString,
-                    response_serializer=frame__audit__pb2.JsonResponse.SerializeToString,
+                    request_deserializer=grpc__api_dot_frame__audit__pb2.UpdateJobRequest.FromString,
+                    response_serializer=grpc__api_dot_frame__audit__pb2.JsonResponse.SerializeToString,
             ),
             'DeleteJob': grpc.unary_unary_rpc_method_handler(
                     servicer.DeleteJob,
-                    request_deserializer=frame__audit__pb2.JobRequest.FromString,
-                    response_serializer=frame__audit__pb2.JsonResponse.SerializeToString,
+                    request_deserializer=grpc__api_dot_frame__audit__pb2.JobRequest.FromString,
+                    response_serializer=grpc__api_dot_frame__audit__pb2.JsonResponse.SerializeToString,
             ),
             'DownloadRunFile': grpc.unary_stream_rpc_method_handler(
                     servicer.DownloadRunFile,
-                    request_deserializer=frame__audit__pb2.DownloadRequest.FromString,
-                    response_serializer=frame__audit__pb2.DownloadChunk.SerializeToString,
+                    request_deserializer=grpc__api_dot_frame__audit__pb2.DownloadRequest.FromString,
+                    response_serializer=grpc__api_dot_frame__audit__pb2.DownloadChunk.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -204,8 +252,8 @@ class FrameAudit(object):
             timeout=None,
             metadata=None):
         return grpc.experimental.unary_unary(request, target, '/frame_audit.FrameAudit/Health',
-            frame__audit__pb2.Empty.SerializeToString,
-            frame__audit__pb2.JsonResponse.FromString,
+            grpc__api_dot_frame__audit__pb2.Empty.SerializeToString,
+            grpc__api_dot_frame__audit__pb2.JsonResponse.FromString,
             options, channel_credentials,
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
 
@@ -221,8 +269,8 @@ class FrameAudit(object):
             timeout=None,
             metadata=None):
         return grpc.experimental.unary_unary(request, target, '/frame_audit.FrameAudit/Models',
-            frame__audit__pb2.Empty.SerializeToString,
-            frame__audit__pb2.JsonResponse.FromString,
+            grpc__api_dot_frame__audit__pb2.Empty.SerializeToString,
+            grpc__api_dot_frame__audit__pb2.JsonResponse.FromString,
             options, channel_credentials,
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
 
@@ -238,8 +286,8 @@ class FrameAudit(object):
             timeout=None,
             metadata=None):
         return grpc.experimental.unary_unary(request, target, '/frame_audit.FrameAudit/Hardware',
-            frame__audit__pb2.HardwareRequest.SerializeToString,
-            frame__audit__pb2.JsonResponse.FromString,
+            grpc__api_dot_frame__audit__pb2.HardwareRequest.SerializeToString,
+            grpc__api_dot_frame__audit__pb2.JsonResponse.FromString,
             options, channel_credentials,
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
 
@@ -255,8 +303,8 @@ class FrameAudit(object):
             timeout=None,
             metadata=None):
         return grpc.experimental.stream_unary(request_iterator, target, '/frame_audit.FrameAudit/CreateJob',
-            frame__audit__pb2.UploadRequest.SerializeToString,
-            frame__audit__pb2.JsonResponse.FromString,
+            grpc__api_dot_frame__audit__pb2.UploadRequest.SerializeToString,
+            grpc__api_dot_frame__audit__pb2.JsonResponse.FromString,
             options, channel_credentials,
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
 
@@ -272,8 +320,8 @@ class FrameAudit(object):
             timeout=None,
             metadata=None):
         return grpc.experimental.stream_unary(request_iterator, target, '/frame_audit.FrameAudit/Evaluate',
-            frame__audit__pb2.UploadRequest.SerializeToString,
-            frame__audit__pb2.JsonResponse.FromString,
+            grpc__api_dot_frame__audit__pb2.UploadRequest.SerializeToString,
+            grpc__api_dot_frame__audit__pb2.JsonResponse.FromString,
             options, channel_credentials,
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
 
@@ -289,8 +337,59 @@ class FrameAudit(object):
             timeout=None,
             metadata=None):
         return grpc.experimental.unary_unary(request, target, '/frame_audit.FrameAudit/ListJobs',
-            frame__audit__pb2.ListJobsRequest.SerializeToString,
-            frame__audit__pb2.JsonResponse.FromString,
+            grpc__api_dot_frame__audit__pb2.ListJobsRequest.SerializeToString,
+            grpc__api_dot_frame__audit__pb2.JsonResponse.FromString,
+            options, channel_credentials,
+            insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
+
+    @staticmethod
+    def ListPublicShowcase(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(request, target, '/frame_audit.FrameAudit/ListPublicShowcase',
+            grpc__api_dot_frame__audit__pb2.PublicShowcaseRequest.SerializeToString,
+            grpc__api_dot_frame__audit__pb2.JsonResponse.FromString,
+            options, channel_credentials,
+            insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
+
+    @staticmethod
+    def GetPublicShowcase(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(request, target, '/frame_audit.FrameAudit/GetPublicShowcase',
+            grpc__api_dot_frame__audit__pb2.PublicShowcaseItemRequest.SerializeToString,
+            grpc__api_dot_frame__audit__pb2.JsonResponse.FromString,
+            options, channel_credentials,
+            insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
+
+    @staticmethod
+    def DownloadPublicShowcaseFile(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_stream(request, target, '/frame_audit.FrameAudit/DownloadPublicShowcaseFile',
+            grpc__api_dot_frame__audit__pb2.PublicShowcaseFileRequest.SerializeToString,
+            grpc__api_dot_frame__audit__pb2.DownloadChunk.FromString,
             options, channel_credentials,
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
 
@@ -306,8 +405,8 @@ class FrameAudit(object):
             timeout=None,
             metadata=None):
         return grpc.experimental.unary_unary(request, target, '/frame_audit.FrameAudit/GetJob',
-            frame__audit__pb2.JobRequest.SerializeToString,
-            frame__audit__pb2.JsonResponse.FromString,
+            grpc__api_dot_frame__audit__pb2.JobRequest.SerializeToString,
+            grpc__api_dot_frame__audit__pb2.JsonResponse.FromString,
             options, channel_credentials,
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
 
@@ -323,8 +422,8 @@ class FrameAudit(object):
             timeout=None,
             metadata=None):
         return grpc.experimental.unary_unary(request, target, '/frame_audit.FrameAudit/UpdateJob',
-            frame__audit__pb2.UpdateJobRequest.SerializeToString,
-            frame__audit__pb2.JsonResponse.FromString,
+            grpc__api_dot_frame__audit__pb2.UpdateJobRequest.SerializeToString,
+            grpc__api_dot_frame__audit__pb2.JsonResponse.FromString,
             options, channel_credentials,
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
 
@@ -340,8 +439,8 @@ class FrameAudit(object):
             timeout=None,
             metadata=None):
         return grpc.experimental.unary_unary(request, target, '/frame_audit.FrameAudit/DeleteJob',
-            frame__audit__pb2.JobRequest.SerializeToString,
-            frame__audit__pb2.JsonResponse.FromString,
+            grpc__api_dot_frame__audit__pb2.JobRequest.SerializeToString,
+            grpc__api_dot_frame__audit__pb2.JsonResponse.FromString,
             options, channel_credentials,
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
 
@@ -357,7 +456,7 @@ class FrameAudit(object):
             timeout=None,
             metadata=None):
         return grpc.experimental.unary_stream(request, target, '/frame_audit.FrameAudit/DownloadRunFile',
-            frame__audit__pb2.DownloadRequest.SerializeToString,
-            frame__audit__pb2.DownloadChunk.FromString,
+            grpc__api_dot_frame__audit__pb2.DownloadRequest.SerializeToString,
+            grpc__api_dot_frame__audit__pb2.DownloadChunk.FromString,
             options, channel_credentials,
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)

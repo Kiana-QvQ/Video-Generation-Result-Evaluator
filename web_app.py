@@ -39,6 +39,12 @@ from evaluator.modules.core.evaluation_lock import serialized_evaluation
 from evaluator.modules.core.hardware_policy import resolve_policy
 from evaluator.modules.core.media import concatenate_videos, transcode_video_for_browser
 from evaluator.modules.core.paths import resolve_profile
+from evaluator.modules.core.public_showcase import (
+    get_public_showcase as _get_public_showcase,
+    list_public_showcase as _list_public_showcase,
+    public_showcase_status as _public_showcase_status,
+    resolve_public_showcase_file as _resolve_public_showcase_file,
+)
 from evaluator.modules.core.runtime import OUTPUT_DIR, PROJECT_ROOT
 from backends.subst import cleanup_project_subst_mappings
 from evaluator.modules.core.video_metrics import is_video_path, probe_video
@@ -2610,13 +2616,55 @@ def index() -> Path:
     return WEB_DIR / "index.html"
 
 
+@app.get("/showcase", response_class=FileResponse)
+def public_showcase_page() -> Path:
+    return WEB_DIR / "showcase.html"
+
+
 @app.get("/api/health")
 def health() -> dict[str, Any]:
     return {
         "status": "ok",
         "service": "frame-audit",
         "queue_worker": _worker_snapshot(),
+        "public_showcase": _public_showcase_status(),
     }
+
+
+@app.get("/api/public-showcase")
+def public_showcase(
+    limit: int = 50,
+    query: str = "",
+    category: str = "",
+) -> dict[str, Any]:
+    try:
+        return _list_public_showcase(
+            limit=limit,
+            query=query,
+            category=category,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.get("/api/public-showcase/{item_id}")
+def get_public_showcase(item_id: str) -> dict[str, Any]:
+    try:
+        return _get_public_showcase(item_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.get("/api/public-showcase/{item_id}/files/{file_key}")
+def download_public_showcase_file(
+    item_id: str,
+    file_key: str,
+) -> FileResponse:
+    try:
+        path = _resolve_public_showcase_file(item_id, file_key)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return FileResponse(path)
 
 
 @app.get("/api/models")

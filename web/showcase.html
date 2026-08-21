@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>领导公共展示队列</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: "Noto Sans SC", "Microsoft YaHei", sans-serif;
+        background: #f3f4e8;
+        color: #172018;
+      }
+      body {
+        margin: 0;
+        background:
+          radial-gradient(circle at 10% 0%, #e7f2b2 0, transparent 34%),
+          linear-gradient(135deg, #f8f8ed, #edf3d9);
+      }
+      header {
+        padding: 28px 5vw 20px;
+        border-bottom: 1px solid #cbd4a3;
+      }
+      h1 { margin: 0 0 8px; font-size: clamp(28px, 4vw, 52px); }
+      header p { margin: 0; color: #596548; }
+      main {
+        display: grid;
+        grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
+        gap: 18px;
+        padding: 24px 5vw 48px;
+      }
+      section {
+        background: rgba(255, 255, 250, 0.82);
+        border: 1px solid #ccd6a8;
+        border-radius: 18px;
+        box-shadow: 0 12px 32px rgba(53, 65, 34, 0.08);
+      }
+      .toolbar, .detail { padding: 20px; }
+      .toolbar { min-height: 520px; }
+      .toolbar input {
+        width: 100%;
+        box-sizing: border-box;
+        padding: 12px 14px;
+        border: 1px solid #c8d0b4;
+        border-radius: 10px;
+        background: #fffef8;
+      }
+      #queue { display: grid; gap: 8px; margin-top: 16px; }
+      .queue-item {
+        width: 100%;
+        text-align: left;
+        padding: 12px;
+        border: 1px solid #d5ddbf;
+        border-radius: 12px;
+        background: #fbfcf3;
+        cursor: pointer;
+      }
+      .queue-item:hover, .queue-item.active { border-color: #789b2c; background: #f0f7cb; }
+      .queue-item strong, .queue-item small { display: block; }
+      .queue-item small { margin-top: 4px; color: #69725f; }
+      .tag {
+        display: inline-block;
+        margin-top: 8px;
+        padding: 3px 7px;
+        border-radius: 99px;
+        background: #e6efbd;
+        color: #516d16;
+        font-size: 12px;
+      }
+      .empty { color: #69725f; }
+      .detail h2 { margin-top: 0; font-size: clamp(24px, 3vw, 40px); }
+      .headline {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 10px;
+        margin: 18px 0;
+      }
+      .metric {
+        padding: 14px;
+        border-radius: 12px;
+        background: #f0f5d6;
+      }
+      .metric span, .metric strong { display: block; }
+      .metric span { color: #68735b; font-size: 13px; }
+      .metric strong { margin-top: 6px; font-size: 24px; }
+      .conclusion {
+        padding: 16px;
+        border-left: 5px solid #8da83a;
+        background: #f7f9e9;
+        margin: 14px 0;
+      }
+      .conclusion strong { font-size: 24px; }
+      .links { display: flex; flex-wrap: wrap; gap: 8px; }
+      .links a {
+        color: #42630d;
+        text-decoration: none;
+        border-bottom: 1px solid #9fb86a;
+      }
+      pre {
+        max-height: 420px;
+        overflow: auto;
+        padding: 14px;
+        border-radius: 10px;
+        background: #1c2418;
+        color: #e9f3d5;
+        font-size: 12px;
+      }
+      @media (max-width: 860px) {
+        main { grid-template-columns: 1fr; padding-inline: 3vw; }
+        .headline { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>领导公共展示队列</h1>
+      <p>只读展示历史网页测评、王兴专项结果和模型指标，不影响个人测评队列。</p>
+    </header>
+    <main>
+      <section class="toolbar">
+        <input id="search" type="search" placeholder="搜索视频、测试集或报告" />
+        <p id="status" class="empty">正在读取公共队列...</p>
+        <div id="queue"></div>
+      </section>
+      <section class="detail">
+        <div id="detail" class="empty">请选择左侧结果。</div>
+      </section>
+    </main>
+    <script src="/assets/showcase.js"></script>
+  </body>
+</html>
+

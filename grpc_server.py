@@ -462,6 +462,77 @@ class FrameAuditService(pb2_grpc.FrameAuditServicer):
             _abort(context, exc)
         raise AssertionError("unreachable")
 
+    def ListPublicShowcase(
+        self,
+        request: pb2.PublicShowcaseRequest,
+        context: grpc.ServicerContext,
+    ) -> pb2.JsonResponse:
+        try:
+            web_app.authenticate_grpc(context)
+            return _json_response(
+                web_app.public_showcase(
+                    limit=request.limit or 50,
+                    query=request.query,
+                    category=request.category,
+                )
+            )
+        except Exception as exc:
+            _abort(context, exc)
+        raise AssertionError("unreachable")
+
+    def GetPublicShowcase(
+        self,
+        request: pb2.PublicShowcaseItemRequest,
+        context: grpc.ServicerContext,
+    ) -> pb2.JsonResponse:
+        try:
+            web_app.authenticate_grpc(context)
+            return _json_response(
+                web_app.get_public_showcase(request.item_id)
+            )
+        except Exception as exc:
+            _abort(context, exc)
+        raise AssertionError("unreachable")
+
+    def DownloadPublicShowcaseFile(
+        self,
+        request: pb2.PublicShowcaseFileRequest,
+        context: grpc.ServicerContext,
+    ) -> Iterable[pb2.DownloadChunk]:
+        try:
+            web_app.authenticate_grpc(context)
+            path = web_app._resolve_public_showcase_file(
+                request.item_id,
+                request.file_key,
+            )
+            if not path.is_file():
+                raise _GrpcRequestError(
+                    grpc.StatusCode.NOT_FOUND,
+                    "Public showcase file not found",
+                )
+            content_type = (
+                mimetypes.guess_type(path.name)[0]
+                or "application/octet-stream"
+            )
+            with path.open("rb") as source:
+                while True:
+                    data = source.read(CHUNK_SIZE)
+                    if not data:
+                        break
+                    yield pb2.DownloadChunk(
+                        filename=path.name,
+                        content_type=content_type,
+                        data=data,
+                        eof=False,
+                    )
+            yield pb2.DownloadChunk(
+                filename=path.name,
+                content_type=content_type,
+                eof=True,
+            )
+        except Exception as exc:
+            _abort(context, exc)
+
     def GetJob(
         self,
         request: pb2.JobRequest,

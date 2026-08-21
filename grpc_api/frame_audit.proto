@@ -17,6 +17,21 @@ message ListJobsRequest {
   int32 limit = 1;
 }
 
+message PublicShowcaseRequest {
+  int32 limit = 1;
+  string query = 2;
+  string category = 3;
+}
+
+message PublicShowcaseItemRequest {
+  string item_id = 1;
+}
+
+message PublicShowcaseFileRequest {
+  string item_id = 1;
+  string file_key = 2;
+}
+
 message JobRequest {
   string job_id = 1;
 }
@@ -82,6 +97,9 @@ service FrameAudit {
   rpc CreateJob(stream UploadRequest) returns (JsonResponse);
   rpc Evaluate(stream UploadRequest) returns (JsonResponse);
   rpc ListJobs(ListJobsRequest) returns (JsonResponse);
+  rpc ListPublicShowcase(PublicShowcaseRequest) returns (JsonResponse);
+  rpc GetPublicShowcase(PublicShowcaseItemRequest) returns (JsonResponse);
+  rpc DownloadPublicShowcaseFile(PublicShowcaseFileRequest) returns (stream DownloadChunk);
   rpc GetJob(JobRequest) returns (JsonResponse);
   rpc UpdateJob(UpdateJobRequest) returns (JsonResponse);
   rpc DeleteJob(JobRequest) returns (JsonResponse);

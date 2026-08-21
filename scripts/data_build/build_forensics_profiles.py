@@ -129,6 +129,14 @@ def main() -> int:
         default=0,
         help="Maximum videos per texture domain; 0 means all videos.",
     )
+    parser.add_argument(
+        "--max-motion-videos",
+        type=int,
+        default=120,
+        help=(
+            "Maximum AU files per facial-motion domain; 0 means all files."
+        ),
+    )
     parser.add_argument("--max-frames", type=int, default=64)
     parser.add_argument("--sample-fps", type=float, default=8.0)
     parser.add_argument(
@@ -244,6 +252,11 @@ def main() -> int:
         if not seedance_au_paths:
             print(f"ERROR: no AU files found under {seedance_au_root}")
             return 1
+        real_au_paths = _limit(real_au_paths, args.max_motion_videos)
+        seedance_au_paths = _limit(
+            seedance_au_paths,
+            args.max_motion_videos,
+        )
 
         print(
             f"Building facial-motion profile from "
@@ -276,6 +289,7 @@ def main() -> int:
             ),
             "min_landmark_ratio": float(args.min_landmark_ratio),
             "min_pose_ratio": float(args.min_pose_ratio),
+            "max_motion_videos": int(args.max_motion_videos),
             "real_au_sources": _relative_sources(real_au_paths, real_au_root),
             "seedance_au_sources": _relative_sources(
                 seedance_au_paths,

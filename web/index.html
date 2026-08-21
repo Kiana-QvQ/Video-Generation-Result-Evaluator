@@ -12,7 +12,7 @@
   </head>
   <body>
     <div class="grain"></div>
-    <div class="app-shell">
+    <div class="app-shell bench-shell">
       <header class="topbar">
         <a class="brand" href="/" aria-label="Frame Audit 首页">
           <span class="brand-mark">F/05</span>
@@ -38,117 +38,31 @@
               上传生成结果和参考素材，系统会从身份、细节、表情、稳定性和美学五个方面给出评分。
             </p>
           </div>
-          <div class="hero-aside">
-            <div class="stamp">
-              <span>FIVE</span>
-              <strong>DIMENSIONS</strong>
-              <span>ONE LOCAL RUN</span>
-            </div>
-            <div class="hero-note is-hidden">
-              <span class="note-index">01</span>
-              <p>GT 用于逐帧对比；参考图和参考视频用于身份、动作与稳定性评估。</p>
-            </div>
-          </div>
-        </section>
-
-        <section class="model-rail" aria-labelledby="model-title">
-          <div class="model-rail-head">
-            <div class="section-kicker">
-              <span id="model-title">MODEL RAIL</span>
-              <span id="model-time">checking local cache...</span>
-            </div>
-            <details class="principles-disclosure">
-              <summary>
-                <span>SCORING LOGIC</span>
-                <strong>评分原理与准则</strong>
-                <span class="principles-plus">+</span>
-              </summary>
-              <div class="principles-panel">
-                <div class="principles-intro">
-                  <span class="note-index">HOW IT READS</span>
-                  <p>五项先各自换算为 0—1，再按权重合成总分；缺少某项时只按已覆盖的权重计算，并标记为部分覆盖。GT 必须与结果逐帧对应。</p>
-                </div>
-                <div class="principles-vbench">
-                  <div class="principles-vbench-head">
-                  <span>VBENCH / OPTIONAL AUXILIARY</span>
-                  <strong>VBench 不参与正式总分</strong>
-                  </div>
-                  <p>VBench 是独立的辅助视频评测框架，本网页接入 <b>aesthetic_quality</b>，结果单独展示，永远不会加入正式五项加权总分。</p>
-                </div>
-                <div class="principles-grid">
-                  <article>
-                    <span>01 / 35%</span>
-                    <strong>角色一致性</strong>
-                    <span class="principles-model">ArcFace</span>
-                    <p>逐帧比较参考人脸与结果人脸，关注相似度和稳定性。</p>
-                  </article>
-                  <article>
-                    <span>02 / 15%</span>
-                    <strong>质感和细节（普通评分）</strong>
-                    <span class="principles-model">MANIQA / MUSIQ</span>
-                    <p>有 GT 比较像素与感知差异；无 GT 评估清晰度和细节，不判断实拍或 AI 来源。</p>
-                  </article>
-                  <article>
-                    <span>03 / 15%</span>
-                    <strong>表情准确</strong>
-                    <span class="principles-model">ViCLIP / CLIP</span>
-                    <span class="principles-model">ETVA VLM Judge / Qwen2-VL-2B AWQ</span>
-                    <p>按 Prompt 或参考视频判断结果的表情与动作是否对齐。</p>
-                  </article>
-                  <article>
-                    <span>04 / 25%</span>
-                    <strong>时间稳定性</strong>
-                    <span class="principles-model">Face Mesh / Farneback</span>
-                    <p>检测帧间光流、warping 误差和人脸关键点抖动。</p>
-                  </article>
-                  <article>
-                    <span>05 / 10%</span>
-                    <strong>美学质量</strong>
-                    <span class="principles-model">人工 1~5 分 / 技术辅助</span>
-                    <p>人工评分为正式分数；VBench 和技术指标只作辅助证据。</p>
-                  </article>
-                </div>
-              </div>
-            </details>
-          </div>
-          <div id="model-list" class="model-list">
-            <div class="model-skeleton"></div>
-            <div class="model-skeleton"></div>
-            <div class="model-skeleton"></div>
-            <div class="model-skeleton"></div>
-          </div>
         </section>
 
         <section class="workspace-grid">
           <div class="panel intake-panel">
-            <div class="panel-heading">
-              <div>
-                <p class="eyebrow">01 / INPUT MATERIALS</p>
-                <h2>装载一次评估</h2>
+            <form id="evaluation-form" class="intake-form">
+              <div class="intake-toolbar">
+                <h2>评估设置</h2>
+                <div class="intake-toolbar-main">
+                  <label class="field evaluation-name-field" for="evaluation-name">
+                    <span class="field-label"><span>名称</span></span>
+                    <input
+                      id="evaluation-name"
+                      name="name"
+                      type="text"
+                      maxlength="120"
+                      placeholder="例如：角色一致性测试 / 第 3 版"
+                    />
+                  </label>
+                  <button id="new-evaluation" class="new-evaluation-button" type="button">
+                    新建评估
+                  </button>
+                </div>
               </div>
-              <div class="panel-heading-actions">
-                <span class="panel-status">READY WHEN YOU ARE</span>
-                <button id="new-evaluation" class="new-evaluation-button" type="button">
-                  新建评估
-                </button>
-              </div>
-            </div>
 
-            <form id="evaluation-form">
-              <div class="upload-grid">
-                <label class="field evaluation-name-field" for="evaluation-name">
-                  <span class="field-label">
-                    <span>评分名称</span>
-                    <small>用于队列与历史分类</small>
-                  </span>
-                  <input
-                    id="evaluation-name"
-                    name="name"
-                    type="text"
-                    maxlength="120"
-                    placeholder="例如：角色一致性测试 / 第 3 版"
-                  />
-                </label>
+              <div class="media-row">
                 <label class="dropzone dropzone-primary" for="result-video">
                   <input
                     id="result-video"
@@ -157,13 +71,10 @@
                     accept="video/*,.mkv,.webm,.m4v"
                     required
                   />
-                  <span class="dropzone-index">A / REQUIRED</span>
-                  <span class="dropzone-icon">↗</span>
-                  <strong>生成结果视频</strong>
+                  <span class="dropzone-index">必填</span>
+                  <strong>结果视频</strong>
                   <span class="dropzone-help">MP4 / MOV / AVI / MKV / WEBM</span>
-                  <span class="file-name" data-file-name="result-video">
-                    Drop video or browse
-                  </span>
+                  <span class="file-name" data-file-name="result-video">点击或拖入</span>
                   <video class="video-preview" data-preview="result-video" muted playsinline></video>
                   <span class="video-preview-fallback" data-preview-fallback="result-video">
                     已上传，提交后自动转换为兼容格式
@@ -177,22 +88,17 @@
                     type="file"
                     accept="video/*,.mkv,.webm,.m4v"
                   />
-                  <span class="dropzone-index">B / FULL REFERENCE</span>
-                  <span class="dropzone-icon">+</span>
+                  <span class="dropzone-index">可选</span>
                   <strong>GT 参考视频</strong>
-                  <span class="dropzone-help">有 GT 才计算 PSNR / SSIM / LPIPS</span>
-                  <span class="file-name" data-file-name="gt-video">
-                    Optional reference
-                  </span>
+                  <span class="dropzone-help">用于 PSNR / SSIM / LPIPS</span>
+                  <span class="file-name" data-file-name="gt-video">点击或拖入</span>
                   <video class="video-preview" data-preview="gt-video" muted playsinline></video>
                   <span class="video-preview-fallback" data-preview-fallback="gt-video">
                     已上传，提交后自动转换为兼容格式
                   </span>
                 </label>
-              </div>
 
-              <div class="reference-grid">
-                <label class="compact-upload compact-upload-wide" for="reference-images">
+                <label class="dropzone compact-dropzone" for="reference-images">
                   <input
                     id="reference-images"
                     name="reference_images"
@@ -200,15 +106,14 @@
                     accept="image/png,image/jpeg,image/webp"
                     multiple
                   />
-                  <span class="multiple-hint">MULTIPLE / 多张参考图</span>
-                  <span class="compact-label">参考图</span>
-                  <span class="compact-detail">角色外观 / 身份基准</span>
-                  <span class="file-name" data-file-name="reference-images">
-                    optional
-                  </span>
+                  <span class="dropzone-index">多张</span>
+                  <strong>参考图</strong>
+                  <span class="dropzone-help">身份 / 外观基准</span>
+                  <span class="file-name" data-file-name="reference-images">optional</span>
                   <span class="reference-image-list" data-image-list="reference-images"></span>
                 </label>
-                <label class="compact-upload" for="reference-video">
+
+                <label class="dropzone compact-dropzone" for="reference-video">
                   <input
                     id="reference-video"
                     name="reference_video"
@@ -216,106 +121,139 @@
                     accept="video/*,.mkv,.webm,.m4v"
                     multiple
                   />
-                  <span class="multiple-hint">MULTIPLE / 多段参考视频</span>
-                  <span class="compact-label">参考视频 (可选，支持多段)</span>
-                  <span class="compact-detail">表情 / 动作 / 时间基准</span>
-                  <span class="file-name" data-file-name="reference-video">
-                    optional
-                  </span>
+                  <span class="dropzone-index">多段</span>
+                  <strong>参考视频</strong>
+                  <span class="dropzone-help">表情 / 动作基准</span>
+                  <span class="file-name" data-file-name="reference-video">optional</span>
                 </label>
               </div>
 
-              <section class="wangxing-au-card" aria-labelledby="wangxing-au-title">
-                <div class="wangxing-au-card-head">
-                  <div>
-                    <p class="eyebrow">03 / TARGET SPECIALIZATION</p>
-                    <h3 id="wangxing-au-title">王兴身份与面部表情画像</h3>
-                  </div>
-                  <span id="wangxing-au-readiness" class="au-readiness">CHECKING</span>
-                </div>
-                <label class="au-toggle">
-                  <input name="wangxing_au_enabled" type="checkbox" />
-                  <span class="au-toggle-copy">
-                    <strong>启用王兴专项</strong>
-                    <small>先判断人物身份，再判断面部表情、肌肉运动和质感细节是否符合专项证据。</small>
-                  </span>
-                  <span class="toggle-switch" aria-hidden="true"></span>
-                </label>
-                <div class="wangxing-au-options">
-                  <label class="field">
+              <div class="intake-work-row">
+                <div class="intake-left-stack">
+                  <label class="field prompt-field" for="prompt-text">
                     <span class="field-label">
-                      <span>EXPECTED EXPRESSION</span>
-                      <small>可选画像提示</small>
+                      <span>提示词</span>
+                      <small>可选</small>
                     </span>
-                    <select name="wangxing_expected_class">
-                      <option value="auto" selected>自动判定</option>
-                      <option value="smile">微笑 / smile</option>
-                      <option value="anger">愤怒 / anger</option>
-                      <option value="surprise">惊讶 / surprise</option>
-                      <option value="fear">恐惧 / fear</option>
-                      <option value="sadness">悲伤 / sadness</option>
-                      <option value="disgust">厌恶 / disgust</option>
-                    </select>
+                    <textarea
+                      id="prompt-text"
+                      name="prompt_text"
+                      rows="6"
+                      placeholder="例如：人物自然地微笑并眨眼，镜头保持稳定"
+                    ></textarea>
                   </label>
-                  <div class="au-driver-note">
-                    <span class="au-mini-label">REFERENCE VIDEO OPTIONAL</span>
-                    <strong>本专项不需要参考动作视频</strong>
-                    <small>专项使用真实王兴表情支持域；参考视频仍只属于普通评估链路。</small>
+
+                  <section class="wangxing-au-card intake-wangxing" aria-labelledby="wangxing-au-title">
+                    <div class="wangxing-au-card-head">
+                      <div>
+                        <p class="eyebrow">王兴专项</p>
+                        <h3 id="wangxing-au-title">身份与面部表情画像</h3>
+                      </div>
+                      <span id="wangxing-au-readiness" class="au-readiness">CHECKING</span>
+                    </div>
+                    <label class="au-toggle">
+                      <input name="wangxing_au_enabled" type="checkbox" />
+                      <span class="au-toggle-copy">
+                        <strong>启用王兴专项</strong>
+                        <small>先判断身份，再判断表情与质感是否符合专项证据。</small>
+                      </span>
+                      <span class="toggle-switch" aria-hidden="true"></span>
+                    </label>
+                    <div class="wangxing-au-options">
+                      <label class="field">
+                        <span class="field-label">
+                          <span>期望表情</span>
+                          <small>可选</small>
+                        </span>
+                        <select name="wangxing_expected_class">
+                          <option value="auto" selected>自动判定</option>
+                          <option value="smile">微笑 / smile</option>
+                          <option value="anger">愤怒 / anger</option>
+                          <option value="surprise">惊讶 / surprise</option>
+                          <option value="fear">恐惧 / fear</option>
+                          <option value="sadness">悲伤 / sadness</option>
+                          <option value="disgust">厌恶 / disgust</option>
+                        </select>
+                      </label>
+                    </div>
+                  </section>
+
+                  <section class="advanced-settings is-open" aria-label="其他设置">
+                    <div class="advanced-settings-head">
+                      <strong>其他设置</strong>
+                      <span class="summary-hint">采样 / 设备</span>
+                    </div>
+                    <div class="advanced-grid">
+                      <label class="field">
+                        <span class="field-label"><span>最大帧数</span><small>2—256</small></span>
+                        <input name="max_frames" type="number" min="2" max="256" value="8" />
+                      </label>
+                      <label class="field">
+                        <span class="field-label"><span>运行设备</span><small>推理设备</small></span>
+                        <select name="device">
+                          <option value="cpu">CPU / 稳定</option>
+                          <option value="auto">AUTO / 自动</option>
+                          <option value="cuda" selected>CUDA / 显卡</option>
+                        </select>
+                      </label>
+                      <label class="field">
+                        <span class="field-label"><span>表情人工兜底</span><small>1—5</small></span>
+                        <input name="manual_expression_score" type="number" min="1" max="5" step="1" placeholder="留空自动" />
+                      </label>
+                      <label class="field">
+                        <span class="field-label"><span>美学评分</span><small>1—5</small></span>
+                        <input name="manual_aesthetic_score" type="number" min="1" max="5" step="1" placeholder="留空试 VBench" />
+                      </label>
+                    </div>
+                    <label class="check-field">
+                      <input name="calculate_lpips" type="checkbox" checked />
+                      <span>上传 GT 时计算 LPIPS</span>
+                    </label>
+                  </section>
+                </div>
+
+                <aside id="process-queue" class="process-queue queue-dock" aria-live="polite">
+                  <div class="queue-heading">
+                    <div>
+                      <span class="queue-kicker">队列</span>
+                      <strong id="queue-summary">0 个运行 / 0 个等待</strong>
+                    </div>
+                    <div class="queue-heading-actions">
+                      <input
+                        id="queue-search"
+                        class="queue-search"
+                        type="search"
+                        placeholder="搜索"
+                        aria-label="搜索评估任务"
+                      />
+                      <button id="refresh-queue" class="queue-refresh" type="button">刷新</button>
+                    </div>
                   </div>
-                </div>
-                <p class="au-card-note">
-                  <span class="note-pin"></span>
-                  专项结果包含身份/表情画像，以及独立的“人脸表情与肌肉运动”和“质感与细节”真实性证据；不改变普通五项评分。
-                </p>
-              </section>
+                  <div id="queue-active" class="queue-active is-hidden">
+                    <div class="queue-active-head">
+                      <div>
+                        <span class="queue-label">当前任务</span>
+                        <strong id="active-job-name">--</strong>
+                        <small id="active-job-stage">等待中</small>
+                        <small id="active-job-time" class="queue-item-time">评分时间 --</small>
+                      </div>
+                      <div class="queue-active-actions">
+                        <span id="active-job-status" class="queue-status running">运行中</span>
+                        <button id="active-job-cancel" class="queue-item-action is-danger" type="button">
+                          中断
+                        </button>
+                      </div>
+                    </div>
+                    <div class="queue-progress">
+                      <span id="active-job-progress"></span>
+                    </div>
+                  </div>
+                  <div id="queue-list" class="queue-list"></div>
+                  <p id="queue-empty" class="queue-empty">队列为空</p>
+                </aside>
+              </div>
 
-              <label class="field prompt-field" for="prompt-text">
-                <span class="field-label">
-                  <span>TEXT CONDITION</span>
-                  <small>可选</small>
-                </span>
-                <textarea
-                  id="prompt-text"
-                  name="prompt_text"
-                  rows="3"
-                  placeholder="例如：人物自然地微笑并眨眼，镜头保持稳定"
-                ></textarea>
-              </label>
-
-              <details class="advanced-settings">
-                <summary>
-                  <span>展开评估参数</span>
-                  <span class="summary-hint">采样 / 设备 / 人工兜底</span>
-                </summary>
-                <div class="advanced-grid">
-                  <label class="field">
-                    <span class="field-label"><span>最大帧数</span><small>2—256</small></span>
-                    <input name="max_frames" type="number" min="2" max="256" value="8" />
-                  </label>
-                  <label class="field">
-                    <span class="field-label"><span>运行设备</span><small>推理设备</small></span>
-                    <select name="device">
-                      <option value="cpu">CPU / 稳定</option>
-                      <option value="auto">AUTO / 自动</option>
-                      <option value="cuda" selected>CUDA / 显卡</option>
-                    </select>
-                  </label>
-                  <label class="field">
-                    <span class="field-label"><span>表情人工兜底评分</span><small>1—5</small></span>
-                    <input name="manual_expression_score" type="number" min="1" max="5" step="1" placeholder="留空自动判断" />
-                  </label>
-                  <label class="field">
-                    <span class="field-label"><span>美学评分</span><small>1—5</small></span>
-                    <input name="manual_aesthetic_score" type="number" min="1" max="5" step="1" placeholder="留空时尝试 VBench" />
-                  </label>
-                </div>
-                <label class="check-field">
-                  <input name="calculate_lpips" type="checkbox" checked />
-                  <span>上传 GT 时计算 LPIPS</span>
-                </label>
-              </details>
-
-              <div class="form-footer">
+              <div class="form-footer intake-progress-bar">
                 <div class="form-feedback">
                   <p id="form-note" class="form-note">
                     <span class="note-pin"></span>
@@ -346,138 +284,87 @@
           </div>
 
           <div class="panel report-panel" id="report-panel">
-            <div class="panel-heading report-heading">
-              <div>
-                <p class="eyebrow">02 / EVIDENCE REPORT</p>
-                <h2>评估报告</h2>
+            <div class="report-toolbar">
+              <h2>评估报告</h2>
+              <div class="report-name-chip" title="当前测评名称">
+                <span>测评名称</span>
+                <strong id="report-job-name">未选择任务</strong>
               </div>
-              <span id="report-mode" class="mode-chip">WAITING</span>
+              <span id="report-mode" class="mode-chip">等待中</span>
             </div>
 
-            <section id="process-queue" class="process-queue" aria-live="polite">
-              <div class="queue-heading">
-                <div>
-                  <span class="queue-kicker">处理队列</span>
-                  <strong id="queue-summary">0 个运行 / 0 个等待</strong>
-                </div>
-                <div class="queue-heading-actions">
-                  <input
-                    id="queue-search"
-                    class="queue-search"
-                    type="search"
-                    placeholder="搜索任务"
-                    aria-label="搜索评估任务"
-                  />
-                  <button id="refresh-queue" class="queue-refresh" type="button">
-                    刷新
-                  </button>
-                </div>
-              </div>
-              <div id="queue-active" class="queue-active is-hidden">
-                <div class="queue-active-head">
+            <div class="report-score-column">
+              <div id="empty-report" class="empty-report">
+                <div class="empty-report-head">
                   <div>
-                    <span class="queue-label">当前任务</span>
-                    <strong id="active-job-name">--</strong>
-                    <small id="active-job-stage">等待中</small>
-                    <small id="active-job-time" class="queue-item-time">评分时间 --</small>
+                    <p class="eyebrow">等待评分</p>
+                    <h3>上传视频后开始评分。</h3>
+                    <p>系统会根据 GT、参考图、参考视频和 Prompt 自动选择可用指标。</p>
                   </div>
-                  <div class="queue-active-actions">
-                    <span id="active-job-status" class="queue-status running">运行中</span>
-                    <button id="active-job-cancel" class="queue-item-action is-danger" type="button">
-                      中断任务
-                    </button>
-                  </div>
+                  <span class="empty-signal">等待视频</span>
                 </div>
-                <div class="queue-progress">
-                  <span id="active-job-progress"></span>
+                <div class="preflight-list">
+                  <div class="preflight-row">
+                    <span class="preflight-index">01</span>
+                    <div><strong>角色一致性</strong><small>人物是否像目标角色</small></div>
+                    <em>35%</em>
+                  </div>
+                  <div class="preflight-row">
+                    <span class="preflight-index">02</span>
+                    <div><strong>质感和细节</strong><small>清晰度与材质自然度</small></div>
+                    <em>15%</em>
+                  </div>
+                  <div class="preflight-row">
+                    <span class="preflight-index">03</span>
+                    <div><strong>表情准确</strong><small>表情是否符合预期</small></div>
+                    <em>15%</em>
+                  </div>
+                  <div class="preflight-row">
+                    <span class="preflight-index">04</span>
+                    <div><strong>时间稳定性</strong><small>是否抖动或闪烁变形</small></div>
+                    <em>25%</em>
+                  </div>
+                  <div class="preflight-row">
+                    <span class="preflight-index">05</span>
+                    <div><strong>美学质量</strong><small>整体观感是否适合展示</small></div>
+                    <em>10%</em>
+                  </div>
                 </div>
               </div>
-              <div id="queue-list" class="queue-list"></div>
-              <p id="queue-empty" class="queue-empty">
-                队列为空 / 上传视频后开始
-              </p>
-            </section>
 
-            <div id="empty-report" class="empty-report">
-              <div class="empty-report-head">
-                <div>
-                  <p class="eyebrow">REPORT MAP / BEFORE RUN</p>
-                  <h3>上传视频后开始评分。</h3>
-                  <p>系统会根据你提供的 GT、参考图、参考视频和 Prompt，自动选择可用指标。</p>
-                </div>
-                <span class="empty-signal">WAITING FOR VIDEO</span>
-              </div>
-              <div class="preflight-list">
-                <div class="preflight-row">
-                  <span class="preflight-index">01</span>
-                  <div><strong>角色一致性</strong><small>ArcFace / 参考图 / 参考视频</small></div>
-                  <em>35%</em>
-                </div>
-                <div class="preflight-row">
-                  <span class="preflight-index">02</span>
-                  <div><strong>质感和细节</strong><small>GT → PSNR / SSIM / LPIPS</small></div>
-                  <em>15%</em>
-                </div>
-                <div class="preflight-row">
-                  <span class="preflight-index">03</span>
-                  <div><strong>表情准确</strong><small>ViCLIP / CLIP / ETVA VLM Judge</small></div>
-                  <em>15%</em>
-                </div>
-                <div class="preflight-row">
-                  <span class="preflight-index">04</span>
-                  <div><strong>时间稳定性</strong><small>Face Mesh / 光流 / warping</small></div>
-                  <em>25%</em>
-                </div>
-                <div class="preflight-row">
-                  <span class="preflight-index">05</span>
-                  <div><strong>美学质量</strong><small>人工评分 / 技术代理</small></div>
-                  <em>10%</em>
-                </div>
-              </div>
-              <div class="empty-report-footer">
-                <span class="note-pin"></span>
-                <span>先上传结果视频；GT 仅用于第 2 类全参考指标。</span>
+              <div id="report-content" class="report-content is-hidden">
+                <section class="ordinary-score-section" aria-label="Ordinary score summary">
+                  <div class="report-overview">
+                    <div class="score-hero">
+                      <div>
+                        <span class="metric-label">总的评分</span>
+                        <div class="big-score"><span id="overall-score">--</span><small>/100</small></div>
+                        <span id="score-caption" class="score-caption">覆盖情况</span>
+                      </div>
+                      <div class="coverage-ring" id="coverage-ring" style="--coverage: 0%">
+                        <span id="coverage-value">0/5</span>
+                        <small>已覆盖</small>
+                      </div>
+                    </div>
+                    <div class="radar-panel">
+                      <div class="subheading">
+                        <span>雷达图</span>
+                        <span>0—1</span>
+                      </div>
+                      <div id="radar-chart" class="radar-chart" aria-label="五类评分雷达图"></div>
+                    </div>
+                  </div>
+                  <div class="subheading five-score-heading">
+                    <span>五项的评分</span>
+                  </div>
+                  <div id="category-list" class="category-list"></div>
+                </section>
               </div>
             </div>
 
-            <div id="report-content" class="report-content is-hidden">
-              <div class="report-overview">
-                <div class="score-hero">
-                  <div>
-                    <span class="metric-label">加权总分</span>
-                    <div class="big-score"><span id="overall-score">--</span><small>/100</small></div>
-                    <span id="score-caption" class="score-caption">覆盖情况</span>
-                  </div>
-                  <div class="coverage-ring" id="coverage-ring" style="--coverage: 0%">
-                    <span id="coverage-value">0/5</span>
-                    <small>已覆盖</small>
-                  </div>
-                </div>
-                <div class="radar-panel">
-                  <div class="subheading">
-                    <span>五维评分雷达图</span>
-                    <span>0—1 归一化</span>
-                  </div>
-                  <div id="radar-chart" class="radar-chart" aria-label="五类评分雷达图"></div>
-                </div>
-              </div>
-
-              <section id="wangxing-result" class="wangxing-result is-hidden" aria-live="polite"></section>
-
-              <div id="category-list" class="category-list"></div>
-
-              <section id="qwen-feedback" class="qwen-feedback is-hidden" aria-live="polite"></section>
-
-              <div class="evidence-block">
-                <div class="subheading">
-                  <span>KEY EVIDENCE <em>关键证据</em></span>
-                  <span>normalized / raw <em>归一化 / 原始值</em></span>
-                </div>
-                <div id="evidence-grid" class="evidence-grid"></div>
-              </div>
-
-              <div class="download-row" id="download-row"></div>
-            </div>
+            <section id="wangxing-result" class="wangxing-result is-hidden" aria-live="polite"></section>
+            <section id="qwen-feedback" class="qwen-feedback is-hidden" aria-live="polite"></section>
+            <div class="download-row" id="download-row"></div>
           </div>
         </section>
 
@@ -485,23 +372,6 @@
           <div class="method-intro">
             <p class="eyebrow">THE EVALUATION STACK</p>
             <h2>不同问题，<br /><em>使用不同指标。</em></h2>
-          </div>
-          <div class="method-list">
-            <div class="method-item">
-              <span>01</span>
-              <strong>Full reference</strong>
-              <p>GT 存在时，PSNR / SSIM / LPIPS 负责逐帧质量证据。</p>
-            </div>
-            <div class="method-item">
-              <span>02</span>
-              <strong>Perceptual proxy</strong>
-              <p>无 GT 时，MANIQA / MUSIQ 和高频细节代理提供参考。</p>
-            </div>
-            <div class="method-item">
-              <span>03</span>
-              <strong>Motion & identity</strong>
-              <p>ArcFace、Face Mesh、光流和 CLIP 组成可解释的维度链。</p>
-            </div>
           </div>
         </section>
       </main>
