@@ -129,10 +129,30 @@ WANGXING_SOURCE_PROFILE_PATH = resolve_profile(
     "data/au/wangxing_source_profile.json",
 ) or (PROJECT_ROOT / "data/au/wangxing_source_profile.json")
 WANGXING_AU_CACHE_ROOT = OUTPUT_DIR / "au_cache"
-FORENSICS_PROFILE_PATH = resolve_profile(
-    "forensics_profiles.json",
-    "outputs/forensics/forensics_profiles.json",
-) or (PROJECT_ROOT / "outputs/forensics/forensics_profiles.json")
+
+
+def _resolve_web_forensics_profile() -> Path:
+    """Prefer the test-excluded web v3 profile for the live webpage."""
+    override = os.environ.get("FRAME_AUDIT_FORENSICS_PROFILE", "").strip()
+    candidates = [
+        Path(override) if override else None,
+        PROJECT_ROOT / "outputs/forensics/forensics_profiles_web_v3_test_excluded.json",
+        resolve_profile(
+            "forensics_profiles.json",
+            "outputs/forensics/forensics_profiles.json",
+        ),
+        PROJECT_ROOT / "outputs/forensics/forensics_profiles.json",
+    ]
+    for candidate in candidates:
+        if candidate is None:
+            continue
+        path = candidate if candidate.is_absolute() else PROJECT_ROOT / candidate
+        if path.is_file():
+            return path.resolve()
+    return (PROJECT_ROOT / "outputs/forensics/forensics_profiles.json").resolve()
+
+
+FORENSICS_PROFILE_PATH = _resolve_web_forensics_profile()
 GENERATED_REPORT_FILES = {
     "summary.csv",
     "frame_metrics.csv",
@@ -587,6 +607,7 @@ def _run_forensics_assessment(
             device=device,
         )
         result["auto_invoked_by"] = "wangxing_specialization_web_flow"
+        result["forensics_profile_path"] = str(FORENSICS_PROFILE_PATH)
         return result
     except Exception as exc:
         return {
