@@ -92,6 +92,15 @@ def _normalize(value: float, scale: float = 1.0) -> float:
     return float(np.clip(value / max(scale, 1e-6), 0.0, 1.0))
 
 
+def _safe_quantile(values: np.ndarray, quantile: float) -> float:
+    """Return a finite quantile or zero for an empty/missing series."""
+    array = np.asarray(values, dtype=np.float32).reshape(-1)
+    finite = array[np.isfinite(array)]
+    if finite.size == 0:
+        return 0.0
+    return float(np.quantile(finite, quantile))
+
+
 def _region_crop_stats(
     frame: np.ndarray,
     row: dict[str, str],
@@ -168,20 +177,27 @@ def extract_transition_features(
         for name in (rows[0].keys() if rows else [])
         if name.startswith("au_") and name.endswith("_intensity")
     ]
-    intensity = np.asarray(
-        [
-            [_float(row.get(name)) for name in intensity_names]
-            for row in rows
-        ],
-        dtype=np.float32,
-    )
-    intensity = np.nan_to_num(intensity, nan=0.0)
-    au_velocity = np.abs(np.diff(intensity, axis=0))
-    au_acceleration = (
-        np.abs(np.diff(au_velocity, axis=0))
-        if len(au_velocity) > 1
-        else au_velocity
-    )
+    if intensity_names:
+        intensity = np.asarray(
+            [
+                [_float(row.get(name)) for name in intensity_names]
+                for row in rows
+            ],
+            dtype=np.float32,
+        )
+        intensity = np.nan_to_num(intensity, nan=0.0)
+        au_velocity = np.abs(np.diff(intensity, axis=0))
+        au_acceleration = (
+            np.abs(np.diff(au_velocity, axis=0))
+            if len(au_velocity) > 1
+            else au_velocity
+        )
+    else:
+        # Some LibreFace CSVs contain landmarks but no intensity columns.
+        # Keep the transition vector finite and mark the missing evidence
+        # through the zero-valued AU statistics.
+        au_velocity = np.zeros((0, 0), dtype=np.float32)
+        au_acceleration = np.zeros((0, 0), dtype=np.float32)
     au_signal = (
         np.mean(au_velocity, axis=1)
         if len(au_velocity)
@@ -217,10 +233,24 @@ def extract_transition_features(
                 abs(float(np.mean(au_signal[: max(1, len(au_signal) // 2)]))
                     - float(np.mean(au_signal[len(au_signal) // 2 :])))
             ),
-            "au_speed_mean_0_1": _normalize(float(np.mean(au_velocity)), 1.0),
-            "au_speed_p95_0_1": _normalize(float(np.quantile(au_velocity, 0.95)), 1.0),
-            "au_acceleration_mean_0_1": _normalize(float(np.mean(au_acceleration)), 1.0),
-            "au_acceleration_p95_0_1": _normalize(float(np.quantile(au_acceleration, 0.95)), 1.0),
+            "au_speed_mean_0_1": _normalize(
+                float(np.mean(au_velocity)) if au_velocity.size else 0.0,
+                1.0,
+            ),
+            "au_speed_p95_0_1": _normalize(
+                _safe_quantile(au_velocity, 0.95),
+                1.0,
+            ),
+            "au_acceleration_mean_0_1": _normalize(
+                float(np.mean(au_acceleration))
+                if au_acceleration.size
+                else 0.0,
+                1.0,
+            ),
+            "au_acceleration_p95_0_1": _normalize(
+                _safe_quantile(au_acceleration, 0.95),
+                1.0,
+            ),
         }
     )
 
@@ -244,21 +274,48 @@ def extract_transition_features(
             detections.append(float(np.clip(score, 0.0, 1.0)))
     if all_points:
         common = min(len(item) for item in all_points)
-        points = np.stack([item[:common] for item in all_points])
-        lm_velocity = np.linalg.norm(np.diff(points, axis=0), axis=-1)
-        lm_accel = (
-            np.linalg.norm(np.diff(np.diff(points, axis=0), axis=0), axis=-1)
-            if len(points) > 2
-            else lm_velocity
-        )
-        result.update(
-            {
-                "landmark_speed_mean_0_1": _normalize(float(np.mean(lm_velocity)), 0.15),
-                "landmark_speed_p95_0_1": _normalize(float(np.quantile(lm_velocity, 0.95)), 0.25),
-                "landmark_acceleration_mean_0_1": _normalize(float(np.mean(lm_accel)), 0.15),
-                "landmark_acceleration_p95_0_1": _normalize(float(np.quantile(lm_accel, 0.95)), 0.25),
-            }
-        )
+        if common > 0 and len(all_points) >= 2:
+            points = np.stack([item[:common] for item in all_points])
+            lm_velocity = np.linalg.norm(np.diff(points, axis=0), axis=-1)
+            lm_accel = (
+                np.linalg.norm(
+                    np.diff(np.diff(points, axis=0), axis=0),
+                    axis=-1,
+                )
+                if len(points) > 2
+                else lm_velocity
+            )
+            result.update(
+                {
+                    "landmark_speed_mean_0_1": _normalize(
+                        float(np.mean(lm_velocity))
+                        if lm_velocity.size
+                        else 0.0,
+                        0.15,
+                    ),
+                    "landmark_speed_p95_0_1": _normalize(
+                        _safe_quantile(lm_velocity, 0.95),
+                        0.25,
+                    ),
+                    "landmark_acceleration_mean_0_1": _normalize(
+                        float(np.mean(lm_accel)) if lm_accel.size else 0.0,
+                        0.15,
+                    ),
+                    "landmark_acceleration_p95_0_1": _normalize(
+                        _safe_quantile(lm_accel, 0.95),
+                        0.25,
+                    ),
+                }
+            )
+        else:
+            # One or fewer valid landmark frames has no measurable motion.
+            # Leave motion statistics at zero and expose the low coverage
+            # through face_geometry_valid_ratio_0_1.
+            pass
+    else:
+        # No valid landmark rows: all geometric transition evidence is
+        # unavailable, not a reason to abort the complete video.
+        pass
     result["face_geometry_valid_ratio_0_1"] = float(valid_rows / max(count, 1))
     result["face_detection_confidence_0_1"] = (
         float(np.mean(detections)) if detections else 0.5
