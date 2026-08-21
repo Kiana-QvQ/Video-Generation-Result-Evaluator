@@ -46,6 +46,10 @@ from evaluator.modules.forensics.learned_fusion_head import (
 from evaluator.modules.wangxing.wangxing_specialization import (
     build_source_profile,
 )
+from evaluator.modules.wangxing.authenticity_score import (
+    apply_weighted_authenticity,
+    load_policy,
+)
 from scripts.web_forensics.evaluate_single_video_forensics_dataset import (
     _build_web_card,
     _run_one,
@@ -896,6 +900,31 @@ def cmd_evaluate(args: argparse.Namespace) -> None:
                 authenticity_policy["policy"],
             )
             card_result["web_policy"] = policy_result
+        weighted_policy = load_policy(
+            project_path(args.weighted_policy)
+            if args.weighted_policy
+            else None
+        )
+        apply_weighted_authenticity(card_result, policy=weighted_policy)
+        weighted_authenticity = card_result.get("authenticity") or {}
+        card_result["web_weighted"] = {
+            "prediction": (
+                "generated"
+                if weighted_authenticity.get("\u9884\u6d4b") == "generated"
+                else "real"
+            ),
+            "real_probability": weighted_authenticity.get(
+                "\u771f\u5b9e\u6982\u7387"
+            ),
+            "generated_probability": weighted_authenticity.get(
+                "\u751f\u6210\u6982\u7387"
+            ),
+            "threshold_generated": weighted_policy.get(
+                "generated_threshold",
+                0.50,
+            ),
+            "weights": weighted_policy.get("weights"),
+        }
         card_result.setdefault("web_card", {})[
             "optimized_forensics"
         ] = {
@@ -921,13 +950,29 @@ def cmd_evaluate(args: argparse.Namespace) -> None:
                 "web_policy", fusion
             )["threshold_generated"],
         }
+        weighted = card_result["web_weighted"]
+        card_result.setdefault("web_card", {})[
+            "optimized_forensics"
+        ] = {
+            "conclusion": weighted["prediction"],
+            "detail": (
+                "Weighted Wang Xing authenticity score: "
+                f"{float(weighted['real_probability']) * 100.0:.1f}% real."
+            ),
+            "real_probability": weighted["real_probability"],
+            "generated_probability": weighted["generated_probability"],
+            "threshold_generated": weighted["threshold_generated"],
+        }
         results.append(card_result)
     output = project_path(args.output_root)
     output.mkdir(parents=True, exist_ok=True)
     labels = [int(row.get("label_generated", 0)) for row in results]
     predictions = [
         int(
-            row.get("web_policy", row["web_fusion"])["prediction"]
+            row.get(
+                "web_weighted",
+                row.get("web_policy", row["web_fusion"]),
+            )["prediction"]
             == "generated"
         )
         for row in results
@@ -958,6 +1003,11 @@ def cmd_evaluate(args: argparse.Namespace) -> None:
             "authenticity_policy": (
                 str(project_path(args.authenticity_policy))
                 if args.authenticity_policy
+                else None
+            ),
+            "weighted_policy": (
+                str(project_path(args.weighted_policy))
+                if args.weighted_policy
                 else None
             ),
             "forensics_profile": str(profiles_path),
@@ -1075,6 +1125,11 @@ def build_parser() -> argparse.ArgumentParser:
             "the authenticity probability."
         ),
     )
+    evaluate.add_argument(
+        "--weighted-policy",
+        default="outputs/forensics/wangxing_authenticity_weighted_policy.json",
+        help="Weighted identity/expression/direction policy.",
+    )
     evaluate.add_argument("--device", default="cuda")
     evaluate.add_argument("--wangxing-device", choices=("cpu", "cuda"), default="cuda")
     evaluate.set_defaults(func=cmd_evaluate)
@@ -1128,6 +1183,10 @@ def build_parser() -> argparse.ArgumentParser:
     all_command.add_argument(
         "--authenticity-policy",
         default=None,
+    )
+    all_command.add_argument(
+        "--weighted-policy",
+        default="outputs/forensics/wangxing_authenticity_weighted_policy.json",
     )
 
     def cmd_all(args: argparse.Namespace) -> None:

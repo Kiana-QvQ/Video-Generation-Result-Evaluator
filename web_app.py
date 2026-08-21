@@ -54,6 +54,10 @@ from evaluator.modules.wangxing.wangxing_specialization import (
     EXPRESSION_DISPLAY_NAMES,
     SPECIALIZATION_EVALUATOR_VERSION,
 )
+from evaluator.modules.wangxing.authenticity_score import (
+    apply_weighted_authenticity,
+    load_policy,
+)
 
 
 WEB_DIR = PROJECT_ROOT / "web"
@@ -128,6 +132,12 @@ WANGXING_SOURCE_PROFILE_PATH = resolve_profile(
     "wangxing_source_profile.json",
     "data/au/wangxing_source_profile.json",
 ) or (PROJECT_ROOT / "data/au/wangxing_source_profile.json")
+WANGXING_AUTHENTICITY_POLICY_PATH = PROJECT_ROOT / (
+    os.environ.get(
+        "FRAME_AUDIT_WANGXING_AUTHENTICITY_POLICY",
+        "outputs/forensics/wangxing_authenticity_weighted_policy.json",
+    )
+)
 WANGXING_AU_CACHE_ROOT = OUTPUT_DIR / "au_cache"
 
 
@@ -1178,6 +1188,21 @@ def _legacy_fuse_expression_evidence(
                 f"证据覆盖 {expression_coverage:.2f}"
             )
             summary_entry[summary_keys[5]] = expression["backend"]
+
+
+def _apply_wangxing_authenticity_score(result: dict[str, Any]) -> None:
+    """Replace only the authenticity score; the existing UI payload is kept."""
+    wangxing = result.get("wangxing_au")
+    if not isinstance(wangxing, dict):
+        return
+    if wangxing.get("status") != "available":
+        return
+    policy = load_policy(
+        WANGXING_AUTHENTICITY_POLICY_PATH
+        if WANGXING_AUTHENTICITY_POLICY_PATH.is_file()
+        else None
+    )
+    apply_weighted_authenticity(result, policy=policy)
 
 
 def _format_score_for_report(value: float | None) -> str:
@@ -2328,6 +2353,7 @@ def _execute_job(job_id: str) -> None:
                 prompt_text=parameters.get("prompt_text"),
                 driver_source=None,
             )
+            _apply_wangxing_authenticity_score(result)
         else:
             result["wangxing_au"] = {
                 "status": "not_applicable",
@@ -3271,6 +3297,7 @@ def evaluate(
                 prompt_text=prompt or None,
                 driver_source=None,
             )
+            _apply_wangxing_authenticity_score(result)
         else:
             result["wangxing_au"] = {
                 "status": "not_applicable",
