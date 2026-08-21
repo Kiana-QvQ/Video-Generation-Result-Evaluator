@@ -45,7 +45,7 @@ def cmd_train(args: argparse.Namespace) -> int:
         modality_dropout=args.modality_dropout,
     )
     payload = {
-        "schema_version": "wangxing_face_geometry_v4_metrics_v1",
+        "schema_version": "wangxing_expression_authenticity_v4_metrics_v1",
         "manifest": str(manifest_path),
         "model_path": result["model_path"],
         "headline": result["headline"],
@@ -54,8 +54,9 @@ def cmd_train(args: argparse.Namespace) -> int:
         "temperature": result["temperature"],
         "device": result["device"],
         "architecture": (
-            "v3 temporal AU+video base plus a quality-aware face geometry "
-            "landmark/pose branch"
+            "expression-only primary: facial-motion AU subset, face geometry, "
+            "transition windows, and MediaPipe 52-blendshape temporal branch; "
+            "full-frame video is auxiliary"
         ),
         "note": (
             "Parallel v4 model. It does not overwrite v3 or v2. "
@@ -108,7 +109,7 @@ def cmd_predict(args: argparse.Namespace) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Optional face-geometry-aware Wang Xing PT v4."
+        description="Expression-authenticity Wang Xing PT v4."
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -119,15 +120,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     train.add_argument(
         "--cache-dir",
-        default="outputs/vedio_pred/cache_wangxing_v4_face_res1k",
+        default="outputs/vedio_pred/cache_wangxing_v4_expression_res1k",
     )
     train.add_argument(
         "--model-path",
-        default="outputs/vedio_pred/models/wangxing_v4_face_res1k.pt",
+        default="outputs/vedio_pred/models/wangxing_v4_expression_res1k.pt",
     )
     train.add_argument(
         "--metrics-output",
-        default="outputs/vedio_pred/wangxing_v4_face_metrics_res1k.json",
+        default="outputs/vedio_pred/wangxing_v4_expression_metrics_res1k.json",
     )
     train.add_argument(
         "--source-profile",
@@ -150,7 +151,7 @@ def build_parser() -> argparse.ArgumentParser:
     predict.add_argument("--au", required=True)
     predict.add_argument(
         "--model-path",
-        default="outputs/vedio_pred/models/wangxing_v4_face_res1k.pt",
+        default="outputs/vedio_pred/models/wangxing_v4_expression_res1k.pt",
     )
     predict.add_argument(
         "--source-profile",
@@ -169,11 +170,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     evaluate.add_argument(
         "--model-path",
-        default="outputs/vedio_pred/models/wangxing_v4_face_res1k.pt",
+        default="outputs/vedio_pred/models/wangxing_v4_expression_res1k.pt",
     )
     evaluate.add_argument(
         "--output",
-        default="outputs/forensics/wangxing_v4_face_holdout_metrics.json",
+        default="outputs/forensics/wangxing_v4_expression_holdout_metrics.json",
     )
     evaluate.add_argument(
         "--source-profile",

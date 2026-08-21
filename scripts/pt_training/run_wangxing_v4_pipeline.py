@@ -26,7 +26,7 @@ DEFAULT_REPORT = (
     PROJECT_ROOT
     / "outputs"
     / "vedio_pred"
-    / "wangxing_v4_face_pipeline_report.json"
+    / "wangxing_v4_expression_pipeline_report.json"
 )
 DEFAULT_TEST_SETS = (
     ("25+25", "data/test/single_video"),
@@ -167,19 +167,19 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--cache-dir",
-        default="outputs/vedio_pred/cache_wangxing_v4_face_res1k",
+        default="outputs/vedio_pred/cache_wangxing_v4_expression_res1k",
     )
     parser.add_argument(
         "--model-path",
-        default="outputs/vedio_pred/models/wangxing_v4_face_res1k.pt",
+        default="outputs/vedio_pred/models/wangxing_v4_expression_res1k.pt",
     )
     parser.add_argument(
         "--train-metrics",
-        default="outputs/vedio_pred/wangxing_v4_face_metrics_res1k.json",
+        default="outputs/vedio_pred/wangxing_v4_expression_metrics_res1k.json",
     )
     parser.add_argument(
         "--official-metrics",
-        default="outputs/forensics/wangxing_v4_face_official_holdout_metrics.json",
+        default="outputs/forensics/wangxing_v4_expression_official_holdout_metrics.json",
     )
     parser.add_argument(
         "--test-set",
@@ -218,7 +218,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--device", default="cuda")
     parser.add_argument(
         "--report",
-        default="outputs/vedio_pred/wangxing_v4_face_pipeline_report.json",
+        default="outputs/vedio_pred/wangxing_v4_expression_pipeline_report.json",
     )
     parser.add_argument("--dry-run", action="store_true")
     return parser
@@ -228,8 +228,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     report_path = project_path(args.report)
     report: dict[str, Any] = {
-        "schema_version": "wangxing_v4_face_pipeline_report_v1",
-        "status": "running",
+        "schema_version": "wangxing_v4_expression_pipeline_report_v1",
+        "status": "dry_run" if args.dry_run else "running",
         "started_at": datetime.now(UTC).isoformat(),
         "config": vars(args),
         "stages": [],
@@ -265,7 +265,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         else:
             output_path = (
                 f"outputs/forensics/"
-                f"wangxing_v4_face_{_safe_name(name)}_metrics.json"
+                f"wangxing_v4_expression_{_safe_name(name)}_metrics.json"
             )
         resolved_tests.append((name, manifest_path, output_path))
 
@@ -366,7 +366,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         for name, command in commands:
             _run_stage(name, command, report, dry_run=args.dry_run)
             _write(report_path, report)
-        report["status"] = "completed"
+        report["status"] = "dry_run" if args.dry_run else "completed"
         report["finished_at"] = datetime.now(UTC).isoformat()
         _write(report_path, report)
         print(f"Pipeline completed. Report: {report_path}")
