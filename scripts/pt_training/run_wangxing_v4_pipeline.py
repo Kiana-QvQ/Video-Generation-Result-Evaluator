@@ -127,6 +127,8 @@ def _run_stage(
     report: dict[str, Any],
     *,
     dry_run: bool,
+    index: int,
+    total: int,
 ) -> None:
     record = {
         "name": name,
@@ -136,8 +138,15 @@ def _run_stage(
     }
     report["stages"].append(record)
     if dry_run:
-        print(f"[dry-run] {record['command']}")
+        print(
+            f"[stage {index}/{total}] DRY-RUN {name}",
+            flush=True,
+        )
         return
+    print(
+        f"[stage {index}/{total}] START {name}",
+        flush=True,
+    )
     started = time.monotonic()
     result = subprocess.run(command, cwd=PROJECT_ROOT, check=False)
     record["duration_seconds"] = round(time.monotonic() - started, 2)
@@ -145,8 +154,19 @@ def _run_stage(
     record["finished_at"] = datetime.now(UTC).isoformat()
     if result.returncode != 0:
         record["status"] = "failed"
+        print(
+            f"[stage {index}/{total}] FAILED {name} "
+            f"returncode={result.returncode}",
+            file=sys.stderr,
+            flush=True,
+        )
         raise RuntimeError(f"Stage failed: {name} ({result.returncode})")
     record["status"] = "completed"
+    print(
+        f"[stage {index}/{total}] DONE {name} "
+        f"duration={record['duration_seconds']:.1f}s",
+        flush=True,
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -365,8 +385,21 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         report_path.parent.mkdir(parents=True, exist_ok=True)
         _write(report_path, report)
-        for name, command in commands:
-            _run_stage(name, command, report, dry_run=args.dry_run)
+        total_stages = len(commands)
+        print(
+            f"PT v4 pipeline: {total_stages} stages, "
+            f"device={args.device}, tests={len(resolved_tests)}",
+            flush=True,
+        )
+        for index, (name, command) in enumerate(commands, start=1):
+            _run_stage(
+                name,
+                command,
+                report,
+                dry_run=args.dry_run,
+                index=index,
+                total=total_stages,
+            )
             _write(report_path, report)
         report["status"] = "dry_run" if args.dry_run else "completed"
         report["finished_at"] = datetime.now(UTC).isoformat()

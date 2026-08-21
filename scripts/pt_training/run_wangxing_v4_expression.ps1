@@ -32,10 +32,15 @@ $Arguments = @(
 
 Push-Location $ProjectRoot
 try {
+    Write-Host "[PT v4] Starting expression-only pipeline..." -ForegroundColor Cyan
+    Write-Host "[PT v4] Training data: real + Seedance only" -ForegroundColor DarkCyan
+    Write-Host "[PT v4] Final tests: 25+25 and 32+32" -ForegroundColor DarkCyan
     & $Python @Arguments
     if ($LASTEXITCODE -ne 0) {
+        Write-Error "[PT v4] Pipeline failed with exit code $LASTEXITCODE"
         exit $LASTEXITCODE
     }
+    Write-Host "[PT v4] Pipeline completed successfully." -ForegroundColor Green
 }
 finally {
     Pop-Location
