@@ -182,6 +182,11 @@ def build_parser() -> argparse.ArgumentParser:
         default="outputs/forensics/wangxing_v4_expression_official_holdout_metrics.json",
     )
     parser.add_argument(
+        "--test-manifest-root",
+        default="outputs/vedio_pred/wangxing_v4_expression_test_manifests",
+        help="Separate generated test-manifest directory; never overwrite old manifests.",
+    )
+    parser.add_argument(
         "--test-set",
         dest="test_sets",
         nargs=2,
@@ -248,10 +253,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         else:
             test_specs = list(DEFAULT_TEST_SETS)
     generated_test_root = (
-        PROJECT_ROOT
-        / "outputs"
-        / "vedio_pred"
-        / "wangxing_v4_test_manifests"
+        project_path(args.test_manifest_root)
     )
     resolved_tests: list[tuple[str, Path, str]] = []
     for name, folder_or_manifest in test_specs:
@@ -371,6 +373,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         _write(report_path, report)
         print(f"Pipeline completed. Report: {report_path}")
         return 0
+    except KeyboardInterrupt:
+        report["status"] = "cancelled"
+        report["error"] = "KeyboardInterrupt"
+        report["finished_at"] = datetime.now(UTC).isoformat()
+        _write(report_path, report)
+        print(f"Pipeline cancelled. Report: {report_path}", file=sys.stderr)
+        return 130
     except Exception as exc:
         report["status"] = "failed"
         report["error"] = f"{type(exc).__name__}: {exc}"

@@ -26,6 +26,8 @@ from evaluator.modules.wangxing.authenticity_score import (
     DEFAULT_WEIGHTS,
     POLICY_SCHEMA,
     extract_weighted_components,
+    rank_feature_vector,
+    RANK_FEATURE_NAMES,
 )
 from evaluator.modules.wangxing.wangxing_specialization import (
     evaluate_specialization,
@@ -94,6 +96,120 @@ def _score(row: dict[str, Any], weights: dict[str, float]) -> float:
         sum(value * weight * coverage for value, weight, coverage in values)
         / denominator
     )
+
+
+def _sigmoid(value: float) -> float:
+    value = max(-40.0, min(40.0, float(value)))
+    return 1.0 / (1.0 + math.exp(-value))
+
+
+def _fit_rank_model(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    from sklearn.linear_model import LogisticRegression
+
+    matrix = np.asarray(
+        [rank_feature_vector(row["components"]) for row in rows],
+        dtype=np.float64,
+    )
+    mean = matrix.mean(axis=0)
+    scale = np.maximum(matrix.std(axis=0), 1e-4)
+    normalized = (matrix - mean) / scale
+    pair_features: list[np.ndarray] = []
+    pair_labels: list[int] = []
+    for left_index, left in enumerate(rows):
+        for right_index, right in enumerate(rows):
+            if left_index == right_index:
+                continue
+            if RANK[left["label"]] <= RANK[right["label"]]:
+                continue
+            difference = normalized[left_index] - normalized[right_index]
+            pair_features.extend([difference, -difference])
+            pair_labels.extend([1, 0])
+    if len(set(pair_labels)) < 2:
+        raise RuntimeError("Insufficient pairwise ranking labels.")
+    model = LogisticRegression(
+        C=0.5,
+        class_weight="balanced",
+        max_iter=2000,
+        random_state=42,
+    )
+    model.fit(np.asarray(pair_features), np.asarray(pair_labels))
+    coef = model.coef_.reshape(-1)
+    intercept = float(model.intercept_[0])
+    logits = normalized @ coef + intercept
+    scores = np.asarray([_sigmoid(value) for value in logits])
+    pair_total = 0
+    pair_correct = 0
+    for left_index, left in enumerate(rows):
+        for right_index, right in enumerate(rows):
+            if RANK[left["label"]] <= RANK[right["label"]]:
+                continue
+            pair_total += 1
+            if scores[left_index] > scores[right_index]:
+                pair_correct += 1
+    pairwise_rate = pair_correct / pair_total if pair_total else 0.0
+    class_means = {
+        label: float(
+            np.mean(
+                [
+                    scores[index]
+                    for index, row in enumerate(rows)
+                    if row["label"] == label
+                ]
+            )
+        )
+        for label in ORDER
+    }
+    class_ordering = all(
+        class_means[ORDER[index]] > class_means[ORDER[index + 1]]
+        for index in range(len(ORDER) - 1)
+    )
+    best_threshold = 0.50
+    best_key = (-1.0, -1.0, -1.0)
+    for threshold_step in range(5, 96):
+        threshold = threshold_step / 100.0
+        predictions = (scores < threshold).astype(np.int32)
+        labels = np.asarray(
+            [0 if row["label"] == "real" else 1 for row in rows],
+            dtype=np.int32,
+        )
+        tp = int(((labels == 1) & (predictions == 1)).sum())
+        tn = int(((labels == 0) & (predictions == 0)).sum())
+        fp = int(((labels == 0) & (predictions == 1)).sum())
+        fn = int(((labels == 1) & (predictions == 0)).sum())
+        ai_recall = tp / (tp + fn) if tp + fn else 0.0
+        real_recall = tn / (tn + fp) if tn + fp else 0.0
+        accuracy = (tp + tn) / len(labels) if len(labels) else 0.0
+        key = (min(ai_recall, real_recall), accuracy, -abs(threshold - 0.5))
+        if key > best_key:
+            best_key = key
+            best_threshold = threshold
+    row_scores = [
+        {
+            "video": row["video"],
+            "group": row["group"],
+            "label": row["label"],
+            "score_0_1": float(scores[index]),
+            "components": row["components"],
+        }
+        for index, row in enumerate(rows)
+    ]
+    return {
+        "feature_names": list(RANK_FEATURE_NAMES),
+        "mean": mean.astype(float).tolist(),
+        "scale": scale.astype(float).tolist(),
+        "coef": coef.astype(float).tolist(),
+        "intercept": intercept,
+        "generated_threshold": best_threshold,
+        "pairwise_ordering_rate": pairwise_rate,
+        "class_ordering_satisfied": class_ordering,
+        "ordering_satisfied": class_ordering and pairwise_rate == 1.0,
+        "class_mean_scores_0_1": class_means,
+        "row_scores": sorted(
+            row_scores,
+            key=lambda item: item["score_0_1"],
+            reverse=True,
+        ),
+    }
 
 
 def _fit_weights(rows: list[dict[str, Any]]) -> dict[str, Any]:
@@ -254,11 +370,34 @@ def main(argv: Sequence[str] | None = None) -> int:
     output_root.mkdir(parents=True, exist_ok=True)
 
     rows: list[dict[str, Any]] = []
+    raw_rows_path = output_root / "raw_rows.json"
+    if raw_rows_path.is_file():
+        try:
+            cached_rows = json.loads(
+                raw_rows_path.read_text(encoding="utf-8-sig")
+            )
+            if isinstance(cached_rows, list):
+                rows = [
+                    row
+                    for row in cached_rows
+                    if isinstance(row, dict)
+                    and row.get("video")
+                    and row.get("components")
+                ]
+        except (OSError, json.JSONDecodeError):
+            rows = []
+    completed_videos = {str(row["video"]) for row in rows}
     videos = sorted(input_root.rglob("*.mp4"))
     for index, video in enumerate(videos, start=1):
         label = _label(video)
         if label is None:
             print(f"[skip] unknown ranking label: {video}", flush=True)
+            continue
+        if str(video) in completed_videos:
+            print(
+                f"[{index}/{len(videos)}] {video.parent.name}/{video.name} RESUME",
+                flush=True,
+            )
             continue
         group = video.parent.name
         print(f"[{index}/{len(videos)}] {group}/{video.name}", flush=True)
@@ -304,7 +443,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "components": extract_weighted_components(result),
             }
         )
-        (output_root / "raw_rows.json").write_text(
+        completed_videos.add(str(video))
+        raw_rows_path.write_text(
             json.dumps(rows, ensure_ascii=False, indent=2) + "\n",
             encoding="utf-8",
         )
@@ -315,9 +455,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             f"Expected all ranking labels {set(ORDER)}, got {labels}"
         )
     fit = _fit_weights(rows)
-    if not fit["ordering_satisfied"]:
+    rank_fit = _fit_rank_model(rows)
+    if not rank_fit["ordering_satisfied"]:
         print(
-            "No three-component weight vector satisfies the complete "
+            "The learned pairwise ranker did not satisfy the complete "
             "test1/test2 ordering. Policy was not written.",
             file=sys.stderr,
         )
@@ -329,12 +470,26 @@ def main(argv: Sequence[str] | None = None) -> int:
         "development_groups": sorted({row["group"] for row in rows}),
         "expected_order": list(ORDER),
         "weights": fit["weights"],
-        "generated_threshold": 0.50,
-        "ordering_satisfied": fit["ordering_satisfied"],
-        "class_ordering_satisfied": fit["class_ordering_satisfied"],
-        "pairwise_ordering_rate": fit["pairwise_ordering_rate"],
-        "class_mean_scores_0_1": fit["class_mean_scores_0_1"],
-        "row_scores": fit["row_scores"],
+        "generated_threshold": rank_fit["generated_threshold"],
+        "ordering_satisfied": rank_fit["ordering_satisfied"],
+        "class_ordering_satisfied": rank_fit["class_ordering_satisfied"],
+        "pairwise_ordering_rate": rank_fit["pairwise_ordering_rate"],
+        "class_mean_scores_0_1": rank_fit["class_mean_scores_0_1"],
+        "row_scores": rank_fit["row_scores"],
+        "rank_model": {
+            key: value
+            for key, value in rank_fit.items()
+            if key
+            in {
+                "feature_names",
+                "mean",
+                "scale",
+                "coef",
+                "intercept",
+            }
+        },
+        "binary_training_labels": ["real", "seedance"],
+        "ranking_development_labels": list(ORDER),
         "test_sets_excluded": [
             "data/test/single_video",
             "data/test/wangxing_32x32",

@@ -17,6 +17,16 @@ DEFAULT_WEIGHTS = {
     "expression": 0.45,
     "direction": 0.40,
 }
+RANK_FEATURE_NAMES = (
+    "identity",
+    "expression",
+    "direction",
+    "real_domain_fit_0_1",
+    "ai_domain_inverse_0_1",
+    "temporal_naturalness_0_1",
+    "texture_stability_0_1",
+    "frequency_naturalness_0_1",
+)
 DEFAULT_POLICY_PATH = (
     Path("outputs")
     / "forensics"
@@ -220,6 +230,52 @@ def extract_weighted_components(result: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def rank_feature_vector(components: dict[str, Any]) -> list[float]:
+    details = components.get("direction_details") or {}
+    values = {
+        "identity": components.get("identity"),
+        "expression": components.get("expression"),
+        "direction": components.get("direction"),
+        **details,
+    }
+    return [
+        _clamp(
+            float(
+                0.5
+                if values.get(name) is None
+                else values.get(name)
+            )
+        )
+        for name in RANK_FEATURE_NAMES
+    ]
+
+
+def _rank_probability(
+    components: dict[str, Any],
+    rank_model: dict[str, Any],
+) -> float:
+    vector = rank_feature_vector(components)
+    mean = [
+        float(value)
+        for value in rank_model.get("mean", [0.5] * len(vector))
+    ]
+    scale = [
+        max(abs(float(value)), 1e-6)
+        for value in rank_model.get("scale", [1.0] * len(vector))
+    ]
+    coef = [
+        float(value)
+        for value in rank_model.get("coef", [0.0] * len(vector))
+    ]
+    scaled = [
+        (value - mean[index]) / scale[index]
+        for index, value in enumerate(vector)
+    ]
+    logit = sum(value * coef[index] for index, value in enumerate(scaled))
+    logit += float(rank_model.get("intercept", 0.0))
+    return _clamp(1.0 / (1.0 + math.exp(-max(-40.0, min(40.0, logit)))))
+
+
 def load_policy(path: str | Path | None = None) -> dict[str, Any]:
     if path is None:
         return {
@@ -259,6 +315,9 @@ def load_policy(path: str | Path | None = None) -> dict[str, Any]:
         name: float(weights.get(name, DEFAULT_WEIGHTS[name]))
         for name in DEFAULT_WEIGHTS
     }
+    rank_model = payload.get("rank_model")
+    if isinstance(rank_model, dict):
+        payload["rank_model"] = rank_model
     payload.setdefault("generated_threshold", 0.50)
     return payload
 
@@ -287,6 +346,9 @@ def apply_weighted_authenticity(
         sum(score * weight for _, score, weight in usable)
         / max(denominator, 1e-6)
     )
+    rank_model = policy.get("rank_model")
+    if isinstance(rank_model, dict):
+        real_probability = _rank_probability(components, rank_model)
     threshold = float(policy.get("generated_threshold", 0.50))
     prediction = "generated" if real_probability < threshold else "real"
     method = (
@@ -342,6 +404,11 @@ def apply_weighted_authenticity(
         "wangxing_weighted_score_0_1": real_probability,
         "wangxing_weighted_components": components,
         "wangxing_weighted_policy": policy,
+        "ranking_score_0_1": (
+            _rank_probability(components, rank_model)
+            if isinstance(rank_model, dict)
+            else None
+        ),
         "identity_used_as_authenticity_evidence": True,
     }
     result["authenticity"] = authenticity

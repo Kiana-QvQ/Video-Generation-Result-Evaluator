@@ -1,6 +1,44 @@
 from __future__ import annotations
 
+import os
+import sys
 from pathlib import Path
+
+
+_DLL_DIRECTORY_HANDLES: list[object] = []
+
+
+def _configure_windows_torch_dll_search() -> None:
+    """Expose torch CUDA DLLs before ONNXRuntime/InsightFace loads."""
+    if os.name != "nt":
+        return
+    python_root = Path(sys.executable).resolve().parent.parent
+    candidates = (
+        python_root / "Lib" / "site-packages" / "torch" / "lib",
+        Path(sys.prefix) / "Lib" / "site-packages" / "torch" / "lib",
+    )
+    for directory in candidates:
+        if not directory.is_dir():
+            continue
+        directory_text = str(directory)
+        path_entries = os.environ.get("PATH", "").split(os.pathsep)
+        if directory_text not in path_entries:
+            os.environ["PATH"] = (
+                directory_text
+                + os.pathsep
+                + os.environ.get("PATH", "")
+            )
+        add_dll_directory = getattr(os, "add_dll_directory", None)
+        if add_dll_directory is not None:
+            try:
+                _DLL_DIRECTORY_HANDLES.append(
+                    add_dll_directory(directory_text)
+                )
+            except OSError:
+                pass
+
+
+_configure_windows_torch_dll_search()
 
 
 # ``.../modules/core/paths.py`` -> parents[1]=modules, parents[2]=package root

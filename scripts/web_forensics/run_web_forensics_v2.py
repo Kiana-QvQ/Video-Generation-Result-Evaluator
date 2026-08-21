@@ -22,6 +22,7 @@ import csv
 import hashlib
 import json
 import math
+import re
 import subprocess
 import sys
 from collections import Counter
@@ -152,6 +153,14 @@ def _finite(value: Any, default: float = 0.5) -> float:
     return number if math.isfinite(number) else float(default)
 
 
+def _safe_test_name(value: str) -> str:
+    return (
+        re.sub(r"[^A-Za-z0-9_.-]+", "_", str(value).replace("+", "x"))
+        .strip("_")
+        or "test"
+    )
+
+
 def _profile_signature(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()[:16]
 
@@ -181,8 +190,13 @@ def _build_profiles(args: argparse.Namespace) -> None:
     exclusion = project_path(args.profile_exclusion)
     output = project_path(args.forensics_profile)
     command = [
-        sys.executable,
-        str(PROJECT_ROOT / "scripts" / "build_forensics_profiles.py"),
+            sys.executable,
+            str(
+                PROJECT_ROOT
+                / "scripts"
+                / "data_build"
+                / "build_forensics_profiles.py"
+            ),
         "--real-au-root",
         "data/au/MD_CL",
         "--seedance-au-root",
@@ -226,7 +240,12 @@ def _build_profiles(args: argparse.Namespace) -> None:
     calibrator_output = project_path(args.calibrator)
     calibrator_command = [
         sys.executable,
-        str(PROJECT_ROOT / "scripts" / "calibrate_forensics.py"),
+        str(
+            PROJECT_ROOT
+            / "scripts"
+            / "calibration_validation"
+            / "calibrate_forensics.py"
+        ),
         "--profile",
         str(output),
         "--holdout-manifest",
@@ -827,6 +846,39 @@ def cmd_train(args: argparse.Namespace) -> None:
     print(f"Wrote {project_path(args.fusion_head)}")
 
 
+def cmd_rank_policy(args: argparse.Namespace) -> None:
+    ranking_root = getattr(args, "ranking_root", None)
+    if not ranking_root:
+        return
+    _run(
+        [
+            sys.executable,
+            str(
+                PROJECT_ROOT
+                / "scripts"
+                / "web_forensics"
+                / "train_wangxing_weighted_policy.py"
+            ),
+            "--input-root",
+            ranking_root,
+            "--forensics-profile",
+            args.forensics_profile,
+            "--source-profile",
+            args.source_profile,
+            "--cache-root",
+            args.ranking_cache_root,
+            "--output-root",
+            args.ranking_output_root,
+            "--policy-output",
+            args.weighted_policy,
+            "--forensics-device",
+            args.device,
+            "--wangxing-device",
+            args.wangxing_device,
+        ]
+    )
+
+
 def cmd_evaluate(args: argparse.Namespace) -> None:
     manifest_path = project_path(args.manifest)
     manifest = _load_json(manifest_path)
@@ -1188,12 +1240,44 @@ def build_parser() -> argparse.ArgumentParser:
         "--weighted-policy",
         default="outputs/forensics/wangxing_authenticity_weighted_policy.json",
     )
+    all_command.add_argument(
+        "--ranking-root",
+        default=None,
+        help="Optional ranking development root, e.g. ppt_video.",
+    )
+    all_command.add_argument(
+        "--ranking-cache-root",
+        default="outputs/forensics/ppt_video_wangxing_policy_cache",
+    )
+    all_command.add_argument(
+        "--ranking-output-root",
+        default="outputs/forensics/ppt_video_wangxing_policy",
+    )
+    all_command.add_argument(
+        "--test-set",
+        dest="test_sets",
+        nargs=2,
+        action="append",
+        metavar=("NAME", "MANIFEST"),
+        help="Repeatable final evaluation set; training never reads these manifests.",
+    )
 
     def cmd_all(args: argparse.Namespace) -> None:
         cmd_prepare(args)
         cmd_profiles(args)
         cmd_train(args)
-        cmd_evaluate(args)
+        cmd_rank_policy(args)
+        if not args.test_sets:
+            cmd_evaluate(args)
+            return
+        base_output_root = args.output_root
+        for name, manifest in args.test_sets:
+            args.manifest = manifest
+            args.output_root = (
+                f"{base_output_root}_{_safe_test_name(name)}"
+            )
+            cmd_evaluate(args)
+        args.output_root = base_output_root
 
     all_command.set_defaults(func=cmd_all)
     return parser
