@@ -19,26 +19,34 @@ def _load(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8-sig"))
 
 
-def _items(payload: dict[str, Any]) -> list[dict[str, str]]:
-    rows: list[dict[str, str]] = []
+def _items(payload: dict[str, Any]) -> list[tuple[str, dict[str, str]]]:
+    rows: list[tuple[str, dict[str, str]]] = []
     if isinstance(payload.get("samples"), list):
         for item in payload["samples"]:
             if item.get("source_video") and item.get("source_au"):
                 rows.append(
-                    {
-                        "video": str(item["source_video"]),
-                        "au": str(item["source_au"]),
-                    }
+                    (
+                        "seedance"
+                        if item.get("label") in {"ai", "generated"}
+                        else "real",
+                        {
+                            "video": str(item["source_video"]),
+                            "au": str(item["source_au"]),
+                        },
+                    )
                 )
     for domain in ("real", "seedance", "fake"):
         if isinstance(payload.get(domain), list):
             for item in payload[domain]:
                 if item.get("video") and item.get("au"):
                     rows.append(
-                        {
-                            "video": str(item["video"]),
-                            "au": str(item["au"]),
-                        }
+                        (
+                            "seedance" if domain in {"seedance", "fake"} else "real",
+                            {
+                                "video": str(item["video"]),
+                                "au": str(item["au"]),
+                            },
+                        )
                     )
     return rows
 
@@ -69,12 +77,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         path = project_path(manifest)
         if not path.is_file():
             raise FileNotFoundError(f"Test manifest not found: {path}")
-        for item in _items(_load(path)):
-            domain = (
-                "seedance"
-                if "WangXing_Seedance" in item["video"]
-                else "real"
-            )
+        for domain, item in _items(_load(path)):
             merged[f"{item['video']}|{item['au']}"] = (domain, item)
 
     output = {

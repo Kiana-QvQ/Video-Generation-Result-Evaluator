@@ -153,6 +153,11 @@ def main() -> int:
         ),
     )
     parser.add_argument(
+        "--facial-only",
+        action="store_true",
+        help="Build only facial-motion profile; do not decode texture videos.",
+    )
+    parser.add_argument(
         "--authenticity-calibrator",
         help=(
             "Optional held-out calibrator JSON. Provisional calibrators are "
@@ -178,8 +183,11 @@ def main() -> int:
         ),
     )
     args = parser.parse_args()
-    if args.skip_motion and args.motion_only:
-        print("ERROR: --skip-motion and --motion-only cannot be combined.")
+    if args.skip_motion and (args.motion_only or args.facial_only):
+        print("ERROR: --skip-motion cannot be combined with motion-only/facial-only.")
+        return 1
+    if args.motion_only and args.facial_only:
+        print("ERROR: --motion-only and --facial-only cannot be combined.")
         return 1
 
     output = project_path(args.output)
@@ -297,7 +305,7 @@ def main() -> int:
             ),
         }
 
-    if args.motion_only:
+    if args.motion_only or args.facial_only:
         args.real_video_root = None
         args.seedance_video_root = None
 
@@ -325,6 +333,10 @@ def main() -> int:
         payload["warnings"].append(
             "Facial-motion profile rebuilt independently; texture profile "
             "was preserved from the previous output."
+        )
+    if args.facial_only:
+        payload["warnings"].append(
+            "Facial-only profile: texture branch intentionally omitted."
         )
     if args.authenticity_calibrator:
         calibrator_path = project_path(args.authenticity_calibrator)

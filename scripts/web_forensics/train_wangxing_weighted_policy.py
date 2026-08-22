@@ -356,6 +356,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--wangxing-device", choices=("cpu", "cuda"), default="cuda")
     parser.add_argument("--max-frames", type=int, default=32)
     parser.add_argument("--sample-fps", type=float, default=8.0)
+    parser.add_argument("--expression-only", action="store_true")
     args = parser.parse_args(argv)
 
     input_root = Path(args.input_root).expanduser().resolve()
@@ -423,7 +424,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         forensics = analyze_forensics(
             facial_motion=au,
             facial_motion_profile=profiles.get("facial_motion"),
-            texture_detail=video,
+            texture_detail=None if args.expression_only else video,
             texture_detail_profile=profiles.get("texture_detail"),
             authenticity_calibrator=profiles.get("authenticity_calibrator"),
             max_frames=args.max_frames,

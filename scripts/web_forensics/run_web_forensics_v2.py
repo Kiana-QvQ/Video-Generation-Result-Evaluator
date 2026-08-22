@@ -235,6 +235,8 @@ def _build_profiles(args: argparse.Namespace) -> None:
         "--output",
         str(output),
     ]
+    if getattr(args, "expression_only", False):
+        command.append("--facial-only")
     _run(command)
 
     source_profile = project_path(args.source_profile)
@@ -255,6 +257,13 @@ def _build_profiles(args: argparse.Namespace) -> None:
         ),
         flush=True,
     )
+
+    if getattr(args, "expression_only", False):
+        print(
+            "Expression-only mode: skipping texture/authenticity calibrator.",
+            flush=True,
+        )
+        return
 
     calibrator_output = project_path(args.calibrator)
     calibrator_command = [
@@ -444,6 +453,7 @@ def _extra_features(
     au_path: Path,
     video_path: Path,
     device: str,
+    expression_only: bool = False,
 ) -> dict[str, float]:
     branches = report.get("branches") or {}
     facial = branches.get("facial_motion") or {}
@@ -471,7 +481,109 @@ def _extra_features(
             0.5,
         )
 
-    return {
+    if expression_only:
+        return {
+            "fm_motion_coherence_0_1": branch_value(
+                "facial_motion",
+                "motion_coherence_0_1",
+            ),
+            "fm_au_relation_consistency_0_1": branch_value(
+                "facial_motion",
+                "au_relation_consistency_0_1",
+            ),
+            "fm_au_dynamics_naturalness_0_1": branch_value(
+                "facial_motion",
+                "au_dynamics_naturalness_0_1",
+            ),
+            "fm_training_free_motion_prior_0_1": branch_value(
+                "facial_motion",
+                "training_free_motion_prior_0_1",
+            ),
+            "fm_ssl_au_score_0_1": branch_value(
+                "facial_motion",
+                "ssl_au_score_0_1",
+            ),
+            "fm_ssl_temporal_consistency_0_1": branch_value(
+                "facial_motion",
+                "ssl_temporal_consistency_0_1",
+            ),
+            "fm_physio_rhythm_score_0_1": branch_value(
+                "facial_motion",
+                "physio_rhythm_score_0_1",
+            ),
+            "fm_landmark_valid_frame_ratio": branch_value(
+                "facial_motion",
+                "landmark_valid_frame_ratio",
+                0.0,
+            ),
+            "fm_pose_normalized_frame_ratio": branch_value(
+                "facial_motion",
+                "pose_normalized_frame_ratio",
+                0.0,
+            ),
+            "facial_window_mean_0_1": window_value(
+                "facial_expression_muscle",
+                "mean_evidence_score_0_1",
+            ),
+            "facial_window_worst_0_1": window_value(
+                "facial_expression_muscle",
+                "worst_evidence_score_0_1",
+            ),
+            "facial_window_aggregate_0_1": window_value(
+                "facial_expression_muscle",
+                "aggregate_evidence_score_0_1",
+            ),
+            "facial_window_p90_0_1": facial_distribution["p90"],
+            "facial_window_p95_0_1": facial_distribution["p95"],
+            "facial_window_std_0_1": facial_distribution["std"],
+            "facial_window_anomaly_ratio_0_1": facial_distribution[
+                "anomaly_ratio"
+            ],
+            "facial_window_longest_anomaly_run_0_1": facial_distribution[
+                "longest_anomaly_run"
+            ],
+            **_quality_features(au_path, report),
+        }
+
+    values = {
+        "fm_motion_coherence_0_1": branch_value(
+            "facial_motion",
+            "motion_coherence_0_1",
+        ),
+        "fm_au_relation_consistency_0_1": branch_value(
+            "facial_motion",
+            "au_relation_consistency_0_1",
+        ),
+        "fm_au_dynamics_naturalness_0_1": branch_value(
+            "facial_motion",
+            "au_dynamics_naturalness_0_1",
+        ),
+        "fm_training_free_motion_prior_0_1": branch_value(
+            "facial_motion",
+            "training_free_motion_prior_0_1",
+        ),
+        "fm_ssl_au_score_0_1": branch_value(
+            "facial_motion",
+            "ssl_au_score_0_1",
+        ),
+        "fm_ssl_temporal_consistency_0_1": branch_value(
+            "facial_motion",
+            "ssl_temporal_consistency_0_1",
+        ),
+        "fm_physio_rhythm_score_0_1": branch_value(
+            "facial_motion",
+            "physio_rhythm_score_0_1",
+        ),
+        "fm_landmark_valid_frame_ratio": branch_value(
+            "facial_motion",
+            "landmark_valid_frame_ratio",
+            0.0,
+        ),
+        "fm_pose_normalized_frame_ratio": branch_value(
+            "facial_motion",
+            "pose_normalized_frame_ratio",
+            0.0,
+        ),
         "texture_raw_real_domain_evidence_0_1": branch_value(
             "texture_detail",
             "raw_real_domain_evidence_0_1",
@@ -567,6 +679,7 @@ def _extra_features(
             device=device,
         ),
     }
+    return values
 
 
 def _feature_vector(
@@ -578,21 +691,26 @@ def _feature_vector(
     device: str,
     feature_names: tuple[str, ...] = FEATURE_NAMES,
     transition_features: bool = False,
+    expression_only: bool = False,
 ) -> tuple[np.ndarray, dict[str, Any]]:
     report = analyze_forensics(
         facial_motion=au_path,
         facial_motion_profile=profiles.get("facial_motion"),
-        texture_detail=video_path,
+        texture_detail=None if expression_only else video_path,
         texture_detail_profile=profiles.get("texture_detail"),
         authenticity_calibrator=profiles.get("authenticity_calibrator"),
         max_frames=32,
         sample_fps=8.0,
         device=device,
     )
-    au_features = extract_fusion_feature_dict(
-        au_path=au_path,
-        wangxing_source_profile=source_profile,
-        forensics_profiles=profiles,
+    au_features = (
+        {}
+        if expression_only
+        else extract_fusion_feature_dict(
+            au_path=au_path,
+            wangxing_source_profile=source_profile,
+            forensics_profiles=profiles,
+        )
     )
     merged = {
         **au_features,
@@ -601,6 +719,7 @@ def _feature_vector(
             au_path=au_path,
             video_path=video_path,
             device=device,
+            expression_only=expression_only,
         ),
     }
     if transition_features:
@@ -854,6 +973,7 @@ def cmd_train(args: argparse.Namespace) -> None:
                 device=args.device,
                 feature_names=feature_names,
                 transition_features=args.transition_features,
+                expression_only=args.expression_only,
             )
             cached[key] = vector
         features.append(vector)
@@ -920,6 +1040,8 @@ def cmd_rank_policy(args: argparse.Namespace) -> None:
         "--wangxing-device",
         args.wangxing_device,
     ]
+    if args.expression_only:
+        command.append("--expression-only")
     print(">>", " ".join(command), flush=True)
     completed = subprocess.run(command, cwd=PROJECT_ROOT, check=False)
     if completed.returncode != 0:
@@ -968,6 +1090,7 @@ def cmd_evaluate(args: argparse.Namespace) -> None:
                 name in TRANSITION_FEATURE_NAMES
                 for name in head_feature_names
             ),
+            expression_only=args.expression_only,
         )
         fusion = _predict_fusion(vector, head)
         fusion["decision"] = fusion["prediction"]
