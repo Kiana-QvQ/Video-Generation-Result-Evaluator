@@ -769,7 +769,7 @@ def cmd_prepare(args: argparse.Namespace) -> None:
             str(
                 PROJECT_ROOT
                 / "scripts"
-                / "数据构建"
+                / "data_build"
                 / "build_web_forensics_v2_dataset.py"
             ),
             "--output-root",
