@@ -15,6 +15,7 @@ from typing import Any
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 from torch import nn
 from torch.utils.data import DataLoader, TensorDataset, WeightedRandomSampler
 
@@ -40,7 +41,6 @@ from wangxing_project.joint_au_pt import (
 )
 from wangxing_project.joint_au_pt_v3 import (
     _group_split,
-    _headline,
 )
 
 V41_MODEL_TYPE = "wangxing_expression_authenticity_v41"
@@ -52,6 +52,81 @@ FUSION_HIDDEN = 96
 
 def _sigmoid(values: np.ndarray) -> np.ndarray:
     return 1.0 / (1.0 + np.exp(-np.clip(values, -40.0, 40.0)))
+
+
+def _select_threshold(
+    labels: np.ndarray,
+    probabilities: np.ndarray,
+) -> float:
+    best_key: tuple[float, float, float] | None = None
+    best_threshold = 0.5
+    for threshold in np.linspace(0.10, 0.90, 161):
+        predictions = probabilities >= threshold
+        tp = int(((labels == 1) & predictions).sum())
+        tn = int(((labels == 0) & ~predictions).sum())
+        fp = int(((labels == 0) & predictions).sum())
+        fn = int(((labels == 1) & ~predictions).sum())
+        generated_recall = tp / (tp + fn) if tp + fn else 0.0
+        real_recall = tn / (tn + fp) if tn + fp else 0.0
+        accuracy = (tp + tn) / len(labels) if len(labels) else 0.0
+        key = (
+            min(generated_recall, real_recall),
+            accuracy,
+            -abs(float(threshold) - 0.5),
+        )
+        if best_key is None or key > best_key:
+            best_key = key
+            best_threshold = float(threshold)
+    return best_threshold
+
+
+def _headline_with_threshold(
+    labels: np.ndarray,
+    probabilities: np.ndarray,
+    *,
+    total_count: int,
+    threshold: float,
+) -> tuple[dict[str, float | None], dict[str, int]]:
+    labels = labels.astype(np.int64)
+    predictions = (probabilities >= threshold).astype(np.int64)
+    tp = int(((labels == 1) & (predictions == 1)).sum())
+    tn = int(((labels == 0) & (predictions == 0)).sum())
+    fp = int(((labels == 0) & (predictions == 1)).sum())
+    fn = int(((labels == 1) & (predictions == 0)).sum())
+    return (
+        {
+            "generated_recall": tp / (tp + fn) if tp + fn else None,
+            "overall_accuracy": (
+                (tp + tn) / len(labels) if len(labels) else None
+            ),
+            "generated_precision": tp / (tp + fp) if tp + fp else None,
+            "real_recall": tn / (tn + fp) if tn + fp else None,
+            "coverage": len(labels) / total_count if total_count else 0.0,
+            "decision_threshold": float(threshold),
+        },
+        {
+            "tp_generated": tp,
+            "tn_real": tn,
+            "fp_real_as_generated": fp,
+            "fn_generated_as_real": fn,
+        },
+    )
+
+
+def _focal_bce_with_logits(
+    logits: torch.Tensor,
+    target: torch.Tensor,
+    *,
+    gamma: float = 1.5,
+) -> torch.Tensor:
+    bce = F.binary_cross_entropy_with_logits(
+        logits,
+        target,
+        reduction="none",
+    )
+    probability = torch.sigmoid(logits)
+    pt = probability * target + (1.0 - probability) * (1.0 - target)
+    return (((1.0 - pt) ** gamma) * bce).mean()
 
 
 class ExpressionSequenceClassifier(nn.Module):
@@ -374,6 +449,7 @@ def train_wangxing_v41(
     learning_rate: float = 3e-4,
     seed: int = 42,
     device: str = "cuda",
+    model_type: str = V41_MODEL_TYPE,
 ) -> dict[str, Any]:
     torch_device = resolve_torch_device(device)
     _set_seed(seed)
@@ -480,10 +556,33 @@ def train_wangxing_v41(
                 batch_blendshape,
                 return_aux=True,
             )
+            augmented_sequence = batch_sequence + (
+                0.01 * torch.randn_like(batch_sequence)
+            )
+            frame_keep = (
+                torch.rand(
+                    augmented_sequence.shape[0],
+                    augmented_sequence.shape[1],
+                    1,
+                    device=torch_device,
+                )
+                > 0.04
+            ).to(augmented_sequence.dtype)
+            augmented_sequence = augmented_sequence * frame_keep
+            augmented_joint = model(
+                augmented_sequence,
+                batch_summary,
+                batch_blendshape,
+            )
             loss = (
-                0.80 * criterion(joint, target)
+                0.75 * _focal_bce_with_logits(joint, target)
                 + 0.10 * criterion(sequence_logit, target)
                 + 0.10 * criterion(blendshape_logit, target)
+                + 0.05
+                * F.mse_loss(
+                    torch.sigmoid(augmented_joint),
+                    torch.sigmoid(joint.detach()),
+                )
             )
             if not torch.isfinite(loss):
                 continue
@@ -562,14 +661,20 @@ def train_wangxing_v41(
         val_logits,
         prepared["train_labels"][val_idx],
     )
+    val_prob = _sigmoid(val_logits / max(temperature, 1e-6))
+    decision_threshold = _select_threshold(
+        prepared["train_labels"][val_idx],
+        val_prob,
+    )
     test_prob = _sigmoid(test_logits / max(temperature, 1e-6))
-    headline, confusion = _headline(
+    headline, confusion = _headline_with_threshold(
         prepared["test_labels"],
         test_prob,
         total_count=prepared["test_total"],
+        threshold=decision_threshold,
     )
     checkpoint = {
-        "model_type": V41_MODEL_TYPE,
+        "model_type": model_type,
         "model_state": {
             name: tensor.detach().cpu().clone()
             for name, tensor in model.state_dict().items()
@@ -581,6 +686,7 @@ def train_wangxing_v41(
         "blendshape_mean": blendshape_mean,
         "blendshape_scale": blendshape_scale,
         "temperature": float(temperature),
+        "decision_threshold": float(decision_threshold),
         "config": {
             "sequence_frame_dim": SEQUENCE_FRAME_DIM,
             "sequence_summary_dim": SEQUENCE_SUMMARY_DIM,
@@ -618,11 +724,15 @@ def train_wangxing_v41(
     }
 
 
-def _load_model(path: Path) -> tuple[ExpressionSequenceClassifier, dict[str, Any]]:
+def _load_model(
+    path: Path,
+    *,
+    expected_model_type: str = V41_MODEL_TYPE,
+) -> tuple[ExpressionSequenceClassifier, dict[str, Any]]:
     checkpoint = torch.load(str(path), map_location="cpu")
-    if checkpoint.get("model_type") != V41_MODEL_TYPE:
+    if checkpoint.get("model_type") != expected_model_type:
         raise ValueError(
-            f"Unsupported v4.1 model: {checkpoint.get('model_type')}"
+            f"Unsupported expression model: {checkpoint.get('model_type')}"
         )
     model = ExpressionSequenceClassifier()
     model.load_state_dict(checkpoint["model_state"])
@@ -689,10 +799,18 @@ def _predict_loaded_v41(
             )
         )[0]
     )
+    decision_threshold = float(
+        checkpoint.get("decision_threshold", 0.5)
+    )
     return {
-        "prediction": "generated" if probability >= 0.5 else "real",
+        "prediction": (
+            "generated"
+            if probability >= decision_threshold
+            else "real"
+        ),
         "generated_probability": probability,
         "real_probability": 1.0 - probability,
+        "decision_threshold": decision_threshold,
         "model_path": str(model_path),
         "fusion_mode": checkpoint["config"]["fusion_mode"],
     }
@@ -756,10 +874,11 @@ def evaluate_holdout_v41(
                 f"[v4.1 evaluate] {index}/{len(samples)}",
                 flush=True,
             )
-    headline, confusion = _headline(
+    headline, confusion = _headline_with_threshold(
         np.asarray(labels, dtype=np.int64),
         np.asarray(probabilities, dtype=np.float32),
         total_count=len(samples),
+        threshold=float(checkpoint.get("decision_threshold", 0.5)),
     )
     return {
         "schema_version": "wangxing_expression_authenticity_v41_metrics_v1",
