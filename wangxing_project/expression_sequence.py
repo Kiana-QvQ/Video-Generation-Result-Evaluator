@@ -29,6 +29,8 @@ SEQUENCE_FRAME_DIM = (
     + 1
 )
 SEQUENCE_MAX_FRAMES = 24
+SEQUENCE_FRAME_DIM_WITH_PADDING = SEQUENCE_FRAME_DIM + 1
+PADDING_MASK_INDEX = SEQUENCE_FRAME_DIM_WITH_PADDING - 1
 SEQUENCE_SUMMARY_NAMES = (
     "au_speed_mean",
     "au_speed_p95",
@@ -98,13 +100,24 @@ def extract_expression_sequence_features(
     au_path: str | Path,
     *,
     max_frames: int = 24,
+    include_padding_mask: bool = False,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Return a fixed sequence and profile-independent temporal summary."""
     with Path(au_path).open("r", encoding="utf-8-sig", newline="") as handle:
         rows = _sample_rows(list(csv.DictReader(handle)), max_frames)
     if not rows:
         return (
-            np.zeros((max_frames, SEQUENCE_FRAME_DIM), dtype=np.float32),
+            np.zeros(
+                (
+                    max_frames,
+                    (
+                        SEQUENCE_FRAME_DIM_WITH_PADDING
+                        if include_padding_mask
+                        else SEQUENCE_FRAME_DIM
+                    ),
+                ),
+                dtype=np.float32,
+            ),
             np.zeros(SEQUENCE_SUMMARY_DIM, dtype=np.float32),
         )
 
@@ -146,7 +159,11 @@ def extract_expression_sequence_features(
                 presence,
                 landmark.reshape(-1),
                 pose,
-                np.asarray([float(valid)], dtype=np.float32),
+                np.asarray(
+                    [float(valid)]
+                    + ([0.0] if include_padding_mask else []),
+                    dtype=np.float32,
+                ),
             ]
         )
         frames.append(np.nan_to_num(frame, nan=0.0, posinf=0.0, neginf=0.0))
@@ -157,10 +174,19 @@ def extract_expression_sequence_features(
     sequence = np.stack(frames).astype(np.float32)
     if len(sequence) < max_frames:
         pad_count = max_frames - len(sequence)
-        pad_value = sequence[-1:] if len(sequence) else np.zeros(
-            (1, SEQUENCE_FRAME_DIM),
+        pad_value = sequence[-1:].copy() if len(sequence) else np.zeros(
+            (
+                1,
+                (
+                    SEQUENCE_FRAME_DIM_WITH_PADDING
+                    if include_padding_mask
+                    else SEQUENCE_FRAME_DIM
+                ),
+            ),
             dtype=np.float32,
         )
+        if include_padding_mask:
+            pad_value[:, PADDING_MASK_INDEX] = 1.0
         sequence = np.concatenate(
             [sequence, np.repeat(pad_value, pad_count, axis=0)],
             axis=0,
