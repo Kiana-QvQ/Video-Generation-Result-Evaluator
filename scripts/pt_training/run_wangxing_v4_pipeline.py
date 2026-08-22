@@ -242,6 +242,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--device", default="cuda")
     parser.add_argument(
+        "--evaluate-only",
+        action="store_true",
+        help="Skip data preparation and training; evaluate the existing model.",
+    )
+    parser.add_argument(
         "--report",
         default="outputs/vedio_pred/wangxing_v4_expression_pipeline_report.json",
     )
@@ -382,6 +387,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 ],
             )
         )
+    if args.evaluate_only:
+        commands = commands[2:]
     try:
         report_path.parent.mkdir(parents=True, exist_ok=True)
         _write(report_path, report)

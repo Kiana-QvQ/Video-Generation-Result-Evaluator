@@ -686,7 +686,7 @@ def predict_wangxing_v4(
         extract_fusion_features,
     )
     au_values, _ = extract_fusion_features(
-        source_profile=source_profile,
+        wangxing_source_profile=source_profile,
         forensics_profiles=forensics_profiles,
         au_path=au_path,
     )

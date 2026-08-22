@@ -131,6 +131,25 @@ FEATURE_NAMES = (
     "texture_full_face_temporal_residual_gap_0_1",
 )
 FEATURE_NAMES_WITH_TRANSITION = FEATURE_NAMES + TRANSITION_FEATURE_NAMES
+EXPRESSION_ONLY_FEATURE_NAMES = (
+    "fm_motion_coherence_0_1",
+    "fm_au_relation_consistency_0_1",
+    "fm_au_dynamics_naturalness_0_1",
+    "fm_training_free_motion_prior_0_1",
+    "fm_ssl_au_score_0_1",
+    "fm_ssl_temporal_consistency_0_1",
+    "fm_physio_rhythm_score_0_1",
+    "fm_landmark_valid_frame_ratio",
+    "fm_pose_normalized_frame_ratio",
+    "facial_window_mean_0_1",
+    "facial_window_worst_0_1",
+    "facial_window_aggregate_0_1",
+    "facial_window_p90_0_1",
+    "facial_window_p95_0_1",
+    "facial_window_std_0_1",
+    "facial_window_anomaly_ratio_0_1",
+    "facial_window_longest_anomaly_run_0_1",
+) + TRANSITION_FEATURE_NAMES
 
 
 def _load_json(path: Path) -> dict[str, Any]:
@@ -763,6 +782,29 @@ def cmd_prepare(args: argparse.Namespace) -> None:
     )
 
 
+def cmd_build_v4_exclusion(args: argparse.Namespace) -> None:
+    manifests = [
+        f"{args.dataset_root}/single_video/manifest.json",
+        "data/test/wangxing_32x32/single_video/manifest.json",
+    ]
+    _run(
+        [
+            sys.executable,
+            str(
+                PROJECT_ROOT
+                / "scripts"
+                / "data_build"
+                / "build_web_forensics_v4_profile_exclusion.py"
+            ),
+            "--base",
+            args.base_profile_exclusion,
+            "--output",
+            args.profile_exclusion,
+            *sum((["--manifest", value] for value in manifests), []),
+        ]
+    )
+
+
 def cmd_profiles(args: argparse.Namespace) -> None:
     _build_profiles(args)
 
@@ -776,11 +818,14 @@ def cmd_train(args: argparse.Namespace) -> None:
     if len(rows) < 8 or len({label for label, _, _ in rows}) < 2:
         raise SystemExit("Insufficient web-forensics fusion training rows.")
     cache_path = project_path(args.feature_cache)
-    feature_names = (
-        FEATURE_NAMES_WITH_TRANSITION
-        if args.transition_features
-        else FEATURE_NAMES
-    )
+    if args.expression_only:
+        feature_names = EXPRESSION_ONLY_FEATURE_NAMES
+    else:
+        feature_names = (
+            FEATURE_NAMES_WITH_TRANSITION
+            if args.transition_features
+            else FEATURE_NAMES
+        )
     cached: dict[str, np.ndarray] = {}
     if cache_path.is_file():
         with np.load(str(cache_path), allow_pickle=True) as payload:
@@ -850,33 +895,40 @@ def cmd_rank_policy(args: argparse.Namespace) -> None:
     ranking_root = getattr(args, "ranking_root", None)
     if not ranking_root:
         return
-    _run(
-        [
-            sys.executable,
-            str(
-                PROJECT_ROOT
-                / "scripts"
-                / "web_forensics"
-                / "train_wangxing_weighted_policy.py"
-            ),
-            "--input-root",
-            ranking_root,
-            "--forensics-profile",
-            args.forensics_profile,
-            "--source-profile",
-            args.source_profile,
-            "--cache-root",
-            args.ranking_cache_root,
-            "--output-root",
-            args.ranking_output_root,
-            "--policy-output",
-            args.weighted_policy,
-            "--forensics-device",
-            args.device,
-            "--wangxing-device",
-            args.wangxing_device,
-        ]
-    )
+    command = [
+        sys.executable,
+        str(
+            PROJECT_ROOT
+            / "scripts"
+            / "web_forensics"
+            / "train_wangxing_weighted_policy.py"
+        ),
+        "--input-root",
+        ranking_root,
+        "--forensics-profile",
+        args.forensics_profile,
+        "--source-profile",
+        args.source_profile,
+        "--cache-root",
+        args.ranking_cache_root,
+        "--output-root",
+        args.ranking_output_root,
+        "--policy-output",
+        args.weighted_policy,
+        "--forensics-device",
+        args.device,
+        "--wangxing-device",
+        args.wangxing_device,
+    ]
+    print(">>", " ".join(command), flush=True)
+    completed = subprocess.run(command, cwd=PROJECT_ROOT, check=False)
+    if completed.returncode != 0:
+        print(
+            "Ranking policy was not generated; continuing with "
+            "classification evaluation.",
+            file=sys.stderr,
+            flush=True,
+        )
 
 
 def cmd_evaluate(args: argparse.Namespace) -> None:
@@ -952,13 +1004,42 @@ def cmd_evaluate(args: argparse.Namespace) -> None:
                 authenticity_policy["policy"],
             )
             card_result["web_policy"] = policy_result
-        weighted_policy = load_policy(
-            project_path(args.weighted_policy)
-            if args.weighted_policy
-            else None
-        )
-        apply_weighted_authenticity(card_result, policy=weighted_policy)
-        weighted_authenticity = card_result.get("authenticity") or {}
+        if args.expression_only:
+            weighted_policy = {
+                "generated_threshold": float(
+                    fusion.get("threshold_generated", 0.50)
+                ),
+                "weights": {
+                    "identity": 0.0,
+                    "expression": 1.0,
+                    "direction": 0.0,
+                },
+                "score_source": "expression_only_web_fusion",
+            }
+            weighted_authenticity = {
+                "\u9884\u6d4b": (
+                    "generated"
+                    if fusion["prediction"] == "generated"
+                    else "real"
+                ),
+                "\u771f\u5b9e\u6982\u7387": fusion["real_probability"],
+                "\u751f\u6210\u6982\u7387": fusion["generated_probability"],
+                "\u8bc1\u636e\u5f3a\u5ea6": fusion.get(
+                    "confidence_0_1",
+                    0.5,
+                ),
+                "\u65b9\u6cd5": (
+                    "Expression-only AU/landmark/window temporal fusion"
+                ),
+            }
+        else:
+            weighted_policy = load_policy(
+                project_path(args.weighted_policy)
+                if args.weighted_policy
+                else None
+            )
+            apply_weighted_authenticity(card_result, policy=weighted_policy)
+            weighted_authenticity = card_result.get("authenticity") or {}
         card_result["web_weighted"] = {
             "prediction": (
                 "generated"
@@ -976,6 +1057,7 @@ def cmd_evaluate(args: argparse.Namespace) -> None:
                 0.50,
             ),
             "weights": weighted_policy.get("weights"),
+            "score_source": weighted_policy.get("score_source"),
         }
         card_result.setdefault("web_card", {})[
             "optimized_forensics"
@@ -1146,6 +1228,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Add expression-transition and local face temporal features.",
     )
+    train.add_argument("--expression-only", action="store_true")
     train.set_defaults(func=cmd_train)
 
     evaluate = sub.add_parser("evaluate")
@@ -1182,6 +1265,7 @@ def build_parser() -> argparse.ArgumentParser:
         default="outputs/forensics/wangxing_authenticity_weighted_policy.json",
         help="Weighted identity/expression/direction policy.",
     )
+    evaluate.add_argument("--expression-only", action="store_true")
     evaluate.add_argument("--device", default="cuda")
     evaluate.add_argument("--wangxing-device", choices=("cpu", "cuda"), default="cuda")
     evaluate.set_defaults(func=cmd_evaluate)
@@ -1194,6 +1278,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     all_command.add_argument(
         "--profile-exclusion",
+        default="data/forensics/web_forensics_v4_profile_exclusion.json",
+    )
+    all_command.add_argument(
+        "--base-profile-exclusion",
         default="data/forensics/web_forensics_v2_profile_exclusion.json",
     )
     all_command.add_argument(
@@ -1240,6 +1328,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--weighted-policy",
         default="outputs/forensics/wangxing_authenticity_weighted_policy.json",
     )
+    all_command.add_argument("--expression-only", action="store_true")
     all_command.add_argument(
         "--ranking-root",
         default=None,
@@ -1264,6 +1353,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     def cmd_all(args: argparse.Namespace) -> None:
         cmd_prepare(args)
+        cmd_build_v4_exclusion(args)
         cmd_profiles(args)
         cmd_train(args)
         cmd_rank_policy(args)
