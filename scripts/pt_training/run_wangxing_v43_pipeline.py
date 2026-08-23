@@ -1,4 +1,4 @@
-"""One-click PT v4.2 candidate pipeline."""
+"""One-click PT v4.3 candidate pipeline."""
 
 from __future__ import annotations
 
@@ -33,45 +33,45 @@ def _safe_name(value: str) -> str:
     return value.replace("+", "x").replace(" ", "_")
 
 
-def main(argv: Sequence[str] | None = None) -> int:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Wang Xing expression-only PT v4.2 pipeline."
+        description="Wang Xing expression/face-crop PT v4.3 pipeline."
     )
     parser.add_argument(
         "--base-manifest",
         default="outputs/vedio_pred/wangxing_v3_generalization_manifest_res1k.json",
     )
     parser.add_argument(
-        "--v42-manifest",
-        default="outputs/vedio_pred/wangxing_v42_expression_generalization_manifest_res1k.json",
+        "--v43-manifest",
+        default="outputs/vedio_pred/wangxing_v43_expression_generalization_manifest_res1k.json",
     )
     parser.add_argument(
         "--augmentation-root",
-        default="data/_aug/wangxing_v42_expression_photometric",
+        default="data/_aug/wangxing_v43_expression_photometric",
     )
     parser.add_argument(
         "--cache-dir",
-        default="outputs/vedio_pred/cache_wangxing_v42_expression_res1k",
+        default="outputs/vedio_pred/cache_wangxing_v43_expression_res1k",
     )
     parser.add_argument(
         "--model-path",
-        default="outputs/vedio_pred/models/wangxing_v42_expression_res1k.pt",
+        default="outputs/vedio_pred/models/wangxing_v43_expression_res1k.pt",
     )
     parser.add_argument(
         "--train-metrics",
-        default="outputs/vedio_pred/wangxing_v42_expression_metrics_res1k.json",
+        default="outputs/vedio_pred/wangxing_v43_expression_metrics_res1k.json",
     )
     parser.add_argument(
         "--official-metrics",
-        default="outputs/forensics/wangxing_v42_expression_official_holdout_metrics.json",
+        default="outputs/forensics/wangxing_v43_expression_official_holdout_metrics.json",
     )
     parser.add_argument(
         "--test-manifest-root",
-        default="outputs/vedio_pred/wangxing_v42_expression_test_manifests",
+        default="outputs/vedio_pred/wangxing_v43_expression_test_manifests",
     )
     parser.add_argument(
         "--report",
-        default="outputs/vedio_pred/wangxing_v42_expression_pipeline_report.json",
+        default="outputs/vedio_pred/wangxing_v43_expression_pipeline_report.json",
     )
     parser.add_argument("--epochs", type=int, default=80)
     parser.add_argument("--batch-size", type=int, default=16)
@@ -79,18 +79,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--device", default="cuda")
     parser.add_argument(
-        "--evaluate-only",
-        action="store_true",
-        help="Skip preparation/training and evaluate the existing v4.2 model.",
-    )
-    parser.add_argument(
         "--test-set",
         dest="test_sets",
         nargs=2,
         action="append",
         metavar=("NAME", "FOLDER_OR_MANIFEST"),
     )
-    args = parser.parse_args(argv)
+    parser.add_argument("--evaluate-only", action="store_true")
+    return parser
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
     python = str(Path(sys.executable))
     test_specs = args.test_sets or [
         ("25+25", "data/test/single_video"),
@@ -108,11 +108,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                     generated_root=test_root,
                 ),
                 f"outputs/forensics/"
-                f"wangxing_v42_expression_{_safe_name(name)}_metrics.json",
+                f"wangxing_v43_expression_{_safe_name(name)}_metrics.json",
             )
         )
     trainer = str(
-        PROJECT_ROOT / "scripts/pt_training/train_wangxing_v42_expression.py"
+        PROJECT_ROOT / "scripts/pt_training/train_wangxing_v43_expression.py"
     )
     commands: list[tuple[str, list[str]]] = [
         (
@@ -126,7 +126,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "--manifest",
                 args.base_manifest,
                 "--output-manifest",
-                args.v42_manifest,
+                args.v43_manifest,
                 "--output-root",
                 args.augmentation_root,
                 "--max-per-class",
@@ -136,13 +136,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             ],
         ),
         (
-            "train_expression_v42",
+            "train_expression_v43",
             [
                 python,
                 trainer,
                 "train",
                 "--manifest",
-                args.v42_manifest,
+                args.v43_manifest,
                 "--cache-dir",
                 args.cache_dir,
                 "--model-path",
@@ -176,6 +176,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             ],
         ),
     ]
+    if args.evaluate_only:
+        commands = commands[2:]
     for name, manifest, output in tests:
         commands.append(
             (
@@ -193,21 +195,19 @@ def main(argv: Sequence[str] | None = None) -> int:
                 ],
             )
         )
-    if args.evaluate_only:
-        commands = commands[2:]
     report_path = project_path(args.report)
     report: dict[str, Any] = {
-        "schema_version": "wangxing_v42_expression_pipeline_report_v1",
+        "schema_version": "wangxing_v43_expression_pipeline_report_v1",
         "status": "running",
         "config": vars(args),
         "stages": [],
     }
     try:
         _write(report_path, report)
-        print(f"PT v4.2 pipeline: {len(commands)} stages", flush=True)
+        print(f"PT v4.3 pipeline: {len(commands)} stages", flush=True)
         for index, (name, command) in enumerate(commands, start=1):
             print(
-                f"[v4.2 stage {index}/{len(commands)}] START {name}",
+                f"[v4.3 stage {index}/{len(commands)}] START {name}",
                 flush=True,
             )
             started = time.monotonic()
@@ -227,7 +227,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             if result.returncode != 0:
                 raise RuntimeError(f"Stage failed: {name}")
             print(
-                f"[v4.2 stage {index}/{len(commands)}] DONE {name}",
+                f"[v4.3 stage {index}/{len(commands)}] DONE {name}",
                 flush=True,
             )
         report["status"] = "completed"
@@ -235,6 +235,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         _write(report_path, report)
         print(f"Pipeline completed. Report: {report_path}")
         return 0
+    except KeyboardInterrupt:
+        report["status"] = "cancelled"
+        report["error"] = "KeyboardInterrupt"
+        _write(report_path, report)
+        return 130
     except Exception as exc:
         report["status"] = "failed"
         report["error"] = f"{type(exc).__name__}: {exc}"

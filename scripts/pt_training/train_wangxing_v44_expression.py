@@ -1,4 +1,4 @@
-"""Train/evaluate PT v4.2 with validation-selected decision threshold."""
+"""Train/evaluate PT v4.4 monotonic expression/crop fusion."""
 
 from __future__ import annotations
 
@@ -13,21 +13,19 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from evaluator.modules.core.paths import project_path
-from wangxing_project.joint_au_pt_v42 import (
-    evaluate_holdout_v42,
-    predict_wangxing_v42,
-    train_wangxing_v42,
+from wangxing_project.joint_au_pt_v44 import (
+    evaluate_holdout_v44,
+    predict_wangxing_v44,
+    train_wangxing_v44,
 )
 
 
 def _load(path: str) -> dict[str, Any]:
-    return json.loads(
-        project_path(path).read_text(encoding="utf-8-sig")
-    )
+    return json.loads(project_path(path).read_text(encoding="utf-8-sig"))
 
 
 def cmd_train(args: argparse.Namespace) -> int:
-    result = train_wangxing_v42(
+    result = train_wangxing_v44(
         manifest=_load(args.manifest),
         cache_dir=project_path(args.cache_dir),
         model_path=project_path(args.model_path),
@@ -38,13 +36,12 @@ def cmd_train(args: argparse.Namespace) -> int:
         device=args.device,
     )
     payload = {
-        "schema_version": "wangxing_expression_authenticity_v42_metrics_v1",
+        "schema_version": "wangxing_expression_authenticity_v44_metrics_v1",
         "manifest": str(project_path(args.manifest)),
         **result,
         "architecture": (
-            "AU relation attention + temporal convolution/Transformer + "
-            "local landmark GRU + Blendshape branch with validation-selected "
-            "threshold"
+            "v4.3 expression relation/temporal head plus explicit "
+            "85% expression + 15% face-crop monotonic fusion"
         ),
         "training_labels": ["real", "seedance"],
         "test_sets_are_excluded": True,
@@ -62,11 +59,11 @@ def cmd_train(args: argparse.Namespace) -> int:
 
 
 def cmd_evaluate(args: argparse.Namespace) -> int:
-    output = project_path(args.output)
-    payload = evaluate_holdout_v42(
+    payload = evaluate_holdout_v44(
         holdout_manifest=project_path(args.holdout_manifest),
         model_path=project_path(args.model_path),
     )
+    output = project_path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(
         json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
@@ -78,7 +75,7 @@ def cmd_evaluate(args: argparse.Namespace) -> int:
 
 
 def cmd_predict(args: argparse.Namespace) -> int:
-    result = predict_wangxing_v42(
+    result = predict_wangxing_v44(
         video_path=project_path(args.video),
         au_path=project_path(args.au),
         model_path=project_path(args.model_path),
@@ -89,7 +86,7 @@ def cmd_predict(args: argparse.Namespace) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Wang Xing expression-only PT v4.2."
+        description="Wang Xing expression/crop PT v4.4."
     )
     sub = parser.add_subparsers(dest="command", required=True)
     train = sub.add_parser("train")

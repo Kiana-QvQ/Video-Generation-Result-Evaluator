@@ -62,6 +62,10 @@ from wangxing_project.temporal_expression import (
     TRANSITION_FEATURE_NAMES,
     extract_transition_features,
 )
+from wangxing_project.face_crop_temporal import (
+    CROP_SUMMARY_NAMES,
+    extract_face_crop_temporal_features,
+)
 
 FEATURE_NAMES = (
     "wx_real_probability_0_1",
@@ -156,6 +160,9 @@ EXPRESSION_ONLY_FEATURE_NAMES = (
     "facial_window_anomaly_ratio_0_1",
     "facial_window_longest_anomaly_run_0_1",
 ) + TRANSITION_FEATURE_NAMES
+EXPRESSION_FACE_CROP_FEATURE_NAMES = (
+    EXPRESSION_ONLY_FEATURE_NAMES + CROP_SUMMARY_NAMES
+)
 
 
 def _load_json(path: Path) -> dict[str, Any]:
@@ -698,6 +705,7 @@ def _feature_vector(
     feature_names: tuple[str, ...] = FEATURE_NAMES,
     transition_features: bool = False,
     expression_only: bool = False,
+    face_crop_features: bool = False,
 ) -> tuple[np.ndarray, dict[str, Any]]:
     report = analyze_forensics(
         facial_motion=au_path,
@@ -734,6 +742,17 @@ def _feature_vector(
                 video_path=video_path,
                 au_path=au_path,
             )
+        )
+    if face_crop_features:
+        _, crop_summary = extract_face_crop_temporal_features(
+            video_path,
+            au_path,
+        )
+        merged.update(
+            {
+                name: float(value)
+                for name, value in zip(CROP_SUMMARY_NAMES, crop_summary)
+            }
         )
     vector = np.asarray(
         [_finite(merged.get(name)) for name in feature_names],
@@ -835,7 +854,10 @@ def _train_logistic(
     }
 
 
-def _predict_fusion(vector: np.ndarray, head: dict[str, Any]) -> dict[str, Any]:
+def _predict_single_head(
+    vector: np.ndarray,
+    head: dict[str, Any],
+) -> tuple[float, float]:
     mean = np.asarray(head["scaler_mean"], dtype=np.float64)
     scale = np.maximum(
         np.asarray(head["scaler_scale"], dtype=np.float64),
@@ -846,7 +868,54 @@ def _predict_fusion(vector: np.ndarray, head: dict[str, Any]) -> dict[str, Any]:
         np.dot(scaled, np.asarray(head["coef"], dtype=np.float64))
         + float(head["intercept"])
     )
-    p_gen = float(1.0 / (1.0 + math.exp(-max(-40.0, min(40.0, logit)))))
+    p_gen = float(
+        1.0 / (1.0 + math.exp(-max(-40.0, min(40.0, logit))))
+    )
+    return p_gen, logit
+
+
+def _predict_fusion(
+    vector: np.ndarray,
+    head: dict[str, Any],
+) -> dict[str, Any]:
+    if head.get("fusion_mode") == "explicit_monotonic_expression_crop":
+        names = tuple(str(name) for name in head["feature_names"])
+        expression_names = tuple(
+            str(name) for name in head["expression_head"]["feature_names"]
+        )
+        crop_names = tuple(
+            str(name) for name in head["crop_head"]["feature_names"]
+        )
+        expression_vector = vector[
+            [names.index(name) for name in expression_names]
+        ]
+        crop_vector = vector[[names.index(name) for name in crop_names]]
+        expression_gen, expression_logit = _predict_single_head(
+            expression_vector,
+            head["expression_head"],
+        )
+        crop_gen, crop_logit = _predict_single_head(
+            crop_vector,
+            head["crop_head"],
+        )
+        real_probability = (
+            0.85 * (1.0 - expression_gen)
+            + 0.15 * (1.0 - crop_gen)
+        )
+        p_gen = 1.0 - real_probability
+        threshold = float(head.get("threshold_generated", 0.5))
+        return {
+            "logit": float(0.85 * expression_logit + 0.15 * crop_logit),
+            "generated_probability": p_gen,
+            "real_probability": real_probability,
+            "threshold_generated": threshold,
+            "prediction": "generated" if p_gen >= threshold else "real",
+            "expression_real_probability": 1.0 - expression_gen,
+            "crop_real_probability": 1.0 - crop_gen,
+            "expression_weight": 0.85,
+            "crop_weight": 0.15,
+        }
+    p_gen, logit = _predict_single_head(vector, head)
     threshold = float(head["threshold_generated"])
     return {
         "logit": logit,
@@ -943,7 +1012,9 @@ def cmd_train(args: argparse.Namespace) -> None:
     if len(rows) < 8 or len({label for label, _, _ in rows}) < 2:
         raise SystemExit("Insufficient web-forensics fusion training rows.")
     cache_path = project_path(args.feature_cache)
-    if args.expression_only:
+    if args.face_crop_features:
+        feature_names = EXPRESSION_FACE_CROP_FEATURE_NAMES
+    elif args.expression_only:
         feature_names = EXPRESSION_ONLY_FEATURE_NAMES
     else:
         feature_names = (
@@ -980,6 +1051,7 @@ def cmd_train(args: argparse.Namespace) -> None:
                 feature_names=feature_names,
                 transition_features=args.transition_features,
                 expression_only=args.expression_only,
+                face_crop_features=args.face_crop_features,
             )
             cached[key] = vector
         features.append(vector)
@@ -1003,6 +1075,38 @@ def cmd_train(args: argparse.Namespace) -> None:
         seed=args.seed,
         feature_names=feature_names,
     )
+    if args.monotonic_crop:
+        expression_names = tuple(EXPRESSION_ONLY_FEATURE_NAMES)
+        crop_names = tuple(CROP_SUMMARY_NAMES)
+        expression_indexes = [
+            feature_names.index(name) for name in expression_names
+        ]
+        crop_indexes = [feature_names.index(name) for name in crop_names]
+        head = {
+            "schema_version": "web_forensics_fusion_v44",
+            "fusion_mode": "explicit_monotonic_expression_crop",
+            "feature_names": list(feature_names),
+            "expression_head": _train_logistic(
+                matrix[:, expression_indexes],
+                np.asarray(labels),
+                groups=groups,
+                seed=args.seed,
+                feature_names=expression_names,
+            ),
+            "crop_head": _train_logistic(
+                matrix[:, crop_indexes],
+                np.asarray(labels),
+                groups=groups,
+                seed=args.seed,
+                feature_names=crop_names,
+            ),
+            "expression_weight": 0.85,
+            "crop_weight": 0.15,
+            "threshold_generated": 0.50,
+            "validation_metrics": {
+                "expression_head": head["validation_metrics"],
+            },
+        }
     head.update(
         {
             "forensics_profile": str(profile_path),
@@ -1010,6 +1114,7 @@ def cmd_train(args: argparse.Namespace) -> None:
             "profile_exclusion": str(project_path(args.profile_exclusion)),
             "feature_cache": str(cache_path),
             "device": args.device,
+            "monotonic_crop": bool(args.monotonic_crop),
         }
     )
     _write_json(project_path(args.fusion_head), head)
@@ -1097,6 +1202,7 @@ def cmd_evaluate(args: argparse.Namespace) -> None:
                 for name in head_feature_names
             ),
             expression_only=args.expression_only,
+            face_crop_features=args.face_crop_features,
         )
         fusion = _predict_fusion(vector, head)
         fusion["decision"] = fusion["prediction"]
@@ -1358,6 +1464,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="Add expression-transition and local face temporal features.",
     )
     train.add_argument("--expression-only", action="store_true")
+    train.add_argument("--face-crop-features", action="store_true")
+    train.add_argument("--monotonic-crop", action="store_true")
     train.set_defaults(func=cmd_train)
 
     evaluate = sub.add_parser("evaluate")
@@ -1395,6 +1503,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="Weighted identity/expression/direction policy.",
     )
     evaluate.add_argument("--expression-only", action="store_true")
+    evaluate.add_argument("--face-crop-features", action="store_true")
+    evaluate.add_argument("--monotonic-crop", action="store_true")
     evaluate.add_argument("--device", default="cuda")
     evaluate.add_argument("--wangxing-device", choices=("cpu", "cuda"), default="cuda")
     evaluate.set_defaults(func=cmd_evaluate)
@@ -1458,6 +1568,8 @@ def build_parser() -> argparse.ArgumentParser:
         default="outputs/forensics/wangxing_authenticity_weighted_policy.json",
     )
     all_command.add_argument("--expression-only", action="store_true")
+    all_command.add_argument("--face-crop-features", action="store_true")
+    all_command.add_argument("--monotonic-crop", action="store_true")
     all_command.add_argument(
         "--ranking-root",
         default=None,
