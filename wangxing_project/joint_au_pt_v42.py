@@ -25,14 +25,12 @@ from wangxing_project.expression_sequence import (
     extract_expression_sequence_features,
 )
 from wangxing_project.joint_au_pt_v41 import (
-    _blendshape_matrix,
     _focal_bce_with_logits,
     _group_split,
     _headline_with_threshold,
     _normalize,
     _prepare_expression_data,
     _select_threshold,
-    _sequence_matrix,
     _standardize,
 )
 from wangxing_project.joint_au_pt import resolve_torch_device
@@ -269,11 +267,17 @@ def _sequence_matrix_v42(
     for index, au in enumerate(wanted, start=1):
         key = str(au)
         if key not in cached:
-            cached[key] = extract_expression_sequence_features(
-                key,
-                max_frames=SEQUENCE_MAX_FRAMES,
-                include_padding_mask=True,
-            )
+            try:
+                cached[key] = extract_expression_sequence_features(
+                    key,
+                    max_frames=SEQUENCE_MAX_FRAMES,
+                    include_padding_mask=True,
+                )
+            except Exception as exc:
+                raise RuntimeError(
+                    f"v4.2 expression sequence extraction failed for {key}: "
+                    f"{type(exc).__name__}: {exc}"
+                ) from exc
             dirty = True
         sequences.append(np.asarray(cached[key][0], dtype=np.float32))
         summaries.append(np.asarray(cached[key][1], dtype=np.float32))
@@ -293,6 +297,68 @@ def _sequence_matrix_v42(
                 )
                 dirty = False
     return np.stack(sequences), np.stack(summaries)
+
+
+def _blendshape_matrix_v42(
+    video_paths: list[str],
+    cache_dir: Path,
+) -> np.ndarray:
+    cache_path = cache_dir / "wangxing_v42_blendshape.npz"
+    legacy_cache_path = cache_dir / "wangxing_v41_blendshape.npz"
+    wanted = np.asarray(video_paths, dtype=object)
+    cached: dict[str, np.ndarray] = {}
+    source_cache_path = (
+        cache_path if cache_path.is_file() else legacy_cache_path
+    )
+    if source_cache_path.is_file():
+        try:
+            with np.load(str(source_cache_path), allow_pickle=True) as payload:
+                paths = payload["paths"].astype(object).tolist()
+                features = payload["features"].astype(np.float32)
+                if (
+                    features.ndim == 2
+                    and features.shape[1] == BLENDSHAPE_FEATURE_DIM
+                    and len(paths) == len(features)
+                ):
+                    cached = {
+                        str(path): features[index]
+                        for index, path in enumerate(paths)
+                    }
+        except (KeyError, OSError, ValueError):
+            cached = {}
+    values: list[np.ndarray] = []
+    dirty = False
+    for index, video in enumerate(wanted, start=1):
+        key = str(video)
+        if key not in cached:
+            try:
+                value = np.asarray(
+                    blendshape_temporal_vector(key),
+                    dtype=np.float32,
+                )
+            except Exception as exc:
+                raise RuntimeError(
+                    f"v4.2 Blendshape extraction failed for {key}: "
+                    f"{type(exc).__name__}: {exc}"
+                ) from exc
+            if value.shape != (BLENDSHAPE_FEATURE_DIM,):
+                raise ValueError(
+                    f"v4.2 Blendshape shape mismatch for {key}: {value.shape}"
+                )
+            cached[key] = value
+            dirty = True
+        values.append(cached[key])
+        if index == 1 or index % 10 == 0 or index == len(wanted):
+            print(f"[v4.2 blendshape] {index}/{len(wanted)}", flush=True)
+            if dirty:
+                cache_path.parent.mkdir(parents=True, exist_ok=True)
+                np.savez_compressed(
+                    str(cache_path),
+                    paths=np.asarray(list(cached), dtype=object),
+                    features=np.stack(list(cached.values())).astype(np.float32),
+                )
+                dirty = False
+    return np.stack(values).astype(np.float32)
 
 
 def _train_model(
@@ -322,16 +388,16 @@ def _train_model(
         prepared["test_aus"],
         cache_dir / "test",
     )
-    blendshape_train = _blendshape_matrix(
+    blendshape_train = _blendshape_matrix_v42(
         prepared["train_videos"],
         cache_dir,
     )
-    blendshape_test = _blendshape_matrix(
+    blendshape_test = _blendshape_matrix_v42(
         prepared["test_videos"],
         cache_dir / "test",
     )
     sequence_mean, sequence_scale = _standardize(
-        sequence_train,
+        sequence_train_raw,
         fit_idx,
         sequence=True,
     )
@@ -418,7 +484,14 @@ def _train_model(
                 blendshape,
                 return_aux=True,
             )
-            perturbed = seq + 0.01 * torch.randn_like(seq)
+            perturbed = seq.clone()
+            perturbed[:, :, :PADDING_MASK_INDEX] = (
+                perturbed[:, :, :PADDING_MASK_INDEX]
+                + 0.01
+                * torch.randn_like(
+                    perturbed[:, :, :PADDING_MASK_INDEX]
+                )
+            )
             keep = (
                 torch.rand(
                     perturbed.shape[0],
@@ -428,8 +501,11 @@ def _train_model(
                 )
                 > 0.04
             ).to(perturbed.dtype)
+            perturbed[:, :, :PADDING_MASK_INDEX] = (
+                perturbed[:, :, :PADDING_MASK_INDEX] * keep
+            )
             augmented_joint = model(
-                perturbed * keep,
+                perturbed,
                 summary,
                 blendshape,
             )

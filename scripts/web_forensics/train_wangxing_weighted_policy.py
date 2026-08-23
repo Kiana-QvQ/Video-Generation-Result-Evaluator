@@ -457,13 +457,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
     fit = _fit_weights(rows)
     rank_fit = _fit_rank_model(rows)
-    if not rank_fit["ordering_satisfied"]:
-        print(
-            "The learned pairwise ranker did not satisfy the complete "
-            "test1/test2 ordering. Policy was not written.",
-            file=sys.stderr,
-        )
-        return 2
     policy = {
         "schema_version": POLICY_SCHEMA,
         "development_only": True,
@@ -495,6 +488,15 @@ def main(argv: Sequence[str] | None = None) -> int:
             "data/test/single_video",
             "data/test/wangxing_32x32",
         ],
+        "usable_for_runtime": bool(rank_fit["ordering_satisfied"]),
+        "diagnostic_note": (
+            None
+            if rank_fit["ordering_satisfied"]
+            else (
+                "Ordering constraints were not fully satisfied. This file "
+                "is diagnostic only and must not replace the current policy."
+            )
+        ),
     }
     output = project_path(args.policy_output)
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -504,6 +506,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     print(json.dumps(policy, ensure_ascii=False, indent=2))
     print(f"Wrote {output}")
+    if not rank_fit["ordering_satisfied"]:
+        print(
+            "WARNING: policy is diagnostic only; ordering_satisfied=false.",
+            file=sys.stderr,
+        )
     return 0
 
 
