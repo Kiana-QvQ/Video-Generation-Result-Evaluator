@@ -135,7 +135,7 @@ def evaluate_set(
             v5 = cascade_score(
                 p_v3_real=1.0 - float(v3["generated_probability"]),
                 p_drive=p_drive,
-                p_drive_eff=p_drive,
+                p_drive_eff=drive_prediction.get("p_drive_eff", p_drive),
                 rank_policy=rank_policy,
             )
             labels.append(int(sample.get("label_generated", 0)))

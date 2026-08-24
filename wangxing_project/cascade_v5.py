@@ -124,6 +124,8 @@ def cascade_score(
     v3_threshold_generated: float = 0.50,
 ) -> dict[str, Any]:
     """Return a V5 result without changing the frozen V3 decision."""
+    from wangxing_project.v5_flags import v5_rank_enabled
+
     p_real = _clamp(p_v3_real)
     p_drive_value = (
         _clamp(p_drive)
@@ -148,7 +150,8 @@ def cascade_score(
         else "real"
     )
     rank_enabled = bool(
-        rank_policy
+        v5_rank_enabled()
+        and rank_policy
         and rank_policy.get("usable_for_runtime")
         and rank_policy.get("ordering_satisfied")
         and rank_score is not None

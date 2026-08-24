@@ -458,8 +458,12 @@ async function loadModels() {
     if (!response.ok) throw new Error("model endpoint unavailable");
     const payload = await response.json();
     // 模型状态区已隐藏，仅刷新王兴专项就绪状态。
+    // V5 展示默认关闭；仅当服务端显式打开 V5_DISPLAY_CASCADE 时才允许。
+    window.__WANGXING_V5_DISPLAY__ =
+      payload?.wangxing_v5_flags?.V5_DISPLAY_CASCADE === true;
     renderWangxingReadiness(payload.wangxing_au);
   } catch (error) {
+    window.__WANGXING_V5_DISPLAY__ = false;
     renderWangxingReadiness({ ready: false, note: "无法检查专项模型状态" });
   }
 }
@@ -981,6 +985,18 @@ function renderAuTemporalEvidence(au) {
 function renderWangxingResult(result) {
   if (!wangxingResult) return;
   const payload = result.wangxing_au;
+  const v5 = result.wangxing_v5 ?? payload?.wangxing_v5;
+  if (
+    window.__WANGXING_V5_DISPLAY__ === true &&
+    v5 &&
+    v5.schema_version === "wangxing_v5_result_v1" &&
+    v5.status !== "unavailable"
+  ) {
+    if (typeof renderWangxingV5Result === "function") {
+      renderWangxingV5Result(v5, payload);
+      return;
+    }
+  }
   if (!payload) {
     wangxingResult.classList.add("is-hidden");
     return;

@@ -1205,6 +1205,31 @@ def _apply_wangxing_authenticity_score(result: dict[str, Any]) -> None:
     apply_weighted_authenticity(result, policy=policy)
 
 
+def _sanitize_public_result_for_v5_flags(result: Any) -> Any:
+    """Keep the live UI on legacy Wang Xing unless V5 display is opted in.
+
+    Production jobs must not surface ``wangxing_v5`` to browsers by default.
+    Offline V5 scripts write their own output trees and are unaffected.
+    """
+    if not isinstance(result, dict):
+        return result
+    from wangxing_project.v5_flags import (
+        v5_display_cascade_enabled,
+        v5_drive_enabled,
+    )
+
+    sanitized = dict(result)
+    # Live queue never computes V5 today; still strip any imported payload.
+    if not v5_display_cascade_enabled() and not v5_drive_enabled():
+        sanitized.pop("wangxing_v5", None)
+        wangxing_au = sanitized.get("wangxing_au")
+        if isinstance(wangxing_au, dict) and "wangxing_v5" in wangxing_au:
+            wangxing_au = dict(wangxing_au)
+            wangxing_au.pop("wangxing_v5", None)
+            sanitized["wangxing_au"] = wangxing_au
+    return sanitized
+
+
 def _format_score_for_report(value: float | None) -> str:
     return "不可用" if value is None else f"{value:.4f}"
 
@@ -1249,7 +1274,9 @@ def _job_response(
     if include_result and job.get("status") == "completed":
         if result_path.is_file():
             try:
-                response["result"] = json.loads(result_path.read_text(encoding="utf-8"))
+                response["result"] = _sanitize_public_result_for_v5_flags(
+                    json.loads(result_path.read_text(encoding="utf-8"))
+                )
             except (OSError, json.JSONDecodeError):
                 response["result"] = None
     return _json_safe(response)
@@ -2338,6 +2365,8 @@ def _execute_job(job_id: str) -> None:
             expected_class = _normalize_wangxing_class(
                 str(parameters.get("wangxing_expected_class", "auto"))
             )
+            # V5.0 production rule: live queue keeps legacy wangxing_au only.
+            # Never attach wangxing_v5 here; offline scripts own that path.
             wangxing_au = _run_wangxing_au_assessment(
                 result_path=result_path,
                 reference_image_paths=reference_paths,
@@ -2347,6 +2376,7 @@ def _execute_job(job_id: str) -> None:
                 prompt_text=parameters.get("prompt_text"),
             )
             result["wangxing_au"] = wangxing_au
+            result.pop("wangxing_v5", None)
             _attach_wangxing_evidence(
                 result,
                 wangxing_au=wangxing_au,
@@ -2749,6 +2779,8 @@ def download_public_showcase_file(
 
 @app.get("/api/models")
 def models() -> dict[str, Any]:
+    from wangxing_project.v5_flags import v5_runtime_flags
+
     policy = resolve_policy("auto")
     return {
         "generated_at": datetime.now().isoformat(timespec="seconds"),
@@ -2756,6 +2788,7 @@ def models() -> dict[str, Any]:
         "recommendation": get_model_recommendation(policy.vram_gb),
         "hardware_policy": policy.to_dict(),
         "wangxing_au": _wangxing_au_status(),
+        "wangxing_v5_flags": v5_runtime_flags(),
     }
 
 
@@ -3291,6 +3324,7 @@ def evaluate(
                 prompt_text=prompt or None,
             )
             result["wangxing_au"] = wangxing_au
+            result.pop("wangxing_v5", None)
             _attach_wangxing_evidence(
                 result,
                 wangxing_au=wangxing_au,

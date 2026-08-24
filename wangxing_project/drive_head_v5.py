@@ -31,6 +31,11 @@ BLENDSHAPE_FEATURE_NAMES = tuple(
     f"blendshape_{index:03d}" for index in range(BLENDSHAPE_FEATURE_DIM)
 )
 DRIVE_FEATURE_NAMES = tuple(TRANSITION_FEATURE_NAMES)
+# Coverage proxies already present in TRANSITION_FEATURE_NAMES.
+COVERAGE_FEATURE_NAMES = (
+    "face_geometry_valid_ratio_0_1",
+    "face_detection_confidence_0_1",
+)
 
 
 def build_drive_feature_names(include_blendshape: bool = False) -> tuple[str, ...]:
@@ -41,6 +46,75 @@ def build_drive_feature_names(include_blendshape: bool = False) -> tuple[str, ..
         + BLENDSHAPE_FEATURE_NAMES
         + ("blendshape_missing_mask",)
     )
+
+
+def apply_drive_quality_gate(
+    p_drive: float | None,
+    *,
+    coverage_q: float | None,
+    q_min: float = 0.40,
+) -> tuple[float | None, dict[str, Any]]:
+    """Blend DriveHead toward neutral when face/AU coverage is weak."""
+    if p_drive is None:
+        return None, {"status": "unavailable", "p_drive_eff": None}
+    quality = _finite(coverage_q, default=0.0)
+    if quality < q_min:
+        return 0.5, {
+            "status": "unavailable",
+            "p_drive_eff": 0.5,
+            "coverage_q": quality,
+            "gate": 0.0,
+        }
+    gate = (quality - q_min) / max(1.0 - q_min, 1e-6)
+    gate = float(max(0.0, min(1.0, gate)))
+    effective = gate * float(p_drive) + (1.0 - gate) * 0.5
+    return float(effective), {
+        "status": "ok",
+        "p_drive_eff": float(effective),
+        "coverage_q": quality,
+        "gate": gate,
+    }
+
+
+def coverage_from_drive_vector(
+    vector: np.ndarray,
+    feature_names: tuple[str, ...] | list[str],
+) -> float:
+    lookup = {
+        str(name): _finite(value)
+        for name, value in zip(feature_names, vector)
+    }
+    values = [
+        lookup[name]
+        for name in COVERAGE_FEATURE_NAMES
+        if name in lookup
+    ]
+    if not values:
+        return 0.5
+    return float(sum(values) / len(values))
+
+
+def _augment_hardneg_vector(
+    vector: np.ndarray,
+    *,
+    rng: np.random.Generator,
+) -> np.ndarray:
+    """Synthesize physiologically broken motion without new videos."""
+    augmented = np.asarray(vector, dtype=np.float32).copy()
+    mode = int(rng.integers(0, 3))
+    if mode == 0:
+        # Shuffle blocks to destroy temporal phase structure in summaries.
+        perm = rng.permutation(len(augmented))
+        augmented = augmented[perm]
+    elif mode == 1:
+        # Swap early/late halves (onset/offset style inversion).
+        mid = max(1, len(augmented) // 2)
+        augmented = np.concatenate([augmented[mid:], augmented[:mid]])
+    else:
+        # Inject high-frequency noise on motion channels.
+        noise = rng.normal(0.0, 0.35, size=augmented.shape).astype(np.float32)
+        augmented = np.clip(augmented + noise, 0.0, 1.0)
+    return np.nan_to_num(augmented, nan=0.0, posinf=0.0, neginf=0.0)
 
 
 def _finite(value: Any, default: float = 0.0) -> float:
@@ -319,6 +393,33 @@ def train_drive_head(
     matrix = np.asarray(features, dtype=np.float64)
     y = np.asarray(labels, dtype=np.int32)
     group_array = np.asarray(groups)
+
+    # V5.0 hard negatives: break real-driven physiology without new footage.
+    rng = np.random.default_rng(seed)
+    hardneg_features: list[np.ndarray] = []
+    hardneg_labels: list[int] = []
+    hardneg_groups: list[str] = []
+    for vector, label, group in zip(matrix, y, group_array):
+        if int(label) != 0:
+            continue
+        for _ in range(2):
+            hardneg_features.append(_augment_hardneg_vector(vector, rng=rng))
+            hardneg_labels.append(1)
+            hardneg_groups.append(f"{group}::hardneg")
+    if hardneg_features:
+        matrix = np.concatenate(
+            [matrix, np.asarray(hardneg_features, dtype=np.float64)],
+            axis=0,
+        )
+        y = np.concatenate(
+            [y, np.asarray(hardneg_labels, dtype=np.int32)],
+            axis=0,
+        )
+        group_array = np.concatenate(
+            [group_array, np.asarray(hardneg_groups)],
+            axis=0,
+        )
+
     splitter = GroupShuffleSplit(
         n_splits=20,
         test_size=0.20,
@@ -337,15 +438,31 @@ def train_drive_head(
     scaler = StandardScaler()
     x_fit = scaler.fit_transform(matrix[fit_idx])
     x_val = scaler.transform(matrix[val_idx])
+    # Focal-like emphasis: up-weight uncertain / minority real samples.
+    class_counts = {
+        0: max(1, int((y[fit_idx] == 0).sum())),
+        1: max(1, int((y[fit_idx] == 1).sum())),
+    }
+    sample_weight = np.asarray(
+        [
+            (0.60 / class_counts[0])
+            if int(label) == 0
+            else (0.40 / class_counts[1])
+            for label in y[fit_idx]
+        ],
+        dtype=np.float64,
+    )
     model = LogisticRegression(
         C=0.5,
-        class_weight="balanced",
+        class_weight=None,
         max_iter=2000,
         random_state=seed,
     )
-    model.fit(x_fit, y[fit_idx])
+    model.fit(x_fit, y[fit_idx], sample_weight=sample_weight)
     val_probability = model.predict_proba(x_val)[:, 1]
     best = None
+    # Cost-sensitive: prefer thresholds that protect real recall.
+    real_recall_floor = 0.90
     for step in range(20, 81):
         threshold = step / 100.0
         predicted = (val_probability >= threshold).astype(np.int32)
@@ -356,7 +473,14 @@ def train_drive_head(
         ai_recall = tp / (tp + fn) if tp + fn else 0.0
         real_recall = tn / (tn + fp) if tn + fp else 0.0
         accuracy = (tp + tn) / max(len(val_idx), 1)
-        candidate = (min(ai_recall, real_recall), accuracy, threshold)
+        meets_floor = 1.0 if real_recall >= real_recall_floor else 0.0
+        candidate = (
+            meets_floor,
+            real_recall,
+            min(ai_recall, real_recall),
+            accuracy,
+            threshold,
+        )
         if best is None or candidate > best:
             best = candidate
     assert best is not None
@@ -368,10 +492,11 @@ def train_drive_head(
         "scaler_scale": scaler.scale_.astype(float).tolist(),
         "coef": model.coef_.reshape(-1).astype(float).tolist(),
         "intercept": float(model.intercept_[0]),
-        "threshold_generated": float(best[2]),
+        "threshold_generated": float(best[4]),
         "seed": int(seed),
         "train_count": int(len(fit_idx)),
         "validation_count": int(len(val_idx)),
+        "hardneg_count": int(len(hardneg_features)),
         "train_group_count": int(len(set(group_array[fit_idx]))),
         "validation_group_count": int(len(set(group_array[val_idx]))),
         "train_label_counts": {
@@ -379,8 +504,16 @@ def train_drive_head(
             "generated": int((y[fit_idx] == 1).sum()),
         },
         "validation_metrics": {
-            "min_class_recall": float(best[0]),
-            "accuracy": float(best[1]),
+            "real_recall_floor": real_recall_floor,
+            "real_recall": float(best[1]),
+            "min_class_recall": float(best[2]),
+            "accuracy": float(best[3]),
+            "meets_real_recall_floor": bool(best[0] >= 1.0),
+        },
+        "training_protocol": {
+            "hardneg": True,
+            "cost_sensitive_threshold": True,
+            "balanced_sample_weight": True,
         },
         "manifest": str(manifest_file),
         "test_sets_excluded": True,
@@ -432,8 +565,17 @@ def predict_drive_head(
     probability_generated = 1.0 / (
         1.0 + math.exp(-max(-40.0, min(40.0, logit)))
     )
-    return float(1.0 - probability_generated), {
-        "status": "ok",
-        "p_drive_real": float(1.0 - probability_generated),
+    p_drive_real = float(1.0 - probability_generated)
+    coverage_q = coverage_from_drive_vector(vector, names)
+    p_drive_eff, gate_meta = apply_drive_quality_gate(
+        p_drive_real,
+        coverage_q=coverage_q,
+    )
+    return p_drive_real, {
+        "status": str(gate_meta.get("status", "ok")),
+        "p_drive_real": p_drive_real,
         "p_drive_generated": float(probability_generated),
+        "p_drive_eff": p_drive_eff,
+        "coverage_q": coverage_q,
+        "gate": gate_meta.get("gate"),
     }
