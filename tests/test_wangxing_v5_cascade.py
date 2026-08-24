@@ -69,6 +69,7 @@ class WangxingV5CascadeTests(unittest.TestCase):
         self.assertFalse(flags["V5_DRIVE_ENABLED"])
         self.assertFalse(flags["V5_RANK_ENABLED"])
         self.assertFalse(flags["V5_DISPLAY_CASCADE"])
+        self.assertFalse(flags["V5_REALNESS_ENABLED"])
 
     def test_quality_gate_low_coverage(self) -> None:
         effective, meta = apply_drive_quality_gate(0.90, coverage_q=0.10)

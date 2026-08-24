@@ -72,7 +72,8 @@ def _safe(value: Any, default: float = 0.5) -> float:
 def _rank_metrics(rows: list[dict[str, Any]]) -> dict[str, Any]:
     by_label: dict[str, list[float]] = defaultdict(list)
     for row in rows:
-        by_label[str(row["label"])].append(float(row["score_display"]))
+        v5 = row.get("v5") or {}
+        by_label[str(row["label"])].append(float(v5["score_display"]))
     class_means = {
         label: (
             float(np.mean(by_label[label]))
@@ -94,7 +95,9 @@ def _rank_metrics(rows: list[dict[str, Any]]) -> dict[str, Any]:
             if RANK[left["label"]] <= RANK[right["label"]]:
                 continue
             pair_total += 1
-            if float(left["score_display"]) > float(right["score_display"]):
+            left_score = float((left.get("v5") or {})["score_display"])
+            right_score = float((right.get("v5") or {})["score_display"])
+            if left_score > right_score:
                 pair_correct += 1
     pairwise = pair_correct / pair_total if pair_total else 0.0
     return {

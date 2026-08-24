@@ -33,12 +33,18 @@ def v5_display_cascade_enabled() -> bool:
     return _env_flag("V5_DISPLAY_CASCADE", default=False)
 
 
+def v5_realness_enabled() -> bool:
+    """Allow the offline/publicly guarded V5.1 quality-axis mapping."""
+    return _env_flag("V5_REALNESS_ENABLED", default=False)
+
+
 def v5_runtime_flags() -> dict[str, Any]:
     return {
         "schema_version": "wangxing_v5_runtime_flags_v1",
         "V5_DRIVE_ENABLED": v5_drive_enabled(),
         "V5_RANK_ENABLED": v5_rank_enabled(),
         "V5_DISPLAY_CASCADE": v5_display_cascade_enabled(),
+        "V5_REALNESS_ENABLED": v5_realness_enabled(),
         "production_default": "legacy_wangxing_au",
         "note": (
             "Public web keeps legacy Wang Xing specialization unless an "

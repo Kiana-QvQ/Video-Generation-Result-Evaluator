@@ -194,6 +194,86 @@ def cascade_score(
     }
 
 
+def cascade_score_v51(
+    *,
+    p_v3_real: float,
+    p_drive: float | None,
+    p_drive_eff: float | None,
+    realness: dict[str, Any] | None,
+    rank_score: float | None = None,
+    rank_policy: dict[str, Any] | None = None,
+    realness_enabled: bool = True,
+    v3_threshold_generated: float = 0.50,
+    prior_conflict: bool = False,
+) -> dict[str, Any]:
+    """V5.1 quality-axis mapping with V5.0-compatible fallback."""
+    legacy = cascade_score(
+        p_v3_real=p_v3_real,
+        p_drive=p_drive,
+        p_drive_eff=p_drive_eff,
+        rank_score=rank_score,
+        rank_policy=rank_policy,
+        v3_threshold_generated=v3_threshold_generated,
+    )
+    realness = realness or {}
+    s_realness = (
+        _finite(realness.get("s_realness"))
+        if realness_enabled
+        else None
+    )
+    status = (
+        str(realness.get("realness_status", "disabled"))
+        if realness_enabled
+        else "disabled"
+    )
+    if s_realness is None:
+        legacy.update(
+            {
+                "schema_version": "wangxing_v5_1_result_v1",
+                "compatible_with": "wangxing_v5_result_v1",
+                "s_direction": _finite(realness.get("s_direction")),
+                "z_raw": _finite(realness.get("z_raw")),
+                "s_realness": None,
+                "realness_status": status,
+                "calibrator_id": realness.get("calibrator_id"),
+                "band_hint": None,
+                "prior_conflict": bool(prior_conflict),
+                "rank_reason": (
+                    "v5_0_fallback"
+                    if status in {"disabled", "unavailable"}
+                    else legacy.get("rank_reason")
+                ),
+            }
+        )
+        return legacy
+
+    s_realness = _clamp(s_realness)
+    if legacy["decision"] == "real":
+        display_score = 0.75 + 0.25 * s_realness
+        score_band = "real"
+    else:
+        display_score = 0.74 * s_realness
+        score_band = "ai_unspecified"
+    band_hint = None
+    if legacy.get("rank_enabled") and rank_score is not None:
+        band_hint = rank_band_from_score(rank_score, rank_policy)
+    return {
+        **legacy,
+        "schema_version": "wangxing_v5_1_result_v1",
+        "compatible_with": "wangxing_v5_result_v1",
+        "s_direction": _finite(realness.get("s_direction")),
+        "z_raw": _finite(realness.get("z_raw")),
+        "s_realness": s_realness,
+        "realness_status": status,
+        "calibrator_id": realness.get("calibrator_id"),
+        "score_display": _clamp(display_score),
+        "score_band": score_band,
+        "band_hint": band_hint,
+        "rank_reason": "realness_axis",
+        "prior_conflict": bool(prior_conflict),
+    }
+
+
 def build_v5_policy(
     *,
     v3_model_path: str | Path,
