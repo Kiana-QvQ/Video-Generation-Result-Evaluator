@@ -339,6 +339,16 @@ def estimate_volume_cm3():
     return (base_shell + tube_skin + cap + w_ribs + tube_webs) / 1000.0
 
 
+def add_print_edge_bevel(model):
+    bevel = model.modifiers.new("Print edge chamfers", type="BEVEL")
+    bevel.width = 0.8
+    bevel.segments = 2
+    bevel.limit_method = "ANGLE"
+    bevel.angle_limit = math.radians(38.0)
+    bevel.harden_normals = True
+    model["edge_bevel_mm"] = 0.8
+
+
 def main():
     BASE.clear_scene()
     parts = add_hollow_base_shell()
@@ -355,6 +365,7 @@ def main():
     model["estimated_dense_volume_cm3"] = round(estimate_volume_cm3(), 1)
     model["target_print_mass_g"] = 200
 
+    add_print_edge_bevel(model)
     BASE.verify_opening(model)
     BASE.add_preview_setup(model)
 
