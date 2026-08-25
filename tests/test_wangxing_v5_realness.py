@@ -18,6 +18,7 @@ from wangxing_project.realness_v5 import (
     validate_weights,
     write_calibrator,
 )
+from wangxing_project.v51_runtime import ascii_video_path
 from wangxing_project.v51_runtime import lexicographic_metrics, rank_metrics
 
 
@@ -172,6 +173,16 @@ class WangxingV51RealnessTests(unittest.TestCase):
         self.assertEqual(result["decision"], "generated")
         self.assertTrue(result["decision_invariant"])
         self.assertLess(result["score_display"], 0.75)
+
+    def test_non_ascii_media_is_staged_to_ascii_path(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "中文目录" / "中文视频.mp4"
+            source.parent.mkdir(parents=True, exist_ok=True)
+            source.write_bytes(b"test-media")
+            staged = ascii_video_path(source)
+            self.assertTrue(staged.is_file())
+            self.assertTrue(str(staged).isascii())
+            self.assertEqual(staged.read_bytes(), b"test-media")
 
     def test_v51_high_calibrated_realness_stays_below_ai_band(self) -> None:
         rows = [

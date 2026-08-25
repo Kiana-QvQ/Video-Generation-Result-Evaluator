@@ -30,7 +30,7 @@ try {
     Write-Host "[V5.2 stage 1/5] Building grouped ranking manifest..." -ForegroundColor Cyan
     & $Python $Build `
         --ppt-root "C:\Users\zhanghaotian\Desktop\ppt_video" `
-        --ltx-root "C:\Users\zhanghaotian\Desktop\LTX" `
+        --ltx-root "data\LTX" `
         --holdout-group ppt_test2 `
         --output data\ranking\wangxing_v5_2\manifest.json
     if ($LASTEXITCODE -ne 0) { throw "Manifest stage failed: $LASTEXITCODE" }

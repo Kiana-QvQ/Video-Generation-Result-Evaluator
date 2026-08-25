@@ -58,7 +58,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     parser.add_argument(
         "--ltx-root",
-        default=r"C:\Users\zhanghaotian\Desktop\LTX",
+        default="data/LTX",
     )
     parser.add_argument("--holdout-group", default="ppt_test2")
     parser.add_argument("--holdout-group-count", type=int, default=1)

@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import math
+import shutil
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +30,20 @@ from wangxing_project.realness_v5 import (
 
 ORDER = ("real", "lora", "seedance", "multiref")
 RANK = {label: index for index, label in enumerate(ORDER)}
+
+
+def ascii_video_path(video: str | Path) -> Path:
+    """Return an ASCII-path copy for Windows OpenCV/FFmpeg consumers."""
+    source = Path(video).expanduser().resolve()
+    if source.name.isascii() and str(source.parent).isascii():
+        return source
+    digest = hashlib.sha256(str(source).encode("utf-8")).hexdigest()[:24]
+    root = Path(tempfile.gettempdir()) / "wangxing_v5_ascii_media"
+    target = root / f"{digest}{source.suffix.lower() or '.mp4'}"
+    root.mkdir(parents=True, exist_ok=True)
+    if not target.is_file() or target.stat().st_size != source.stat().st_size:
+        shutil.copyfile(source, target)
+    return target
 
 
 def label_video(path: Path) -> str | None:
@@ -73,6 +90,7 @@ def extract_au_for_video(
     cache_dir: Path,
     device: str,
 ) -> Path:
+    video = ascii_video_path(video)
     return _run_extraction(
         video,
         au_output_root,
@@ -102,6 +120,8 @@ def build_feature_row(
     realness_enabled: bool = True,
     rank_policy: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    source_video = Path(video).expanduser().resolve()
+    video = ascii_video_path(source_video)
     v3 = predict_wangxing_v3(
         video_path=video,
         au_path=au_path,
@@ -175,7 +195,8 @@ def build_feature_row(
         prior_conflict=prior_conflict,
     )
     return {
-        "video": str(video),
+        "video": str(source_video),
+        "video_for_tools": str(video),
         "au": str(au_path),
         "group": group,
         "label": label,
