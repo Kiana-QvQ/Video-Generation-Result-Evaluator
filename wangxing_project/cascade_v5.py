@@ -326,8 +326,12 @@ def cascade_score_v52(
     - decision always follows frozen V3
     - real samples stay on the s_realness real band [0.75, 1]
     - AI samples stay strictly below 0.75
-    When Rank is usable, AI display may use blend / rank_in_ai_band so the
-    four-tier gaps are visible without flipping decisions.
+
+    Display gaps: once RankHead is fitted (rank_model.enabled) and
+    display_blend is blend/rank_in_ai_band, AI score_display opens the
+    four-tier bands even if holdout usable_for_runtime is still false.
+    usable_for_runtime only marks production endorsement, not whether
+    offline scores may separate.
     """
     base = cascade_score_v51(
         p_v3_real=p_v3_real,
@@ -341,28 +345,40 @@ def cascade_score_v52(
         prior_conflict=prior_conflict,
     )
     policy = rank_policy or {}
-    usable = bool(
-        rank_enabled
-        and policy.get("usable_for_runtime")
+    model_fitted = bool((policy.get("rank_model") or {}).get("enabled"))
+    runtime_usable = bool(
+        policy.get("usable_for_runtime")
         and policy.get("ordering_satisfied")
+    )
+    mode = _display_blend_mode(policy)
+    display_active = bool(
+        rank_enabled
+        and model_fitted
         and rank_score is not None
+        and mode in {"blend", "rank_in_ai_band"}
     )
     band_hint = None
-    if usable:
+    if display_active:
         from wangxing_project.rank_head_v52 import band_hint_from_rank
 
-        band_hint = band_hint_from_rank(rank_score, policy)
+        band_hint = band_hint_from_rank(
+            rank_score,
+            policy,
+            require_usable=False,
+        )
     if base["decision"] == "real":
         score_band = "real"
         display_score = base["score_display"]
         rank_reason = "realness_axis"
-    elif usable and base.get("s_realness") is not None:
+    elif display_active and base.get("s_realness") is not None:
         display_score, rank_reason = _ai_display_from_rank(
             s_realness=float(base["s_realness"]),
             rank_score=float(rank_score),
             band_hint=band_hint,
             policy=policy,
         )
+        if not runtime_usable:
+            rank_reason = f"{rank_reason}_offline"
         score_band = band_hint if band_hint is not None else "ai_unspecified"
     else:
         display_score = base["score_display"]
@@ -382,7 +398,8 @@ def cascade_score_v52(
         "score_display": _clamp(display_score),
         "s_rank": None if rank_score is None else _clamp(rank_score),
         "rank_status": "ok" if rank_score is not None else "disabled",
-        "rank_enabled": usable,
+        "rank_enabled": display_active,
+        "rank_runtime_usable": bool(display_active and runtime_usable),
         "rank_policy_id": (
             policy.get("schema_version")
             if policy
@@ -391,7 +408,7 @@ def cascade_score_v52(
         "band_hint": band_hint,
         "score_band": score_band,
         "rank_reason": rank_reason,
-        "display_blend_mode": _display_blend_mode(policy) if usable else "realness_only",
+        "display_blend_mode": mode if display_active else "realness_only",
         "prior_conflict": bool(prior_conflict),
         "group_id": group_id,
         "decision_invariant": True,

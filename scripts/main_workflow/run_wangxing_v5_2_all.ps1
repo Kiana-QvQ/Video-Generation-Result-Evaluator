@@ -96,7 +96,7 @@ try {
 
     Write-Host "[V5.2 stage 5/5] Completed. Online Web remains V3." -ForegroundColor Green
     Write-Host "Leadership brief: outputs\vedio_pred\wangxing_v5_2_results\leadership_brief.json" -ForegroundColor Yellow
-    Write-Host "Read score_display if rank_usable; else use class_mean_score_display_demo_band." -ForegroundColor Yellow
+    Write-Host "If Rank fitted: score_display opens AI bands even when usable=false." -ForegroundColor Yellow
 }
 finally {
     Pop-Location

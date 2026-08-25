@@ -382,13 +382,18 @@ def _leadership_brief(
             "demo_band_order_satisfied": demo_order_ok,
         },
         "how_to_read": {
+            "if_model_enabled": (
+                "用 class_mean_score_display（离线已开 rank_in_ai_band，"
+                "门禁不过也拉开分差；决策仍跟 V3）"
+            ),
             "if_rank_usable": (
-                "用 score_display（已开 AI 带内 rank_in_ai_band）报四档分差"
+                "usable_for_runtime=true：可写「细排门禁通过」"
             ),
             "if_rank_not_usable": (
-                "决策/质量仍看 binary + s_realness；"
-                "四档分差可暂用 class_mean_score_display_demo_band（开发演示，未过门禁）"
+                "usable_for_runtime=false：分差可见，但对外勿宣称细排已验收；"
+                "仍看 pairwise / class_ordering；demo_band 作对照"
             ),
+            "if_model_disabled": "无 Rank：score_display ≡ V5.1，分差可能仍挤",
             "expected_order": order,
         },
     }
@@ -493,8 +498,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         policy=context["rank_policy"],
         rank_usable=rank_usable,
     )
-    # Overnight / leadership default: open AI-band slots only after gates.
-    if rank_usable:
+    # Offline default: once RankHead fits, always open AI-band display so
+    # four-tier gaps are visible even if holdout usable_for_runtime=false.
+    # usable_for_runtime remains the production-endorsement bit only.
+    if model_enabled:
         validated_policy["display_blend"] = {
             "mode": "rank_in_ai_band",
             "alpha_realness": float(
@@ -503,11 +510,13 @@ def main(argv: Sequence[str] | None = None) -> int:
                     0.35,
                 )
             ),
+            "offline_unlocked_without_runtime_gate": True,
         }
     else:
         validated_policy["display_blend"] = {
             "mode": "realness_only",
             "alpha_realness": 1.0,
+            "offline_unlocked_without_runtime_gate": False,
         }
 
     # Second pass so score_display / band_hint reflect the finalized policy.

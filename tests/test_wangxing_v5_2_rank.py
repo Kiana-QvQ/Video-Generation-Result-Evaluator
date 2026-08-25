@@ -186,7 +186,7 @@ class WangxingV52RankTests(unittest.TestCase):
                 "schema_version": "wangxing_v5_2_rank_policy_v1",
                 "usable_for_runtime": False,
                 "ordering_satisfied": False,
-                "rank_model": {"enabled": True},
+                "rank_model": {"enabled": False},
             },
             rank_enabled=True,
         )
@@ -194,6 +194,55 @@ class WangxingV52RankTests(unittest.TestCase):
         self.assertAlmostEqual(v52["score_display"], v51["score_display"])
         self.assertIsNone(v52["band_hint"])
         self.assertLess(v52["score_display"], 0.75)
+
+    def test_fitted_rank_opens_display_even_when_runtime_gate_fails(self) -> None:
+        """Gate fail must not keep AI scores compressed for offline display."""
+        realness = {
+            "s_realness": 0.4,
+            "s_direction": 0.4,
+            "z_raw": 0.4,
+            "realness_status": "ok",
+        }
+        v51 = cascade_score_v51(
+            p_v3_real=0.1,
+            p_drive=0.8,
+            p_drive_eff=0.8,
+            realness=realness,
+            realness_enabled=True,
+        )
+        v52 = cascade_score_v52(
+            p_v3_real=0.1,
+            p_drive=0.8,
+            p_drive_eff=0.8,
+            realness=realness,
+            rank_score=0.99,
+            rank_policy={
+                "schema_version": "wangxing_v5_2_rank_policy_v1",
+                "usable_for_runtime": False,
+                "ordering_satisfied": False,
+                "rank_model": {"enabled": True},
+                "display_blend": {
+                    "mode": "rank_in_ai_band",
+                    "alpha_realness": 0.35,
+                },
+                "fit_metrics": {
+                    "class_mean_scores_0_1": {
+                        "lora": 0.8,
+                        "seedance": 0.5,
+                        "multiref": 0.2,
+                    }
+                },
+            },
+            rank_enabled=True,
+        )
+        self.assertEqual(v52["decision"], "generated")
+        self.assertFalse(v52["rank_runtime_usable"])
+        self.assertTrue(v52["rank_enabled"])
+        self.assertEqual(v52["band_hint"], "lora")
+        self.assertGreaterEqual(v52["score_display"], 0.50)
+        self.assertLess(v52["score_display"], 0.75)
+        self.assertGreater(v52["score_display"], v51["score_display"])
+        self.assertIn("offline", v52["rank_reason"])
 
     def test_resolve_disabled_reason_preserves_insufficient_data(self) -> None:
         from wangxing_project.rank_head_v52 import resolve_disabled_reason
@@ -310,7 +359,7 @@ class WangxingV52RankTests(unittest.TestCase):
             rank_enabled=True,
         )
         self.assertAlmostEqual(v52["score_display"], v51["score_display"])
-        self.assertEqual(v52["band_hint"], "lora")
+        self.assertIsNone(v52["band_hint"])
         self.assertLess(v52["score_display"], 0.75)
 
 if __name__ == "__main__":
