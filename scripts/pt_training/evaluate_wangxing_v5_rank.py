@@ -224,6 +224,176 @@ def _lexicographic(rows: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def _rescore_rows(
+    rows: list[dict[str, Any]],
+    policy: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
+    """Re-apply cascade after usable/display_blend are finalized."""
+    for row in rows:
+        rank_score = (row.get("v5") or {}).get("s_rank")
+        if rank_score is None:
+            rank_score, rank_status = predict_rank_score(row, policy)
+            row["rank_prediction"] = rank_status
+        row["v5"] = cascade_score_v52(
+            p_v3_real=row["v5"]["p_v3_real"],
+            p_drive=row["v5"].get("p_drive"),
+            p_drive_eff=row["v5"].get("p_drive_eff"),
+            realness=row.get("realness"),
+            rank_score=rank_score,
+            rank_policy=policy,
+            realness_enabled=True,
+            rank_enabled=True,
+            prior_conflict=bool(row.get("prior_conflict")),
+            group_id=row.get("group_id"),
+        )
+        row["decision_matches_v3"] = (
+            row["v5"]["decision"] == row["v3"]["prediction"]
+        )
+    return rows
+
+
+def _class_means(
+    rows: list[dict[str, Any]],
+    getter,
+) -> dict[str, float | None]:
+    buckets: dict[str, list[float]] = {
+        "real": [],
+        "lora": [],
+        "seedance": [],
+        "multiref": [],
+    }
+    for row in rows:
+        label = str(row.get("label") or "")
+        if label not in buckets:
+            continue
+        try:
+            value = float(getter(row))
+        except (TypeError, ValueError):
+            continue
+        buckets[label].append(value)
+    return {
+        label: (sum(values) / len(values) if values else None)
+        for label, values in buckets.items()
+    }
+
+
+def _demo_band_score(row: dict[str, Any], policy: dict[str, Any] | None) -> float | None:
+    """Development-only band score for leadership slides when Rank is fitted."""
+    from wangxing_project.cascade_v5 import DEFAULT_BANDS, _band_score
+    from wangxing_project.rank_head_v52 import band_hint_from_rank
+
+    v5 = row.get("v5") or {}
+    if v5.get("decision") == "real":
+        s_realness = (row.get("realness") or {}).get("s_realness")
+        if s_realness is None:
+            return None
+        return 0.75 + 0.25 * float(s_realness)
+    rank_score = v5.get("s_rank")
+    if rank_score is None:
+        return None
+    hint = band_hint_from_rank(
+        float(rank_score),
+        policy,
+        require_usable=False,
+    )
+    band = hint if hint in DEFAULT_BANDS else "ai_unspecified"
+    return float(_band_score(band, float(rank_score)))
+
+
+def _leadership_brief(
+    *,
+    holdout_rows: list[dict[str, Any]],
+    holdout_metrics: dict[str, Any],
+    test_payloads: dict[str, Any],
+    validated_policy: dict[str, Any],
+    binary_gates: bool,
+    rank_usable: bool,
+    model_enabled: bool,
+) -> dict[str, Any]:
+    display_means = _class_means(
+        holdout_rows,
+        lambda row: row["v5"]["score_display"],
+    )
+    realness_means = _class_means(
+        holdout_rows,
+        lambda row: (row.get("realness") or {}).get("s_realness", 0.5),
+    )
+    rank_means = _class_means(
+        holdout_rows,
+        lambda row: (row.get("v5") or {}).get("s_rank", 0.5),
+    )
+    demo_means = _class_means(
+        holdout_rows,
+        lambda row: _demo_band_score(row, validated_policy),
+    )
+    order = ["real", "lora", "seedance", "multiref"]
+    display_order_ok = all(
+        display_means.get(order[i]) is not None
+        and display_means.get(order[i + 1]) is not None
+        and float(display_means[order[i]]) > float(display_means[order[i + 1]])
+        for i in range(len(order) - 1)
+    )
+    demo_order_ok = all(
+        demo_means.get(order[i]) is not None
+        and demo_means.get(order[i + 1]) is not None
+        and float(demo_means[order[i]]) > float(demo_means[order[i + 1]])
+        for i in range(len(order) - 1)
+    )
+    binary_summary = {
+        name: {
+            "overall_accuracy": (payload.get("metrics") or {}).get(
+                "overall_accuracy"
+            ),
+            "decision_flip_count": (payload.get("metrics") or {}).get(
+                "decision_flip_count"
+            ),
+            "lexicographic_satisfied": (
+                ((payload.get("metrics") or {}).get("lexicographic") or {}).get(
+                    "lexicographic_satisfied"
+                )
+            ),
+        }
+        for name, payload in test_payloads.items()
+    }
+    return {
+        "schema_version": "wangxing_v5_2_leadership_brief_v1",
+        "goal_A_decision": "y_decision = y_v3 (frozen)",
+        "goal_B_quality": "s_realness in [0,1]; score_display maps lexicographically",
+        "display_blend_mode": (
+            (validated_policy.get("display_blend") or {}).get("mode")
+        ),
+        "rank_model_enabled": model_enabled,
+        "rank_usable_for_runtime": rank_usable,
+        "binary_gates_passed": binary_gates,
+        "binary_summary": binary_summary,
+        "holdout": {
+            "pairwise_ordering_rate": holdout_metrics.get(
+                "pairwise_ordering_rate"
+            ),
+            "class_ordering_satisfied": holdout_metrics.get(
+                "class_ordering_satisfied"
+            ),
+            "score_source": holdout_metrics.get("score_source"),
+            "class_mean_s_realness": realness_means,
+            "class_mean_s_rank": rank_means,
+            "class_mean_score_display": display_means,
+            "class_mean_score_display_demo_band": demo_means,
+            "display_order_satisfied": display_order_ok,
+            "demo_band_order_satisfied": demo_order_ok,
+        },
+        "how_to_read": {
+            "if_rank_usable": (
+                "用 score_display（已开 AI 带内 rank_in_ai_band）报四档分差"
+            ),
+            "if_rank_not_usable": (
+                "决策/质量仍看 binary + s_realness；"
+                "四档分差可暂用 class_mean_score_display_demo_band（开发演示，未过门禁）"
+            ),
+            "expected_order": order,
+        },
+    }
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Evaluate V5.2 rank policy and final binary regressions."
@@ -323,9 +493,73 @@ def main(argv: Sequence[str] | None = None) -> int:
         policy=context["rank_policy"],
         rank_usable=rank_usable,
     )
+    # Overnight / leadership default: open AI-band slots only after gates.
+    if rank_usable:
+        validated_policy["display_blend"] = {
+            "mode": "rank_in_ai_band",
+            "alpha_realness": float(
+                ((context["rank_policy"] or {}).get("display_blend") or {}).get(
+                    "alpha_realness",
+                    0.35,
+                )
+            ),
+        }
+    else:
+        validated_policy["display_blend"] = {
+            "mode": "realness_only",
+            "alpha_realness": 1.0,
+        }
+
+    # Second pass so score_display / band_hint reflect the finalized policy.
+    context["rank_policy"] = validated_policy
+    holdout_rows = _rescore_rows(holdout_rows, validated_policy)
+    for name, payload in test_payloads.items():
+        payload["rows"] = _rescore_rows(payload["rows"], validated_policy)
+        payload["metrics"] = _binary_metrics(payload["rows"])
+
+    # Re-check binary gates after display blend (decision must stay identical).
+    binary_gate_failures = []
+    for name, value in test_payloads.items():
+        metrics = value["metrics"]
+        if int(metrics.get("decision_flip_count") or 0) != 0:
+            binary_gate_failures.append(
+                f"{name} decision_flip_count="
+                f"{metrics.get('decision_flip_count')}"
+            )
+        lex = (metrics.get("lexicographic") or {}).get(
+            "lexicographic_satisfied"
+        )
+        if lex is False:
+            binary_gate_failures.append(f"{name} lexicographic violated")
+        accuracy = metrics.get("overall_accuracy")
+        floor = BINARY_ACCURACY_FLOORS.get(name)
+        if (
+            floor is not None
+            and accuracy is not None
+            and float(accuracy) + 1e-9 < float(floor)
+        ):
+            binary_gate_failures.append(
+                f"{name} accuracy {accuracy:.4f} < floor {floor:.4f}"
+            )
+    binary_gates = not binary_gate_failures
+
     validated_policy_path = output_root / "rank_policy_validated.json"
     validated_policy_path.write_text(
         json.dumps(validated_policy, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    leadership = _leadership_brief(
+        holdout_rows=holdout_rows,
+        holdout_metrics=holdout_metrics,
+        test_payloads=test_payloads,
+        validated_policy=validated_policy,
+        binary_gates=binary_gates,
+        rank_usable=rank_usable,
+        model_enabled=model_enabled,
+    )
+    leadership_path = output_root / "leadership_brief.json"
+    leadership_path.write_text(
+        json.dumps(leadership, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
     payload = {
@@ -344,8 +578,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             "rank_usable": rank_usable,
             "rank_model_enabled": model_enabled,
             "disabled_reason": validated_policy["disabled_reason"],
+            "display_blend_mode": (
+                (validated_policy.get("display_blend") or {}).get("mode")
+            ),
             "gates_passed": binary_gates,
         },
+        "leadership_brief": str(leadership_path),
         "test_training_allowed": False,
         "validated_rank_policy": str(validated_policy_path),
     }
@@ -355,6 +593,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     print(json.dumps(payload["gates"], ensure_ascii=False, indent=2))
     print(json.dumps(holdout_metrics, ensure_ascii=False, indent=2))
+    print(json.dumps(leadership, ensure_ascii=False, indent=2))
+    print(f"Leadership brief: {leadership_path}")
     print(f"All results: {output_root / 'all_results.json'}")
     if args.enforce_gates and not binary_gates:
         raise SystemExit(

@@ -274,6 +274,38 @@ def cascade_score_v51(
     }
 
 
+def _display_blend_mode(policy: dict[str, Any] | None) -> str:
+    blend = (policy or {}).get("display_blend") or {}
+    mode = str(blend.get("mode") or "realness_only").strip().lower()
+    if mode in {"blend", "rank_in_ai_band", "realness_only"}:
+        return mode
+    return "realness_only"
+
+
+def _ai_display_from_rank(
+    *,
+    s_realness: float,
+    rank_score: float,
+    band_hint: str | None,
+    policy: dict[str, Any],
+) -> tuple[float, str]:
+    """Map AI quality into the <0.75 band; never touches the V3 decision."""
+    mode = _display_blend_mode(policy)
+    blend = policy.get("display_blend") or {}
+    if mode == "rank_in_ai_band":
+        band = band_hint if band_hint in DEFAULT_BANDS else "ai_unspecified"
+        return _band_score(band, rank_score), "rank_in_ai_band"
+    if mode == "blend":
+        try:
+            alpha = float(blend.get("alpha_realness", 0.35))
+        except (TypeError, ValueError):
+            alpha = 0.35
+        alpha = max(0.0, min(1.0, alpha))
+        quality = alpha * _clamp(s_realness) + (1.0 - alpha) * _clamp(rank_score)
+        return 0.74 * _clamp(quality), "rank_blend"
+    return 0.74 * _clamp(s_realness), "realness_axis"
+
+
 def cascade_score_v52(
     *,
     p_v3_real: float,
@@ -288,7 +320,15 @@ def cascade_score_v52(
     prior_conflict: bool = False,
     group_id: str | None = None,
 ) -> dict[str, Any]:
-    """V5.2 cascade: V5.1 score plus optional AI-band rank hint."""
+    """V5.2 cascade: V5.1 base + optional AI-band rank display / hint.
+
+    Goals A/B stay intact:
+    - decision always follows frozen V3
+    - real samples stay on the s_realness real band [0.75, 1]
+    - AI samples stay strictly below 0.75
+    When Rank is usable, AI display may use blend / rank_in_ai_band so the
+    four-tier gaps are visible without flipping decisions.
+    """
     base = cascade_score_v51(
         p_v3_real=p_v3_real,
         p_drive=p_drive,
@@ -314,10 +354,24 @@ def cascade_score_v52(
         band_hint = band_hint_from_rank(rank_score, policy)
     if base["decision"] == "real":
         score_band = "real"
-    elif band_hint is not None:
-        score_band = band_hint
+        display_score = base["score_display"]
+        rank_reason = "realness_axis"
+    elif usable and base.get("s_realness") is not None:
+        display_score, rank_reason = _ai_display_from_rank(
+            s_realness=float(base["s_realness"]),
+            rank_score=float(rank_score),
+            band_hint=band_hint,
+            policy=policy,
+        )
+        score_band = band_hint if band_hint is not None else "ai_unspecified"
     else:
+        display_score = base["score_display"]
         score_band = "ai_unspecified"
+        rank_reason = (
+            "rank_policy_disabled"
+            if rank_policy
+            else "v5_1_fallback"
+        )
     return {
         **base,
         "schema_version": "wangxing_v5_2_result_v1",
@@ -325,9 +379,7 @@ def cascade_score_v52(
             "wangxing_v5_1_result_v1",
             "wangxing_v5_result_v1",
         ],
-        # Display score stays on the V5.1 realness axis (goals A/B).
-        # Rank only contributes band_hint when usable_for_runtime.
-        "score_display": base["score_display"],
+        "score_display": _clamp(display_score),
         "s_rank": None if rank_score is None else _clamp(rank_score),
         "rank_status": "ok" if rank_score is not None else "disabled",
         "rank_enabled": usable,
@@ -338,15 +390,8 @@ def cascade_score_v52(
         ),
         "band_hint": band_hint,
         "score_band": score_band,
-        "rank_reason": (
-            "rank_band_hint"
-            if usable
-            else (
-                "rank_policy_disabled"
-                if rank_policy
-                else "v5_1_fallback"
-            )
-        ),
+        "rank_reason": rank_reason,
+        "display_blend_mode": _display_blend_mode(policy) if usable else "realness_only",
         "prior_conflict": bool(prior_conflict),
         "group_id": group_id,
         "decision_invariant": True,

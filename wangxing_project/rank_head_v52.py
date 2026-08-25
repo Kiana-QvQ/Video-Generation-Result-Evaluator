@@ -286,9 +286,12 @@ def fit_rank_policy(
             "C": float(C),
             "margin": None,
         },
+        # Applied only after holdout sets usable_for_runtime=true.
+        # rank_in_ai_band maps AI samples into fixed LoRA/Seedance/multiref
+        # slots so four-tier gaps are visible while real stays on s_realness.
         "display_blend": {
-            "mode": "realness_only",
-            "alpha_realness": 1.0,
+            "mode": "rank_in_ai_band",
+            "alpha_realness": 0.35,
         },
         "fit_groups": list(fit_groups),
         "holdout_groups": list(holdout_groups),
@@ -445,11 +448,16 @@ def predict_rank_score(
 def band_hint_from_rank(
     score: float | None,
     policy: dict[str, Any] | None,
+    *,
+    require_usable: bool = True,
 ) -> str | None:
-    if score is None or not policy or not policy.get("usable_for_runtime"):
+    if score is None or not policy:
+        return None
+    if require_usable and not policy.get("usable_for_runtime"):
         return None
     means = (
         ((policy.get("fit_metrics") or {}).get("class_mean_scores_0_1"))
+        or ((policy.get("holdout_metrics") or {}).get("class_mean_scores_0_1"))
         or {}
     )
     centers = [
@@ -458,7 +466,12 @@ def band_hint_from_rank(
         if means.get(label) is not None
     ]
     if len(centers) != 3:
-        return None
+        value = float(score)
+        if value >= 2.0 / 3.0:
+            return "lora"
+        if value >= 1.0 / 3.0:
+            return "seedance"
+        return "multiref"
     value = float(score)
     if value >= (centers[0][1] + centers[1][1]) / 2.0:
         return "lora"

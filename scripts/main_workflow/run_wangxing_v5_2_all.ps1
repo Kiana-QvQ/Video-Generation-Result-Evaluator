@@ -32,7 +32,13 @@ try {
         --ppt-root "C:\Users\zhanghaotian\Desktop\ppt_video" `
         --ltx-root "data\LTX" `
         --holdout-group ppt_test2 `
-        --output data\ranking\wangxing_v5_2\manifest.json
+        --complete-from-pools `
+        --min-complete-train 5 `
+        --real-pool "data\MD_CL" `
+        --real-pool "data\video" `
+        --seedance-pool "data\WangXing_Seedance" `
+        --output data\ranking\wangxing_v5_2\manifest.json `
+        --completion-report data\ranking\wangxing_v5_2\completion_report.json
     if ($LASTEXITCODE -ne 0) { throw "Manifest stage failed: $LASTEXITCODE" }
 
     Write-Host "[V5.2 stage 2/5] Fitting linear pairwise RankHead..." -ForegroundColor Cyan
@@ -89,6 +95,8 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "Web evaluation gate failed: $LASTEXITCODE" }
 
     Write-Host "[V5.2 stage 5/5] Completed. Online Web remains V3." -ForegroundColor Green
+    Write-Host "Leadership brief: outputs\vedio_pred\wangxing_v5_2_results\leadership_brief.json" -ForegroundColor Yellow
+    Write-Host "Read score_display if rank_usable; else use class_mean_score_display_demo_band." -ForegroundColor Yellow
 }
 finally {
     Pop-Location

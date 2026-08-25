@@ -1,0 +1,5 @@
+[mcp_servers.blender_codex]
+command = "D:\\Anaconda3\\python.exe"
+args = ["tools\\blender_codex\\mcp_server.py"]
+startup_timeout_sec = 10
+tool_timeout_sec = 300
