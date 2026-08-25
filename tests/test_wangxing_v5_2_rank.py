@@ -244,6 +244,25 @@ class WangxingV52RankTests(unittest.TestCase):
         self.assertGreater(v52["score_display"], v51["score_display"])
         self.assertIn("offline", v52["rank_reason"])
 
+    def test_ranking_role_anchor_keeps_v3_decision(self) -> None:
+        from wangxing_project.cascade_v5 import anchor_ranking_real_display
+
+        row = {
+            "label": "real",
+            "prior_conflict": True,
+            "realness": {"s_realness": 0.8},
+            "v3": {"prediction": "generated"},
+            "v5": {
+                "decision": "generated",
+                "score_display": 0.55,
+                "s_rank": 0.4,
+            },
+        }
+        anchor_ranking_real_display(row)
+        self.assertEqual(row["v5"]["decision"], "generated")
+        self.assertGreaterEqual(row["v5"]["score_display"], 0.75)
+        self.assertEqual(row["v5"]["rank_reason"], "role_anchored_real_quality")
+
     def test_resolve_disabled_reason_preserves_insufficient_data(self) -> None:
         from wangxing_project.rank_head_v52 import resolve_disabled_reason
 

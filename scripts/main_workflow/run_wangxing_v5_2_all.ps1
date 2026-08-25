@@ -1,5 +1,8 @@
 $ErrorActionPreference = "Stop"
 
+# Full quality run: manifest → RankHead (weighted+C-grid) → PT gates → Web gates.
+# Does NOT skip 25+25 / 32+32. Online Web remains V3.
+
 $ProjectRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 $Python = Join-Path $ProjectRoot ".venv\Scripts\python.exe"
 $Build = Join-Path $ProjectRoot "scripts\pt_training\build_wangxing_v5_2_ranking_manifest.py"
@@ -41,7 +44,7 @@ try {
         --completion-report data\ranking\wangxing_v5_2\completion_report.json
     if ($LASTEXITCODE -ne 0) { throw "Manifest stage failed: $LASTEXITCODE" }
 
-    Write-Host "[V5.2 stage 2/5] Fitting linear pairwise RankHead..." -ForegroundColor Cyan
+    Write-Host "[V5.2 stage 2/5] Fitting weighted RankHead + C-grid..." -ForegroundColor Cyan
     & $Python $Train `
         --manifest data\ranking\wangxing_v5_2\manifest.json `
         --calibrator outputs\forensics\wangxing_v5_realness_calibrator.json `
@@ -53,12 +56,12 @@ try {
         --au-output-root outputs\forensics\cache_wangxing_v5_2\au `
         --device cuda `
         --wangxing-device cuda `
-        --C 0.5 `
+        --C 1.0 `
         --seed 42 `
         --output outputs\forensics\wangxing_v5_2_rank_policy.json
     if ($LASTEXITCODE -ne 0) { throw "Rank training stage failed: $LASTEXITCODE" }
 
-    Write-Host "[V5.2 stage 3/5] Evaluating PT holdout and binary regressions..." -ForegroundColor Cyan
+    Write-Host "[V5.2 stage 3/5] PT evaluate (holdout + 25+25 + 32+32)..." -ForegroundColor Cyan
     & $Python $Evaluate `
         --manifest data\ranking\wangxing_v5_2\manifest.json `
         --rank-policy outputs\forensics\wangxing_v5_2_rank_policy.json `
@@ -76,7 +79,7 @@ try {
         --enforce-gates
     if ($LASTEXITCODE -ne 0) { throw "PT evaluation gate failed: $LASTEXITCODE" }
 
-    Write-Host "[V5.2 stage 4/5] Running offline Web-equivalent evaluation..." -ForegroundColor Cyan
+    Write-Host "[V5.2 stage 4/5] Offline Web-equivalent evaluation..." -ForegroundColor Cyan
     & $Python $Web `
         --manifest data\ranking\wangxing_v5_2\manifest.json `
         --rank-policy outputs\vedio_pred\wangxing_v5_2_results\rank_policy_validated.json `
@@ -95,8 +98,9 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "Web evaluation gate failed: $LASTEXITCODE" }
 
     Write-Host "[V5.2 stage 5/5] Completed. Online Web remains V3." -ForegroundColor Green
-    Write-Host "Leadership brief: outputs\vedio_pred\wangxing_v5_2_results\leadership_brief.json" -ForegroundColor Yellow
-    Write-Host "If Rank fitted: score_display opens AI bands even when usable=false." -ForegroundColor Yellow
+    Write-Host "PT brief : outputs\vedio_pred\wangxing_v5_2_results\leadership_brief.json" -ForegroundColor Yellow
+    Write-Host "Web brief: outputs\forensics\wangxing_v5_2_web_results\leadership_brief.json" -ForegroundColor Yellow
+    Write-Host "Check: binary_gates_passed, display_order_satisfied, class_mean_score_display" -ForegroundColor Yellow
 }
 finally {
     Pop-Location

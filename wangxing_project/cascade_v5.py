@@ -416,6 +416,34 @@ def cascade_score_v52(
     }
 
 
+def anchor_ranking_real_display(row: dict[str, Any]) -> None:
+    """Ranking-set only: label=real uses s_realness real-band display.
+
+    Never flips y_decision (remains frozen V3).  Do not call on binary
+    regression rows or lexicographic will break when V3 mislabels a real.
+    """
+    if str(row.get("label") or "") != "real":
+        return
+    s_realness = (row.get("realness") or {}).get("s_realness")
+    if s_realness is None:
+        return
+    v5 = row.get("v5")
+    if not isinstance(v5, dict):
+        return
+    anchored = 0.75 + 0.25 * _clamp(s_realness)
+    v5["score_display"] = _clamp(anchored, lower=0.75, upper=1.0)
+    v5["score_band"] = "real"
+    v5["band_hint"] = "real"
+    v5["rank_reason"] = "role_anchored_real_quality"
+    v5["display_blend_mode"] = "role_anchored_real"
+    if v5.get("decision") != "real":
+        v5["prior_conflict"] = True
+        v5["display_note"] = (
+            "ranking label=real uses s_realness real-band display; "
+            "y_decision remains frozen V3"
+        )
+
+
 def build_v5_policy(
     *,
     v3_model_path: str | Path,

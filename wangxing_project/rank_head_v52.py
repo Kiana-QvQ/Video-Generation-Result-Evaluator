@@ -17,12 +17,13 @@ import numpy as np
 ORDER = ("real", "lora", "seedance", "multiref")
 RANK = {label: index for index, label in enumerate(ORDER)}
 RANK_SCHEMA = "wangxing_v5_2_rank_policy_v1"
+# Quality-only features: do NOT include p_v3.  V3 owns the decision bit;
+# feeding p_v3 into Rank collapses known-real clips that V3 mislabels.
 RANK_FEATURE_NAMES = (
     "p_drive_eff",
     "s_direction",
     "s_realness",
     "z_raw",
-    "p_v3_real_capped",
     "temporal_naturalness_0_1",
     "texture_stability_0_1",
     "frequency_naturalness_0_1",
@@ -33,12 +34,22 @@ FORBIDDEN_FEATURES = (
     "identity_probability_0_1",
     "expression_profile.compatibility_0_1",
     "fer_class_probability",
+    "p_v3_real",
+    "p_v3_real_capped",
 )
 DEFAULT_MIN_COMPLETE_GROUPS_FIT = 4
 DEFAULT_MIN_PAIRS_FIT = 12
 DEFAULT_MIN_COMPLETE_GROUPS_RUNTIME = 1
 DEFAULT_MIN_PAIRWISE_RUNTIME = 5.0 / 6.0
-
+DEFAULT_C_GRID = (0.25, 0.5, 1.0, 2.0, 4.0)
+PAIR_WEIGHTS = {
+    ("real", "lora"): 2.5,
+    ("real", "seedance"): 2.0,
+    ("real", "multiref"): 2.0,
+    ("lora", "seedance"): 2.0,
+    ("lora", "multiref"): 1.25,
+    ("seedance", "multiref"): 2.0,
+}
 
 def _finite(value: Any, default: float = 0.5) -> float:
     try:
@@ -60,16 +71,12 @@ def rank_feature_vector(row: dict[str, Any]) -> np.ndarray:
         .get("direction_details")
         or {}
     )
-    p_v3 = _clip((row.get("v3") or {}).get("p_real"))
-    # Cap rather than normalize so p_v3 cannot dominate the rank axis.
-    p_v3_capped = min(p_v3, 0.25)
     return np.asarray(
         [
             _clip(values.get("p_drive_eff")),
             _clip(values.get("s_direction")),
             _clip(realness.get("s_realness")),
             _clip(realness.get("z_raw")),
-            p_v3_capped,
             _clip(direction_details.get("temporal_naturalness_0_1")),
             _clip(direction_details.get("texture_stability_0_1")),
             _clip(direction_details.get("frequency_naturalness_0_1")),
@@ -77,7 +84,6 @@ def rank_feature_vector(row: dict[str, Any]) -> np.ndarray:
         ],
         dtype=np.float64,
     )
-
 
 def group_pair_rows(
     rows: Iterable[dict[str, Any]],
@@ -244,6 +250,7 @@ def fit_rank_policy(
     holdout_groups: list[str],
     seed: int = 42,
     C: float = 0.5,
+    C_grid: tuple[float, ...] | list[float] | None = None,
     min_complete_groups_fit: int = DEFAULT_MIN_COMPLETE_GROUPS_FIT,
     min_pairs_fit: int = DEFAULT_MIN_PAIRS_FIT,
     min_complete_groups_runtime: int = DEFAULT_MIN_COMPLETE_GROUPS_RUNTIME,
@@ -280,18 +287,16 @@ def fit_rank_policy(
         "scaler": {"mean": [], "std": []},
         "rank_model": {
             "enabled": False,
-            "type": "logistic_pairwise",
+            "type": "logistic_pairwise_weighted",
             "coef": [],
             "intercept": 0.0,
             "C": float(C),
             "margin": None,
         },
-        # Applied only after holdout sets usable_for_runtime=true.
-        # rank_in_ai_band maps AI samples into fixed LoRA/Seedance/multiref
-        # slots so four-tier gaps are visible while real stays on s_realness.
         "display_blend": {
             "mode": "rank_in_ai_band",
             "alpha_realness": 0.35,
+            "ranking_role_anchor_real": True,
         },
         "fit_groups": list(fit_groups),
         "holdout_groups": list(holdout_groups),
@@ -312,6 +317,7 @@ def fit_rank_policy(
         return base_policy
 
     from sklearn.linear_model import LogisticRegression
+
     row_matrix = np.asarray(
         [rank_feature_vector(row) for row in fit_rows],
         dtype=np.float64,
@@ -329,6 +335,18 @@ def fit_rank_policy(
         ],
         dtype=np.float64,
     )
+    pair_weights = np.asarray(
+        [
+            float(
+                PAIR_WEIGHTS.get(
+                    (str(pair["left_label"]), str(pair["right_label"])),
+                    1.0,
+                )
+            )
+            for pair in pairs
+        ],
+        dtype=np.float64,
+    )
     pair_features = np.concatenate([differences, -differences], axis=0)
     pair_labels = np.concatenate(
         [
@@ -336,31 +354,67 @@ def fit_rank_policy(
             np.zeros(len(differences), dtype=np.int32),
         ]
     )
-    model = LogisticRegression(
-        C=float(C),
-        class_weight="balanced",
-        max_iter=2000,
-        random_state=seed,
-    )
-    model.fit(pair_features, pair_labels)
-    coef = model.coef_.reshape(-1)
-    intercept = float(model.intercept_[0])
+    sample_weight = np.concatenate([pair_weights, pair_weights], axis=0)
+    candidates = list(C_grid) if C_grid is not None else list(DEFAULT_C_GRID)
+    if float(C) not in candidates:
+        candidates.append(float(C))
 
-    fit_scores = [
-        _score_vector(
-            rank_feature_vector(row),
-            mean=row_mean,
-            scale=row_scale,
-            coef=coef,
-            intercept=intercept,
+    best: dict[str, Any] | None = None
+    for candidate_c in candidates:
+        model = LogisticRegression(
+            C=float(candidate_c),
+            class_weight=None,
+            max_iter=4000,
+            random_state=seed,
         )
-        for row in fit_rows
-    ]
-    metrics = _class_order_metrics(
-        fit_rows,
-        fit_scores,
-        min_pairwise=min_pairwise_runtime,
-    )
+        model.fit(pair_features, pair_labels, sample_weight=sample_weight)
+        coef = model.coef_.reshape(-1)
+        intercept = float(model.intercept_[0])
+        fit_scores = [
+            _score_vector(
+                rank_feature_vector(row),
+                mean=row_mean,
+                scale=row_scale,
+                coef=coef,
+                intercept=intercept,
+            )
+            for row in fit_rows
+        ]
+        metrics = _class_order_metrics(
+            fit_rows,
+            fit_scores,
+            min_pairwise=min_pairwise_runtime,
+        )
+        # Prefer strict class order, then pairwise, then stronger separation.
+        means = metrics.get("class_mean_scores_0_1") or {}
+        gaps = []
+        for index in range(len(ORDER) - 1):
+            left = means.get(ORDER[index])
+            right = means.get(ORDER[index + 1])
+            if left is None or right is None:
+                gaps.append(-1.0)
+            else:
+                gaps.append(float(left) - float(right))
+        score_tuple = (
+            1 if metrics.get("class_ordering_satisfied") else 0,
+            float(metrics.get("pairwise_ordering_rate") or 0.0),
+            float(np.mean(gaps)) if gaps else -1.0,
+            -abs(float(candidate_c) - 1.0),
+        )
+        payload = {
+            "C": float(candidate_c),
+            "coef": coef,
+            "intercept": intercept,
+            "metrics": metrics,
+            "score_tuple": score_tuple,
+        }
+        if best is None or score_tuple > best["score_tuple"]:
+            best = payload
+
+    assert best is not None
+    coef = best["coef"]
+    intercept = float(best["intercept"])
+    metrics = best["metrics"]
     fit_ordering = bool(metrics["ordering_satisfied"])
     base_policy.update(
         {
@@ -370,13 +424,17 @@ def fit_rank_policy(
             },
             "rank_model": {
                 "enabled": True,
-                "type": "logistic_pairwise",
+                "type": "logistic_pairwise_weighted",
                 "coef": coef.astype(float).tolist(),
                 "intercept": intercept,
-                "C": float(C),
+                "C": float(best["C"]),
+                "C_grid": [float(value) for value in candidates],
                 "margin": None,
+                "pair_weights": {
+                    f"{left}>{right}": weight
+                    for (left, right), weight in PAIR_WEIGHTS.items()
+                },
             },
-            # usable_for_runtime stays False until holdout validation.
             "ordering_satisfied": False,
             "fit_ordering_satisfied": fit_ordering,
             "class_ordering_satisfied": metrics[

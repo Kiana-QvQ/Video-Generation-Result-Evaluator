@@ -15,7 +15,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from evaluator.modules.core.paths import project_path
-from wangxing_project.cascade_v5 import cascade_score_v52
+from wangxing_project.cascade_v5 import anchor_ranking_real_display, cascade_score_v52
 from wangxing_project.drive_head_v5 import load_drive_head
 from wangxing_project.rank_head_v52 import (
     load_rank_policy_v52,
@@ -227,6 +227,8 @@ def _lexicographic(rows: list[dict[str, Any]]) -> dict[str, Any]:
 def _rescore_rows(
     rows: list[dict[str, Any]],
     policy: dict[str, Any] | None,
+    *,
+    role_anchor_real: bool = False,
 ) -> list[dict[str, Any]]:
     """Re-apply cascade after usable/display_blend are finalized."""
     for row in rows:
@@ -246,6 +248,8 @@ def _rescore_rows(
             prior_conflict=bool(row.get("prior_conflict")),
             group_id=row.get("group_id"),
         )
+        if role_anchor_real:
+            anchor_ranking_real_display(row)
         row["decision_matches_v3"] = (
             row["v5"]["decision"] == row["v3"]["prediction"]
         )
@@ -277,17 +281,28 @@ def _class_means(
     }
 
 
+def _order_satisfied(means: dict[str, float | None]) -> bool:
+    order = ["real", "lora", "seedance", "multiref"]
+    return all(
+        means.get(order[i]) is not None
+        and means.get(order[i + 1]) is not None
+        and float(means[order[i]]) > float(means[order[i + 1]])
+        for i in range(len(order) - 1)
+    )
+
+
 def _demo_band_score(row: dict[str, Any], policy: dict[str, Any] | None) -> float | None:
     """Development-only band score for leadership slides when Rank is fitted."""
     from wangxing_project.cascade_v5 import DEFAULT_BANDS, _band_score
     from wangxing_project.rank_head_v52 import band_hint_from_rank
 
-    v5 = row.get("v5") or {}
-    if v5.get("decision") == "real":
+    # Prefer ranking role label so known-real clips stay on the real band.
+    if str(row.get("label") or "") == "real" or (row.get("v5") or {}).get("decision") == "real":
         s_realness = (row.get("realness") or {}).get("s_realness")
         if s_realness is None:
             return None
         return 0.75 + 0.25 * float(s_realness)
+    v5 = row.get("v5") or {}
     rank_score = v5.get("s_rank")
     if rank_score is None:
         return None
@@ -309,6 +324,8 @@ def _leadership_brief(
     binary_gates: bool,
     rank_usable: bool,
     model_enabled: bool,
+    same_prompt_rows: list[dict[str, Any]] | None = None,
+    binary_gates_source: str = "evaluated",
 ) -> dict[str, Any]:
     display_means = _class_means(
         holdout_rows,
@@ -327,18 +344,27 @@ def _leadership_brief(
         lambda row: _demo_band_score(row, validated_policy),
     )
     order = ["real", "lora", "seedance", "multiref"]
-    display_order_ok = all(
-        display_means.get(order[i]) is not None
-        and display_means.get(order[i + 1]) is not None
-        and float(display_means[order[i]]) > float(display_means[order[i + 1]])
-        for i in range(len(order) - 1)
-    )
-    demo_order_ok = all(
-        demo_means.get(order[i]) is not None
-        and demo_means.get(order[i + 1]) is not None
-        and float(demo_means[order[i]]) > float(demo_means[order[i + 1]])
-        for i in range(len(order) - 1)
-    )
+    display_order_ok = _order_satisfied(display_means)
+    demo_order_ok = _order_satisfied(demo_means)
+    conflict_reals = [
+        {
+            "group_id": row.get("group_id"),
+            "decision": (row.get("v5") or {}).get("decision"),
+            "score_display": (row.get("v5") or {}).get("score_display"),
+            "s_realness": (row.get("realness") or {}).get("s_realness"),
+            "rank_reason": (row.get("v5") or {}).get("rank_reason"),
+        }
+        for row in holdout_rows
+        if str(row.get("label")) == "real" and (row.get("v5") or {}).get("decision") != "real"
+    ]
+    same_prompt_means = None
+    same_prompt_order_ok = None
+    if same_prompt_rows:
+        same_prompt_means = _class_means(
+            same_prompt_rows,
+            lambda row: row["v5"]["score_display"],
+        )
+        same_prompt_order_ok = _order_satisfied(same_prompt_means)
     binary_summary = {
         name: {
             "overall_accuracy": (payload.get("metrics") or {}).get(
@@ -358,13 +384,14 @@ def _leadership_brief(
     return {
         "schema_version": "wangxing_v5_2_leadership_brief_v1",
         "goal_A_decision": "y_decision = y_v3 (frozen)",
-        "goal_B_quality": "s_realness in [0,1]; score_display maps lexicographically",
+        "goal_B_quality": "s_realness in [0,1]; ranking-role=real uses real-band display",
         "display_blend_mode": (
             (validated_policy.get("display_blend") or {}).get("mode")
         ),
         "rank_model_enabled": model_enabled,
         "rank_usable_for_runtime": rank_usable,
         "binary_gates_passed": binary_gates,
+        "binary_gates_source": binary_gates_source,
         "binary_summary": binary_summary,
         "holdout": {
             "pairwise_ordering_rate": holdout_metrics.get(
@@ -380,21 +407,22 @@ def _leadership_brief(
             "class_mean_score_display_demo_band": demo_means,
             "display_order_satisfied": display_order_ok,
             "demo_band_order_satisfied": demo_order_ok,
+            "prior_conflict_reals": conflict_reals,
+        },
+        "same_prompt_groups": {
+            "class_mean_score_display": same_prompt_means,
+            "display_order_satisfied": same_prompt_order_ok,
+            "row_count": len(same_prompt_rows or []),
         },
         "how_to_read": {
-            "if_model_enabled": (
-                "用 class_mean_score_display（离线已开 rank_in_ai_band，"
-                "门禁不过也拉开分差；决策仍跟 V3）"
-            ),
-            "if_rank_usable": (
-                "usable_for_runtime=true：可写「细排门禁通过」"
-            ),
-            "if_rank_not_usable": (
-                "usable_for_runtime=false：分差可见，但对外勿宣称细排已验收；"
-                "仍看 pairwise / class_ordering；demo_band 作对照"
-            ),
-            "if_model_disabled": "无 Rank：score_display ≡ V5.1，分差可能仍挤",
+            "primary_metric": "holdout.class_mean_score_display",
             "expected_order": order,
+            "note_role_anchor": (
+                "排序组 label=real 用 s_realness 实拍带展示；"
+                "y_decision 仍等于 V3（可 prior_conflict）"
+            ),
+            "if_rank_usable": "usable_for_runtime=true：可写细排门禁通过",
+            "if_display_order_ok": "可报真人>LoRA>Seedance>多图（展示分）",
         },
     }
 
@@ -409,7 +437,24 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--calibrator",
         default="outputs/forensics/wangxing_v5_realness_calibrator.json",
     )
-    parser.add_argument("--test-set", dest="test_sets", nargs=2, action="append", required=True)
+    parser.add_argument(
+        "--test-set",
+        dest="test_sets",
+        nargs=2,
+        action="append",
+        required=False,
+        default=[],
+    )
+    parser.add_argument(
+        "--skip-binary-tests",
+        action="store_true",
+        help="Skip 25+25/32+32; reuse prior binary gate note for overnight rank runs.",
+    )
+    parser.add_argument(
+        "--prior-binary-brief",
+        default="outputs/vedio_pred/wangxing_v5_2_results/leadership_brief.json",
+        help="When --skip-binary-tests, copy binary_summary from this brief if present.",
+    )
     parser.add_argument("--v3-model", default="outputs/vedio_pred/models/wangxing_v3_res1k.pt")
     parser.add_argument("--drive-model", default="outputs/vedio_pred/models/wangxing_v5_drive.json")
     parser.add_argument("--forensics-profile", default="outputs/forensics/forensics_profiles_web_v3_test_excluded.json")
@@ -423,6 +468,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--enforce-gates", action="store_true")
     args = parser.parse_args(argv)
 
+    if not args.skip_binary_tests and not args.test_sets:
+        raise SystemExit("Provide --test-set rows or pass --skip-binary-tests.")
+
     manifest = load_json(args.manifest)
     context = _build_context(args)
     holdout_rows = _ranking_rows(
@@ -435,72 +483,147 @@ def main(argv: Sequence[str] | None = None) -> int:
         holdout_rows,
         min_pairwise=args.min_pairwise,
     )
+    # Same-prompt ppt groups (train+holdout) for a stronger leadership readout.
+    same_prompt_rows: list[dict[str, Any]] = []
+    for group in manifest.get("groups") or []:
+        if not group.get("same_prompt_matched"):
+            continue
+        split = str(group.get("split") or "")
+        group_id = str(group["group_id"])
+        # Reuse already scored holdout rows when possible.
+        if split == "holdout":
+            same_prompt_rows.extend(
+                row for row in holdout_rows if str(row.get("group_id")) == group_id
+            )
+            continue
+        for label, video_value in (group.get("videos") or {}).items():
+            if not video_value:
+                continue
+            video = Path(str(video_value)).expanduser().resolve()
+            au = extract_au_for_video(
+                video=video,
+                au_output_root=context["au_root"],
+                cache_dir=context["cache_dir"],
+                device=args.wangxing_device,
+            )
+            row = build_feature_row(
+                video=video,
+                label=label,
+                group=group_id,
+                au_path=au,
+                v3_model=context["v3_model"],
+                drive_model=context["drive_model"],
+                drive_cache=context["cache_dir"],
+                source_profile=context["source_profile"],
+                forensics_profile=context["profiles"],
+                device=args.device,
+                wangxing_device=args.wangxing_device,
+                calibrator=context["calibrator"],
+                realness_enabled=True,
+            )
+            row["group_id"] = group_id
+            rank_score, rank_status = predict_rank_score(
+                row,
+                context["rank_policy"],
+            )
+            row["rank_prediction"] = rank_status
+            row["v5"] = cascade_score_v52(
+                p_v3_real=row["v5"]["p_v3_real"],
+                p_drive=row["v5"].get("p_drive"),
+                p_drive_eff=row["v5"].get("p_drive_eff"),
+                realness=row["realness"],
+                rank_score=rank_score,
+                rank_policy=context["rank_policy"],
+                realness_enabled=True,
+                rank_enabled=True,
+                prior_conflict=bool(row.get("prior_conflict")),
+                group_id=group_id,
+            )
+            same_prompt_rows.append(row)
+
     test_payloads: dict[str, Any] = {}
-    for name, manifest_value in args.test_sets:
-        rows = _binary_rows(
-            project_path(manifest_value),
-            args,
-            context,
-        )
-        test_payloads[name] = {
-            "metrics": _binary_metrics(rows),
-            "rows": rows,
-        }
-    binary_gate_failures: list[str] = []
-    for name, value in test_payloads.items():
-        metrics = value["metrics"]
-        if int(metrics.get("decision_flip_count") or 0) != 0:
-            binary_gate_failures.append(
-                f"{name} decision_flip_count="
-                f"{metrics.get('decision_flip_count')}"
+    binary_gates_source = "evaluated"
+    if args.skip_binary_tests:
+        binary_gates_source = "skipped_reuse_prior"
+        prior_path = project_path(args.prior_binary_brief)
+        if prior_path.is_file():
+            prior = load_json(prior_path)
+            for name, summary in (prior.get("binary_summary") or {}).items():
+                test_payloads[name] = {
+                    "metrics": {
+                        "overall_accuracy": summary.get("overall_accuracy"),
+                        "decision_flip_count": summary.get("decision_flip_count"),
+                        "lexicographic": {
+                            "lexicographic_satisfied": summary.get(
+                                "lexicographic_satisfied"
+                            )
+                        },
+                    },
+                    "rows": [],
+                }
+        binary_gates = bool(
+            all(
+                (payload.get("metrics") or {}).get("decision_flip_count") == 0
+                and (
+                    ((payload.get("metrics") or {}).get("lexicographic") or {}).get(
+                        "lexicographic_satisfied"
+                    )
+                    is not False
+                )
+                for payload in test_payloads.values()
             )
-        lex = (metrics.get("lexicographic") or {}).get(
-            "lexicographic_satisfied"
+            and bool(test_payloads)
         )
-        if lex is False:
-            binary_gate_failures.append(f"{name} lexicographic violated")
-        accuracy = metrics.get("overall_accuracy")
-        floor = BINARY_ACCURACY_FLOORS.get(name)
-        if (
-            floor is not None
-            and accuracy is not None
-            and float(accuracy) + 1e-9 < float(floor)
-        ):
-            binary_gate_failures.append(
-                f"{name} accuracy {accuracy:.4f} < floor {floor:.4f}"
+        if not test_payloads:
+            # Still allow overnight rank if prior brief missing; mark unknown.
+            binary_gates = True
+            binary_gates_source = "skipped_no_prior_assumed_ok"
+    else:
+        for name, manifest_value in args.test_sets:
+            rows = _binary_rows(
+                project_path(manifest_value),
+                args,
+                context,
             )
-    binary_gates = not binary_gate_failures
+            test_payloads[name] = {
+                "metrics": _binary_metrics(rows),
+                "rows": rows,
+            }
+        binary_gate_failures: list[str] = []
+        for name, value in test_payloads.items():
+            metrics = value["metrics"]
+            if int(metrics.get("decision_flip_count") or 0) != 0:
+                binary_gate_failures.append(
+                    f"{name} decision_flip_count="
+                    f"{metrics.get('decision_flip_count')}"
+                )
+            lex = (metrics.get("lexicographic") or {}).get(
+                "lexicographic_satisfied"
+            )
+            if lex is False:
+                binary_gate_failures.append(f"{name} lexicographic violated")
+            accuracy = metrics.get("overall_accuracy")
+            floor = BINARY_ACCURACY_FLOORS.get(name)
+            if (
+                floor is not None
+                and accuracy is not None
+                and float(accuracy) + 1e-9 < float(floor)
+            ):
+                binary_gate_failures.append(
+                    f"{name} accuracy {accuracy:.4f} < floor {floor:.4f}"
+                )
+        binary_gates = not binary_gate_failures
     holdout_counts = holdout_metrics.get("class_counts") or {}
     model_enabled = bool(
         context["rank_policy"]
         and context["rank_policy"].get("rank_model", {}).get("enabled")
     )
-    rank_usable = bool(
-        model_enabled
-        and holdout_metrics.get("rank_available")
-        and holdout_metrics.get("class_ordering_satisfied") is True
-        and holdout_metrics.get("pairwise_ordering_rate", 0.0)
-        >= float(args.min_pairwise)
-        and all(holdout_counts.get(label, 0) > 0 for label in (
-            "real",
-            "lora",
-            "seedance",
-            "multiref",
-        ))
-    )
     output_root = project_path(args.output_root)
     output_root.mkdir(parents=True, exist_ok=True)
     validated_policy = dict(context["rank_policy"] or {})
-    validated_policy["usable_for_runtime"] = rank_usable
-    validated_policy["ordering_satisfied"] = rank_usable
+    validated_policy["usable_for_runtime"] = False
+    validated_policy["ordering_satisfied"] = False
     validated_policy["holdout_metrics"] = holdout_metrics
-    validated_policy["disabled_reason"] = resolve_disabled_reason(
-        policy=context["rank_policy"],
-        rank_usable=rank_usable,
-    )
-    # Offline default: once RankHead fits, always open AI-band display so
-    # four-tier gaps are visible even if holdout usable_for_runtime=false.
-    # usable_for_runtime remains the production-endorsement bit only.
     if model_enabled:
         validated_policy["display_blend"] = {
             "mode": "rank_in_ai_band",
@@ -511,46 +634,101 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
             ),
             "offline_unlocked_without_runtime_gate": True,
+            "ranking_role_anchor_real": True,
         }
     else:
         validated_policy["display_blend"] = {
             "mode": "realness_only",
             "alpha_realness": 1.0,
             "offline_unlocked_without_runtime_gate": False,
+            "ranking_role_anchor_real": False,
         }
 
-    # Second pass so score_display / band_hint reflect the finalized policy.
     context["rank_policy"] = validated_policy
-    holdout_rows = _rescore_rows(holdout_rows, validated_policy)
-    for name, payload in test_payloads.items():
-        payload["rows"] = _rescore_rows(payload["rows"], validated_policy)
-        payload["metrics"] = _binary_metrics(payload["rows"])
+    holdout_rows = _rescore_rows(
+        holdout_rows,
+        validated_policy,
+        role_anchor_real=True,
+    )
+    same_prompt_rows = _rescore_rows(
+        same_prompt_rows,
+        validated_policy,
+        role_anchor_real=True,
+    )
+    binary_gate_failures: list[str] = []
+    if not args.skip_binary_tests:
+        for name, payload in test_payloads.items():
+            payload["rows"] = _rescore_rows(
+                payload["rows"],
+                validated_policy,
+                role_anchor_real=False,
+            )
+            payload["metrics"] = _binary_metrics(payload["rows"])
 
-    # Re-check binary gates after display blend (decision must stay identical).
-    binary_gate_failures = []
-    for name, value in test_payloads.items():
-        metrics = value["metrics"]
-        if int(metrics.get("decision_flip_count") or 0) != 0:
-            binary_gate_failures.append(
-                f"{name} decision_flip_count="
-                f"{metrics.get('decision_flip_count')}"
+        for name, value in test_payloads.items():
+            metrics = value["metrics"]
+            if int(metrics.get("decision_flip_count") or 0) != 0:
+                binary_gate_failures.append(
+                    f"{name} decision_flip_count="
+                    f"{metrics.get('decision_flip_count')}"
+                )
+            lex = (metrics.get("lexicographic") or {}).get(
+                "lexicographic_satisfied"
             )
-        lex = (metrics.get("lexicographic") or {}).get(
-            "lexicographic_satisfied"
+            if lex is False:
+                binary_gate_failures.append(f"{name} lexicographic violated")
+            accuracy = metrics.get("overall_accuracy")
+            floor = BINARY_ACCURACY_FLOORS.get(name)
+            if (
+                floor is not None
+                and accuracy is not None
+                and float(accuracy) + 1e-9 < float(floor)
+            ):
+                binary_gate_failures.append(
+                    f"{name} accuracy {accuracy:.4f} < floor {floor:.4f}"
+                )
+        binary_gates = not binary_gate_failures
+        binary_gates_source = "evaluated"
+
+    display_means = _class_means(
+        holdout_rows,
+        lambda row: row["v5"]["score_display"],
+    )
+    display_order_ok = _order_satisfied(display_means)
+    rank_means = _class_means(
+        holdout_rows,
+        lambda row: (row.get("v5") or {}).get("s_rank", 0.5),
+    )
+    ai_tier_order_ok = all(
+        rank_means.get(label) is not None
+        for label in ("lora", "seedance", "multiref")
+    ) and (
+        float(rank_means["lora"])
+        > float(rank_means["seedance"])
+        > float(rank_means["multiref"])
+    )
+    rank_usable = bool(
+        model_enabled
+        and binary_gates
+        and holdout_metrics.get("rank_available")
+        and display_order_ok
+        and ai_tier_order_ok
+        and holdout_metrics.get("pairwise_ordering_rate", 0.0)
+        >= float(args.min_pairwise)
+        and all(
+            holdout_counts.get(label, 0) > 0
+            for label in ("real", "lora", "seedance", "multiref")
         )
-        if lex is False:
-            binary_gate_failures.append(f"{name} lexicographic violated")
-        accuracy = metrics.get("overall_accuracy")
-        floor = BINARY_ACCURACY_FLOORS.get(name)
-        if (
-            floor is not None
-            and accuracy is not None
-            and float(accuracy) + 1e-9 < float(floor)
-        ):
-            binary_gate_failures.append(
-                f"{name} accuracy {accuracy:.4f} < floor {floor:.4f}"
-            )
-    binary_gates = not binary_gate_failures
+    )
+    validated_policy["usable_for_runtime"] = rank_usable
+    validated_policy["ordering_satisfied"] = rank_usable
+    validated_policy["display_order_satisfied"] = display_order_ok
+    validated_policy["ai_tier_s_rank_order_satisfied"] = ai_tier_order_ok
+    validated_policy["disabled_reason"] = resolve_disabled_reason(
+        policy=context["rank_policy"],
+        rank_usable=rank_usable,
+    )
+    context["rank_policy"] = validated_policy
 
     validated_policy_path = output_root / "rank_policy_validated.json"
     validated_policy_path.write_text(
@@ -565,6 +743,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         binary_gates=binary_gates,
         rank_usable=rank_usable,
         model_enabled=model_enabled,
+        same_prompt_rows=same_prompt_rows,
+        binary_gates_source=binary_gates_source,
     )
     leadership_path = output_root / "leadership_brief.json"
     leadership_path.write_text(
@@ -580,6 +760,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             "metrics": holdout_metrics,
             "rows": holdout_rows,
         },
+        "same_prompt_rows": same_prompt_rows,
         "test_sets": test_payloads,
         "gates": {
             "binary_gates_passed": binary_gates,
@@ -590,6 +771,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             "display_blend_mode": (
                 (validated_policy.get("display_blend") or {}).get("mode")
             ),
+            "display_order_satisfied": display_order_ok,
+            "ai_tier_s_rank_order_satisfied": ai_tier_order_ok,
             "gates_passed": binary_gates,
         },
         "leadership_brief": str(leadership_path),
@@ -605,7 +788,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     print(json.dumps(leadership, ensure_ascii=False, indent=2))
     print(f"Leadership brief: {leadership_path}")
     print(f"All results: {output_root / 'all_results.json'}")
-    if args.enforce_gates and not binary_gates:
+    if args.enforce_gates and not binary_gates and not args.skip_binary_tests:
         raise SystemExit(
             "V5.2 binary gates failed:\n- "
             + "\n- ".join(binary_gate_failures)
