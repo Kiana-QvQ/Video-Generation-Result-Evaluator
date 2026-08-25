@@ -81,6 +81,33 @@ class WangxingV51RealnessTests(unittest.TestCase):
         self.assertEqual(result["realness_status"], "ok")
         self.assertGreaterEqual(float(result["s_realness"]), 0.0)
         self.assertLessEqual(float(result["s_realness"]), 1.0)
+        multiref = predict_realness(
+            features=_row("multiref", 0.10)["realness_features"],
+            calibrator=loaded,
+            enabled=True,
+        )
+        self.assertGreater(
+            float(result["s_realness"]),
+            float(multiref["s_realness"]),
+        )
+
+    def test_fit_isotonic_accepts_runtime_row_shape(self) -> None:
+        rows = [
+            {
+                "label": label,
+                "realness": {
+                    "features": _row(label, value)["realness_features"],
+                },
+            }
+            for label, value in (
+                ("multiref", 0.10),
+                ("seedance", 0.35),
+                ("lora", 0.65),
+                ("real", 0.95),
+            )
+        ]
+        calibrator = fit_isotonic_calibrator(rows)
+        self.assertEqual(calibrator["fit_count"], 4)
 
     def test_v51_fallback_matches_v50_display(self) -> None:
         v50 = cascade_score(

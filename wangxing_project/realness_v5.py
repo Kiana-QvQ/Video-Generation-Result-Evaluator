@@ -40,6 +40,23 @@ REALNESS_WEIGHT_CAPS = {
 }
 ORDER = ("real", "lora", "seedance", "multiref")
 RANK = {label: index for index, label in enumerate(ORDER)}
+REALNESS_RANK_DENOM = max(len(ORDER) - 1, 1)
+
+
+def _features_from_row(row: dict[str, Any]) -> dict[str, Any]:
+    features = row.get("realness_features")
+    if features is not None:
+        return features
+    realness = row.get("realness") or {}
+    features = realness.get("features")
+    if features is not None:
+        return features
+    raise KeyError("row must contain realness_features or realness.features")
+
+
+def _realness_target(label: str) -> float:
+    """Map ORDER prior to [0, 1] with higher = more real-like."""
+    return float((len(ORDER) - 1 - RANK[str(label)]) / REALNESS_RANK_DENOM)
 
 
 def _finite(value: Any, default: float | None = None) -> float | None:
@@ -261,7 +278,7 @@ def fit_isotonic_calibrator(
     z_values = np.asarray(
         [
             raw_realness(
-                row["realness_features"],
+                _features_from_row(row),
                 weights=weights,
             )
             for row in items
@@ -269,7 +286,7 @@ def fit_isotonic_calibrator(
         dtype=np.float64,
     )
     targets = np.asarray(
-        [RANK[str(row["label"])] / 3.0 for row in items],
+        [_realness_target(str(row["label"])) for row in items],
         dtype=np.float64,
     )
     order = np.argsort(z_values, kind="mergesort")

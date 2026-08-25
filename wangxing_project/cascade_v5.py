@@ -274,6 +274,86 @@ def cascade_score_v51(
     }
 
 
+def cascade_score_v52(
+    *,
+    p_v3_real: float,
+    p_drive: float | None,
+    p_drive_eff: float | None,
+    realness: dict[str, Any] | None,
+    rank_score: float | None = None,
+    rank_policy: dict[str, Any] | None = None,
+    realness_enabled: bool = True,
+    rank_enabled: bool = False,
+    v3_threshold_generated: float = 0.50,
+    prior_conflict: bool = False,
+    group_id: str | None = None,
+) -> dict[str, Any]:
+    """V5.2 cascade: V5.1 score plus optional AI-band rank hint."""
+    base = cascade_score_v51(
+        p_v3_real=p_v3_real,
+        p_drive=p_drive,
+        p_drive_eff=p_drive_eff,
+        realness=realness,
+        rank_score=None,
+        rank_policy=None,
+        realness_enabled=realness_enabled,
+        v3_threshold_generated=v3_threshold_generated,
+        prior_conflict=prior_conflict,
+    )
+    policy = rank_policy or {}
+    usable = bool(
+        rank_enabled
+        and policy.get("usable_for_runtime")
+        and policy.get("ordering_satisfied")
+        and rank_score is not None
+    )
+    band_hint = None
+    if usable:
+        from wangxing_project.rank_head_v52 import band_hint_from_rank
+
+        band_hint = band_hint_from_rank(rank_score, policy)
+    if base["decision"] == "real":
+        score_band = "real"
+    elif band_hint is not None:
+        score_band = band_hint
+    else:
+        score_band = "ai_unspecified"
+    return {
+        **base,
+        "schema_version": "wangxing_v5_2_result_v1",
+        "compatible_with": [
+            "wangxing_v5_1_result_v1",
+            "wangxing_v5_result_v1",
+        ],
+        # Display score stays on the V5.1 realness axis (goals A/B).
+        # Rank only contributes band_hint when usable_for_runtime.
+        "score_display": base["score_display"],
+        "s_rank": None if rank_score is None else _clamp(rank_score),
+        "rank_status": "ok" if rank_score is not None else "disabled",
+        "rank_enabled": usable,
+        "rank_policy_id": (
+            policy.get("schema_version")
+            if policy
+            else None
+        ),
+        "band_hint": band_hint,
+        "score_band": score_band,
+        "rank_reason": (
+            "rank_band_hint"
+            if usable
+            else (
+                "rank_policy_disabled"
+                if rank_policy
+                else "v5_1_fallback"
+            )
+        ),
+        "prior_conflict": bool(prior_conflict),
+        "group_id": group_id,
+        "decision_invariant": True,
+        "decision_source": "v3_frozen",
+    }
+
+
 def build_v5_policy(
     *,
     v3_model_path: str | Path,

@@ -11,6 +11,7 @@
 - `web_forensics/run_web_forensics_v2.py`：网页 v2 融合流程；
 - `web_forensics/run_wangxing_web_v5.ps1`：V5 网页冻结 V3 级联评测；
 - `web_forensics/train_wangxing_v5_rank.py`：排序数据门禁和 V5 policy；
+- `web_forensics/run_wangxing_web_v52.py`：V5.2 离线 Web 等价评测；
 - `web_forensics/web_authenticity_policy.py`：困难开发集真实性策略；
 - `data_build/build_web_forensics_v2_dataset.py`：构建网页测试集；
 - `data_build/build_independent_25x25_test_sets.py`：构建 25+25 测试集；
@@ -28,6 +29,10 @@
 - `pt_training/evaluate_wangxing_v5_cascade.py`：V5 冻结 V3 级联评测；
 - `pt_training/train_wangxing_v5_drive.py`：训练 V5 表情真驱动辅助头；
 - `pt_training/run_wangxing_v5_pipeline.py`：V5 PT 数据缓存、训练和测试；
+- `pt_training/build_wangxing_v5_2_ranking_manifest.py`：组包 ppt/LTX 排序数据；
+- `pt_training/train_wangxing_v5_rank.py`：V5.2 线性 pairwise RankHead；
+- `pt_training/evaluate_wangxing_v5_rank.py`：V5.2 holdout 和二分类回归；
+- `main_workflow/run_wangxing_v5_2_all.ps1`：V5.2 PT/Web 离线一键流程；
 - `pt_training/train_wangxing_joint_au_pt.py`：AU+PT v1；
 - `pt_training/train_wangxing_joint_au_pt_v2.py`：AU+PT v2；
 - `pt_training/prepare_res1k_au_pt_training.py`：准备 Res1k AU+PT 数据。
