@@ -115,14 +115,18 @@ function summarizeForensicsDecision(decision, probability) {
   const normalizedDecision = String(decision ?? "uncertain");
   const probabilityLabel = formatPercent01(probability);
   const numericProbability = Number(probability);
-  const binaryDecision =
-    normalizedDecision === "real_capture"
-      ? "real_capture"
-      : normalizedDecision === "seedance_like"
-        ? "seedance_like"
-        : Number.isFinite(numericProbability) && numericProbability >= 0.5
-          ? "real_capture"
-          : "seedance_like";
+  // Prefer the shown probability so 92% never labels as "偏向 AI 生成".
+  let binaryDecision;
+  if (Number.isFinite(numericProbability)) {
+    binaryDecision =
+      numericProbability >= 0.75 ? "real_capture" : "seedance_like";
+  } else if (normalizedDecision === "real_capture") {
+    binaryDecision = "real_capture";
+  } else if (normalizedDecision === "seedance_like") {
+    binaryDecision = "seedance_like";
+  } else {
+    binaryDecision = "seedance_like";
+  }
   const conclusion = {
     real_capture: "偏向真实拍摄",
     seedance_like: "偏向 AI 生成",

@@ -7,8 +7,9 @@ The public Wang Xing dashboard reads only two authenticity slots from
 - ``authenticity.binary_decision`` → "真实性取证" conclusion
 
 Contract:
-- conclusion always follows frozen V3 (never Rank / filename)
-- probability always follows V5.2 ``score_display`` (V3 + RankHead)
+- probability always follows V5 ``score_display`` / ``score_display_final``
+- user-facing conclusion follows the same display score (real band ≥ 0.75)
+- frozen V3 decision is kept in metadata only (``wangxing_v5_decision``)
 - web inference never infers ranking labels from filenames
 - web inference never applies role_anchor
 """
@@ -45,6 +46,8 @@ WEB_V52_SOURCE_PROFILE = (
 WEB_V52_CACHE_DIR = "outputs/forensics/cache_wangxing_v5_2_web"
 WEB_V52_NEUTRAL_LABEL = "web_neutral"
 WEB_V53_GATE_POLICY = "outputs/forensics/wangxing_v5_3_display_gate.json"
+# Align "真实性取证" with the top probability when score is in the real band.
+WEB_DISPLAY_REAL_CONCLUSION_THRESHOLD = 0.75
 
 
 def _first_existing_path(candidates: tuple[str, ...]) -> Path | None:
@@ -98,6 +101,13 @@ def _binary_decision_from_v3(decision: str) -> str:
     return "real_capture" if decision == "real" else "seedance_like"
 
 
+def _binary_decision_from_display_score(score_display: float) -> str:
+    """User-facing conclusion follows the shown probability, not V3 alone."""
+    if score_display >= WEB_DISPLAY_REAL_CONCLUSION_THRESHOLD:
+        return "real_capture"
+    return "seedance_like"
+
+
 def apply_v52_forensics_display(
     forensics: dict[str, Any],
     v5: dict[str, Any],
@@ -112,7 +122,8 @@ def apply_v52_forensics_display(
         score_display = float(score_display_value)
     except (TypeError, ValueError):
         return forensics
-    binary = _binary_decision_from_v3(decision)
+    v3_binary = _binary_decision_from_v3(decision)
+    binary = _binary_decision_from_display_score(score_display)
     conclusion = (
         "偏向真实拍摄" if binary == "real_capture" else "偏向 AI 生成"
     )
@@ -125,8 +136,6 @@ def apply_v52_forensics_display(
 
     fusion = forensics.setdefault("fusion", {})
     fusion["real_capture_likelihood_0_1"] = score_display
-    # Keep binary_decision authoritative; do not let UI fall back to
-    # probability>=0.5 when score_display is high but V3 says AI.
     fusion["decision"] = binary
     fusion["wangxing_v5_display_source"] = "score_display"
 
@@ -136,10 +145,12 @@ def apply_v52_forensics_display(
     authenticity["binary_conclusion"] = conclusion
     authenticity["calibrated_real_probability_0_1"] = score_display
     authenticity["wangxing_v5_decision"] = decision
+    authenticity["wangxing_v5_binary_decision"] = v3_binary
     authenticity["wangxing_v5_score_display_0_1"] = score_display
     authenticity["wangxing_v5_display_note"] = (
-        "顶部数值为 V5.2 质量/档位展示分（score_display）；"
-        "真实性取证结论仍跟冻结 V3 真伪决策，不跟分数阈值。"
+        "顶部数值与真实性取证结论均跟展示分（score_display）；"
+        f"展示分≥{WEB_DISPLAY_REAL_CONCLUSION_THRESHOLD:.2f} 为偏向真实拍摄。"
+        "冻结 V3 决策仅保留在 wangxing_v5_decision。"
     )
 
     forensics["wangxing_v5_display"] = {
@@ -148,8 +159,8 @@ def apply_v52_forensics_display(
         "score_display_base": v5.get("score_display_base", score_display),
         "score_display_final": v5.get("score_display_final", score_display),
         "decision": decision,
-        "decision_source": "v3_frozen",
-        "decision_matches_v3": True,
+        "decision_source": "display_score_threshold",
+        "decision_matches_v3": binary == v3_binary,
         "p_v3_real": v5.get("p_v3_real"),
         "s_realness": v5.get("s_realness"),
         "score_band": v5.get("score_band"),

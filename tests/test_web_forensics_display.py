@@ -41,6 +41,7 @@ class WebForensicsDisplayTests(unittest.TestCase):
             forensics["fusion"]["real_capture_likelihood_0_1"],
             0.643,
         )
+        # LoRA band (<0.75) stays AI conclusion; V3 kept in metadata.
         self.assertEqual(
             forensics["authenticity"]["binary_decision"],
             "seedance_like",
@@ -48,6 +49,10 @@ class WebForensicsDisplayTests(unittest.TestCase):
         self.assertEqual(
             forensics["authenticity"]["binary_conclusion"],
             "偏向 AI 生成",
+        )
+        self.assertEqual(
+            forensics["authenticity"]["wangxing_v5_decision"],
+            "generated",
         )
 
     def test_apply_real_decision_uses_real_capture(self) -> None:
@@ -71,8 +76,30 @@ class WebForensicsDisplayTests(unittest.TestCase):
             "偏向真实拍摄",
         )
 
-    def test_conclusion_not_inferred_from_high_ai_band_score(self) -> None:
-        """UI would misread 64% as real if binary_decision were missing."""
+    def test_high_display_score_shows_real_even_if_v3_says_ai(self) -> None:
+        """92% display must not contradict with AI conclusion on the page."""
+        forensics = {"scores": {}, "fusion": {}, "authenticity": {}}
+        v5 = {
+            "decision": "generated",
+            "score_display": 0.921,
+            "p_v3_real": 0.18,
+        }
+        apply_v52_forensics_display(forensics, v5)
+        self.assertEqual(
+            forensics["authenticity"]["binary_decision"],
+            "real_capture",
+        )
+        self.assertEqual(
+            forensics["authenticity"]["binary_conclusion"],
+            "偏向真实拍摄",
+        )
+        self.assertEqual(
+            forensics["authenticity"]["wangxing_v5_decision"],
+            "generated",
+        )
+        self.assertFalse(forensics["wangxing_v5_display"]["decision_matches_v3"])
+
+    def test_lora_band_score_keeps_ai_conclusion(self) -> None:
         forensics = {"scores": {}, "fusion": {}, "authenticity": {}}
         v5 = {
             "decision": "generated",
@@ -247,7 +274,7 @@ class WebForensicsDisplayTests(unittest.TestCase):
         ]
         self.assertEqual(labels, [WEB_V52_NEUTRAL_LABEL, WEB_V52_NEUTRAL_LABEL])
 
-    def test_resync_keeps_v3_conclusion_with_high_display(self) -> None:
+    def test_resync_aligns_conclusion_with_high_display(self) -> None:
         result = {
             "wangxing_au": {
                 "status": "available",
@@ -272,7 +299,11 @@ class WebForensicsDisplayTests(unittest.TestCase):
         )
         self.assertEqual(
             forensics["authenticity"]["binary_decision"],
-            "seedance_like",
+            "real_capture",
+        )
+        self.assertEqual(
+            forensics["authenticity"]["wangxing_v5_decision"],
+            "generated",
         )
         self.assertFalse(
             forensics["wangxing_v5_display"]["role_anchor_applied"]
