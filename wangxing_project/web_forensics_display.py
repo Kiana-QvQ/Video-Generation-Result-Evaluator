@@ -8,16 +8,13 @@ The public Wang Xing dashboard reads only two authenticity slots from
 
 Contract:
 - conclusion always follows frozen V3 (never Rank / filename)
-- probability always follows V5.2 ``score_display``
-- AI fine bands come from RankHead (LoRA > Seedance > 多图)
-- role_anchor (real-band display while V3 may still say AI) only when the
-  *original upload name* confidently marks a ranking-set real clip
-  (leadership/demo ordering). Unknown uploads never invent a real label.
+- probability always follows V5.2 ``score_display`` (V3 + RankHead)
+- web inference never infers ranking labels from filenames
+- web inference never applies role_anchor
 """
 
 from __future__ import annotations
 
-import re
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -39,8 +36,8 @@ WEB_V52_SOURCE_PROFILE = (
     "outputs/forensics/wangxing_source_profile_web_v3_test_excluded.json"
 )
 WEB_V52_CACHE_DIR = "outputs/forensics/cache_wangxing_v5_2_web"
-
-_TOKEN_SPLIT = re.compile(r"[^0-9a-zA-Z\u4e00-\u9fff]+")
+# Neutral AI label for single-upload web inference; never inferred from names.
+WEB_V52_NEUTRAL_LABEL = "seedance"
 
 
 def _first_existing_path(candidates: tuple[str, ...]) -> Path | None:
@@ -140,95 +137,11 @@ def apply_v52_forensics_display(
         "band_hint": v5.get("band_hint"),
         "rank_reason": v5.get("rank_reason"),
         "display_blend_mode": v5.get("display_blend_mode"),
-        "web_label_inferred": v5.get("web_label_inferred"),
-        "web_label_source": v5.get("web_label_source"),
-        "role_anchor_applied": bool(v5.get("role_anchor_applied")),
         "prior_conflict": v5.get("prior_conflict"),
+        "filename_label_inference": False,
+        "role_anchor_applied": False,
     }
     return forensics
-
-
-def _tokens(text: str) -> set[str]:
-    return {
-        token.casefold()
-        for token in _TOKEN_SPLIT.split(str(text))
-        if token
-    }
-
-
-def _infer_label_from_text(text: str) -> str | None:
-    """Map ranking-role hints from a human-facing name (not stored path).
-
-    Uses Chinese keywords and whole English tokens so ``result.mp4`` does not
-    match ``real`` via accidental substring rules.
-    """
-    raw = str(text)
-    if not raw.strip():
-        return None
-    if "真人" in raw:
-        return "real"
-    tokens = _tokens(raw)
-    if "real" in tokens or "reals" in tokens:
-        return "real"
-    if "iclora" in tokens or "lora" in tokens:
-        return "lora"
-    if "seedance" in tokens:
-        return "seedance"
-    if "多图" in raw or "multiref" in tokens:
-        return "multiref"
-    folded = raw.casefold()
-    # Keep common compound filenames used in ppt demos.
-    if "iclora" in folded or "+lora" in folded or "_lora" in folded:
-        return "lora"
-    if "seedance" in folded:
-        return "seedance"
-    if "multiref" in folded:
-        return "multiref"
-    return None
-
-
-def resolve_web_ranking_label(
-    *,
-    video_path: str | Path,
-    original_name: str | None = None,
-    job_name: str | None = None,
-) -> tuple[str, str, bool]:
-    """Return (label, source, role_anchor_allowed).
-
-    role_anchor_allowed is True only when the original upload name (preferred)
-    or job display name confidently says this is a ranking-set real clip.
-    Stored disk names like ``result.mp4`` never authorize role_anchor.
-    """
-    path = Path(video_path)
-    if original_name:
-        label = _infer_label_from_text(original_name)
-        if label is not None:
-            return label, "original_upload_name", label == "real"
-    if job_name:
-        label = _infer_label_from_text(job_name)
-        if label is not None:
-            return label, "job_name", label == "real"
-    # Stored basename may still carry ppt demo names when not rewritten.
-    # Generic upload renames like result.mp4 never match ranking keywords
-    # after token-safe inference, so they stay unknown.
-    stored = _infer_label_from_text(path.name)
-    if stored is not None:
-        return stored, "stored_path", stored == "real"
-    return "seedance", "default_unknown", False
-
-
-def _infer_web_label(
-    video_path: str | Path,
-    *,
-    original_name: str | None = None,
-    job_name: str | None = None,
-) -> str:
-    label, _source, _anchor = resolve_web_ranking_label(
-        video_path=video_path,
-        original_name=original_name,
-        job_name=job_name,
-    )
-    return label
 
 
 def infer_v52_for_web(
@@ -237,13 +150,8 @@ def infer_v52_for_web(
     au_path: str | Path,
     device: str,
     wangxing_device: str | None = None,
-    original_video_name: str | None = None,
-    job_name: str | None = None,
 ) -> dict[str, Any] | None:
-    from wangxing_project.cascade_v5 import (
-        anchor_ranking_real_display,
-        cascade_score_v52,
-    )
+    from wangxing_project.cascade_v5 import cascade_score_v52
     from wangxing_project.rank_head_v52 import predict_rank_score
     from wangxing_project.v51_runtime import build_feature_row
 
@@ -251,16 +159,9 @@ def infer_v52_for_web(
     if context is None:
         return None
     wangxing_device = wangxing_device or device
-    label, label_source, role_anchor_allowed = resolve_web_ranking_label(
-        video_path=video_path,
-        original_name=original_video_name,
-        job_name=job_name,
-    )
-    # Feature-row label only; unknown uploads stay on a neutral AI class so
-    # RankHead still runs. Never invent "real" without a confident name.
     row = build_feature_row(
         video=Path(video_path),
-        label=label,
+        label=WEB_V52_NEUTRAL_LABEL,
         group="web_single",
         au_path=Path(au_path),
         v3_model=context["v3_model"],
@@ -274,7 +175,9 @@ def infer_v52_for_web(
         realness_enabled=True,
         rank_policy=context["rank_policy"],
     )
-    row["label"] = label
+    row["label"] = WEB_V52_NEUTRAL_LABEL
+    # Web uploads have no ground-truth label; never mark prior_conflict.
+    row["prior_conflict"] = False
     rank_policy = context["rank_policy"]
     rank_score = None
     if rank_policy is not None:
@@ -288,23 +191,9 @@ def infer_v52_for_web(
         rank_policy=rank_policy,
         realness_enabled=True,
         rank_enabled=bool(rank_policy and rank_score is not None),
-        prior_conflict=bool(row.get("prior_conflict")),
+        prior_conflict=False,
         group_id="web_single",
     )
-    row["v5"] = v5
-    row["realness"] = row.get("realness") or {}
-    role_anchor_applied = False
-    # Leadership/demo ordering: known ranking-set real keeps real-band
-    # score_display even when V3 says generated. Decision stays frozen V3.
-    if role_anchor_allowed:
-        anchor_ranking_real_display(row)
-        v5 = row["v5"]
-        role_anchor_applied = (
-            str(v5.get("rank_reason") or "") == "role_anchored_real_quality"
-        )
-    v5["web_label_inferred"] = label
-    v5["web_label_source"] = label_source
-    v5["role_anchor_applied"] = role_anchor_applied
     return v5
 
 
@@ -323,8 +212,6 @@ def patch_wangxing_au_forensics_for_v52(
     au_path: str | Path,
     device: str,
     wangxing_device: str | None = None,
-    original_video_name: str | None = None,
-    job_name: str | None = None,
 ) -> dict[str, Any]:
     """Run V5.2 and patch ``payload['forensics']`` for the legacy web UI."""
     if str(payload.get("status") or "") != "available":
@@ -340,8 +227,6 @@ def patch_wangxing_au_forensics_for_v52(
             au_path=au_path,
             device=device,
             wangxing_device=wangxing_device,
-            original_video_name=original_video_name,
-            job_name=job_name,
         )
     except Exception as exc:
         payload["wangxing_v5_display_error"] = {

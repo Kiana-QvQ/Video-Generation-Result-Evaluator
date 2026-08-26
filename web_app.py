@@ -641,8 +641,6 @@ def _run_wangxing_au_assessment(
     reference_video_path: Path | None = None,
     prompt_text: str | None = None,
     driver_source: str | None = None,
-    original_video_name: str | None = None,
-    job_name: str | None = None,
 ) -> dict[str, Any]:
     # The specialization is self-contained; normal reference inputs remain
     # available to the five ordinary scores.
@@ -794,8 +792,6 @@ def _run_wangxing_au_assessment(
                 video_path=result_path,
                 au_path=generated_au_path,
                 device=au_device,
-                original_video_name=original_video_name,
-                job_name=job_name,
             )
         payload["prompt_evidence"] = {
             "provided": bool((prompt_text or "").strip()),
@@ -2396,10 +2392,6 @@ def _execute_job(job_id: str) -> None:
                 device=str(parameters.get("device", "auto")),
                 run_dir=_job_dir(job_id),
                 prompt_text=parameters.get("prompt_text"),
-                original_video_name=(
-                    (job.get("original_files") or {}).get("result_video")
-                ),
-                job_name=str(job.get("name") or ""),
             )
             result["wangxing_au"] = wangxing_au
             if isinstance(wangxing_au.get("wangxing_v5"), dict):
@@ -3353,10 +3345,6 @@ def evaluate(
                 device=device,
                 run_dir=run_dir,
                 prompt_text=prompt or None,
-                original_video_name=Path(
-                    result_video.filename or "result video"
-                ).name,
-                job_name=None,
             )
             result["wangxing_au"] = wangxing_au
             if isinstance(wangxing_au.get("wangxing_v5"), dict):

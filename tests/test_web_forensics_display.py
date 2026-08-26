@@ -1,15 +1,13 @@
 from __future__ import annotations
 
 import unittest
-from pathlib import Path
 from unittest.mock import patch
 
 from wangxing_project.web_forensics_display import (
-    _infer_label_from_text,
-    _infer_web_label,
+    WEB_V52_NEUTRAL_LABEL,
     apply_v52_forensics_display,
+    infer_v52_for_web,
     patch_wangxing_au_forensics_for_v52,
-    resolve_web_ranking_label,
     resync_result_forensics_from_v5,
     should_apply_v52_web_forensics_display,
 )
@@ -87,6 +85,16 @@ class WebForensicsDisplayTests(unittest.TestCase):
             "seedance_like",
         )
 
+    def test_display_metadata_marks_no_filename_or_role_anchor(self) -> None:
+        forensics = {"scores": {}, "fusion": {}, "authenticity": {}}
+        apply_v52_forensics_display(
+            forensics,
+            {"decision": "generated", "score_display": 0.35},
+        )
+        meta = forensics["wangxing_v5_display"]
+        self.assertFalse(meta["filename_label_inference"])
+        self.assertFalse(meta["role_anchor_applied"])
+
     def test_patch_skips_when_assets_unavailable(self) -> None:
         payload = {
             "status": "available",
@@ -139,72 +147,97 @@ class WebForensicsDisplayTests(unittest.TestCase):
         ):
             self.assertTrue(should_apply_v52_web_forensics_display())
 
-    def test_infer_label_from_original_upload_name(self) -> None:
-        stored = Path("outputs/web_runs/job123/result.mp4")
-        self.assertEqual(
-            _infer_web_label(
-                stored,
-                original_name="真人视频.mp4",
-            ),
-            "real",
-        )
-        self.assertEqual(
-            _infer_label_from_text("LTX2.3+自己iclora,文字+关键点驱动.mp4"),
-            "lora",
-        )
-        self.assertEqual(
-            _infer_label_from_text("seedance2.0.mp4"),
-            "seedance",
-        )
-        self.assertEqual(
-            _infer_label_from_text("LTX2.3+多图参考.mp4"),
-            "multiref",
-        )
-
-    def test_stored_result_name_does_not_authorize_role_anchor(self) -> None:
-        label, source, anchor = resolve_web_ranking_label(
-            video_path="outputs/web_runs/job/result.mp4",
-            original_name=None,
-            job_name=None,
-        )
-        self.assertEqual(label, "seedance")
-        self.assertEqual(source, "default_unknown")
-        self.assertFalse(anchor)
-
-    def test_original_real_name_authorizes_role_anchor(self) -> None:
-        label, source, anchor = resolve_web_ranking_label(
-            video_path="outputs/web_runs/job/result.mp4",
-            original_name="真人视频.mp4",
-            job_name=None,
-        )
-        self.assertEqual(label, "real")
-        self.assertEqual(source, "original_upload_name")
-        self.assertTrue(anchor)
-
-    def test_infer_label_from_filename(self) -> None:
-        self.assertEqual(_infer_web_label("ppt_test2/真人视频.mp4"), "real")
-        self.assertEqual(_infer_web_label("clip_iclora_v1.mp4"), "lora")
-        self.assertEqual(_infer_web_label("seedance2.mp4"), "seedance")
-        self.assertEqual(_infer_web_label("LTX_多图参考.mp4"), "multiref")
-        self.assertEqual(_infer_web_label("unknown_clip.mp4"), "seedance")
-
-    def test_role_anchor_real_keeps_v3_decision(self) -> None:
-        """Filename-real + V3=AI must still show real-band score_display."""
-        from wangxing_project.cascade_v5 import anchor_ranking_real_display
-
-        row = {
-            "label": "real",
-            "realness": {"s_realness": 0.686},
+    def test_infer_v52_uses_neutral_label_and_no_role_anchor(self) -> None:
+        fake_row = {
             "v5": {
-                "decision": "generated",
-                "score_display": 0.35,
-                "score_band": "ai_unspecified",
+                "p_v3_real": 0.18,
+                "p_drive": 0.4,
+                "p_drive_eff": 0.4,
             },
+            "realness": {"s_realness": 0.5},
+            "prior_conflict": True,
         }
-        anchor_ranking_real_display(row)
-        self.assertEqual(row["v5"]["decision"], "generated")
-        self.assertGreaterEqual(row["v5"]["score_display"], 0.75)
-        self.assertTrue(row["v5"]["prior_conflict"])
+        fake_v5 = {
+            "decision": "generated",
+            "score_display": 0.346,
+            "prior_conflict": False,
+        }
+        with patch(
+            "wangxing_project.web_forensics_display._load_web_v52_context",
+            return_value={
+                "profiles": {},
+                "source_profile": {},
+                "calibrator": {},
+                "v3_model": "model.pt",
+                "drive_model": {},
+                "cache_dir": "cache",
+                "rank_policy": {"rank_model": {"enabled": True}},
+            },
+        ), patch(
+            "wangxing_project.v51_runtime.build_feature_row",
+            return_value=fake_row.copy(),
+        ) as mock_build, patch(
+            "wangxing_project.rank_head_v52.predict_rank_score",
+            return_value=(0.24, {"status": "ok"}),
+        ), patch(
+            "wangxing_project.cascade_v5.cascade_score_v52",
+            return_value=fake_v5,
+        ) as mock_cascade, patch(
+            "wangxing_project.cascade_v5.anchor_ranking_real_display",
+        ) as mock_anchor:
+            result = infer_v52_for_web(
+                video_path="outputs/web_runs/job/result.mp4",
+                au_path="au.csv",
+                device="cpu",
+            )
+        self.assertEqual(result, fake_v5)
+        mock_build.assert_called_once()
+        build_kwargs = mock_build.call_args.kwargs
+        self.assertEqual(build_kwargs["label"], WEB_V52_NEUTRAL_LABEL)
+        mock_cascade.assert_called_once()
+        cascade_kwargs = mock_cascade.call_args.kwargs
+        self.assertFalse(cascade_kwargs["prior_conflict"])
+        mock_anchor.assert_not_called()
+
+    def test_infer_v52_same_for_real_named_and_generic_paths(self) -> None:
+        fake_row = {
+            "v5": {"p_v3_real": 0.2, "p_drive": 0.3, "p_drive_eff": 0.3},
+            "realness": {"s_realness": 0.4},
+        }
+        fake_v5 = {"decision": "generated", "score_display": 0.25}
+        with patch(
+            "wangxing_project.web_forensics_display._load_web_v52_context",
+            return_value={
+                "profiles": {},
+                "source_profile": {},
+                "calibrator": {},
+                "v3_model": "model.pt",
+                "drive_model": {},
+                "cache_dir": "cache",
+                "rank_policy": None,
+            },
+        ), patch(
+            "wangxing_project.v51_runtime.build_feature_row",
+            return_value=fake_row.copy(),
+        ) as mock_build, patch(
+            "wangxing_project.cascade_v5.cascade_score_v52",
+            return_value=fake_v5,
+        ):
+            infer_v52_for_web(
+                video_path="ppt_test2/真人视频.mp4",
+                au_path="au.csv",
+                device="cpu",
+            )
+            infer_v52_for_web(
+                video_path="outputs/web_runs/job/result.mp4",
+                au_path="au.csv",
+                device="cpu",
+            )
+        labels = [
+            call.kwargs["label"]
+            for call in mock_build.call_args_list
+        ]
+        self.assertEqual(labels, [WEB_V52_NEUTRAL_LABEL, WEB_V52_NEUTRAL_LABEL])
 
     def test_resync_keeps_v3_conclusion_with_high_display(self) -> None:
         result = {
@@ -220,7 +253,6 @@ class WebForensicsDisplayTests(unittest.TestCase):
                     "decision": "generated",
                     "score_display": 0.921,
                     "p_v3_real": 0.12,
-                    "role_anchor_applied": True,
                 },
             }
         }
@@ -233,6 +265,9 @@ class WebForensicsDisplayTests(unittest.TestCase):
         self.assertEqual(
             forensics["authenticity"]["binary_decision"],
             "seedance_like",
+        )
+        self.assertFalse(
+            forensics["wangxing_v5_display"]["role_anchor_applied"]
         )
 
 
