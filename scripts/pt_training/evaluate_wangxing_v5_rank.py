@@ -730,6 +730,26 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     context["rank_policy"] = validated_policy
 
+    # Re-score after the final holdout gate so per-video trace fields agree
+    # with the policy written to disk (especially rank_runtime_usable).
+    holdout_rows = _rescore_rows(
+        holdout_rows,
+        validated_policy,
+        role_anchor_real=True,
+    )
+    same_prompt_rows = _rescore_rows(
+        same_prompt_rows,
+        validated_policy,
+        role_anchor_real=True,
+    )
+    for payload in test_payloads.values():
+        payload["rows"] = _rescore_rows(
+            payload["rows"],
+            validated_policy,
+            role_anchor_real=False,
+        )
+        payload["metrics"] = _binary_metrics(payload["rows"])
+
     validated_policy_path = output_root / "rank_policy_validated.json"
     validated_policy_path.write_text(
         json.dumps(validated_policy, ensure_ascii=False, indent=2) + "\n",

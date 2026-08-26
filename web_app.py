@@ -54,6 +54,9 @@ from evaluator.modules.wangxing.wangxing_specialization import (
     EXPRESSION_DISPLAY_NAMES,
     SPECIALIZATION_EVALUATOR_VERSION,
 )
+from wangxing_project.web_forensics_display import (
+    patch_wangxing_au_forensics_for_v52,
+)
 from evaluator.modules.wangxing.authenticity_score import (
     apply_weighted_authenticity,
     load_policy,
@@ -772,15 +775,23 @@ def _run_wangxing_au_assessment(
             if isinstance(payload.get("evaluation_meta"), dict)
             else None
         )
+        generated_au_path = (
+            Path(str(generated_au))
+            if generated_au and Path(str(generated_au)).is_file()
+            else None
+        )
         payload["forensics"] = _run_forensics_assessment(
             result_path=result_path,
-            au_path=(
-                Path(str(generated_au))
-                if generated_au and Path(str(generated_au)).is_file()
-                else None
-            ),
+            au_path=generated_au_path,
             device=au_device,
         )
+        if generated_au_path is not None:
+            patch_wangxing_au_forensics_for_v52(
+                payload,
+                video_path=result_path,
+                au_path=generated_au_path,
+                device=au_device,
+            )
         payload["prompt_evidence"] = {
             "provided": bool((prompt_text or "").strip()),
             "note": (
@@ -2129,7 +2140,7 @@ def _result_payload(
         )
     payload = {
         "run_id": run_id,
-        "result": result,
+        "result": _sanitize_public_result_for_v5_flags(result),
         "downloads": downloads,
         "uploaded_files": {
             key: (
