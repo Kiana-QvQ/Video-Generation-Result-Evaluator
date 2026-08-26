@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from wangxing_project.web_forensics_display import (
+    _infer_label_from_text,
     _infer_web_label,
     apply_v52_forensics_display,
     patch_wangxing_au_forensics_for_v52,
+    resolve_web_ranking_label,
+    resync_result_forensics_from_v5,
     should_apply_v52_web_forensics_display,
 )
 
@@ -135,6 +139,48 @@ class WebForensicsDisplayTests(unittest.TestCase):
         ):
             self.assertTrue(should_apply_v52_web_forensics_display())
 
+    def test_infer_label_from_original_upload_name(self) -> None:
+        stored = Path("outputs/web_runs/job123/result.mp4")
+        self.assertEqual(
+            _infer_web_label(
+                stored,
+                original_name="真人视频.mp4",
+            ),
+            "real",
+        )
+        self.assertEqual(
+            _infer_label_from_text("LTX2.3+自己iclora,文字+关键点驱动.mp4"),
+            "lora",
+        )
+        self.assertEqual(
+            _infer_label_from_text("seedance2.0.mp4"),
+            "seedance",
+        )
+        self.assertEqual(
+            _infer_label_from_text("LTX2.3+多图参考.mp4"),
+            "multiref",
+        )
+
+    def test_stored_result_name_does_not_authorize_role_anchor(self) -> None:
+        label, source, anchor = resolve_web_ranking_label(
+            video_path="outputs/web_runs/job/result.mp4",
+            original_name=None,
+            job_name=None,
+        )
+        self.assertEqual(label, "seedance")
+        self.assertEqual(source, "default_unknown")
+        self.assertFalse(anchor)
+
+    def test_original_real_name_authorizes_role_anchor(self) -> None:
+        label, source, anchor = resolve_web_ranking_label(
+            video_path="outputs/web_runs/job/result.mp4",
+            original_name="真人视频.mp4",
+            job_name=None,
+        )
+        self.assertEqual(label, "real")
+        self.assertEqual(source, "original_upload_name")
+        self.assertTrue(anchor)
+
     def test_infer_label_from_filename(self) -> None:
         self.assertEqual(_infer_web_label("ppt_test2/真人视频.mp4"), "real")
         self.assertEqual(_infer_web_label("clip_iclora_v1.mp4"), "lora")
@@ -159,6 +205,35 @@ class WebForensicsDisplayTests(unittest.TestCase):
         self.assertEqual(row["v5"]["decision"], "generated")
         self.assertGreaterEqual(row["v5"]["score_display"], 0.75)
         self.assertTrue(row["v5"]["prior_conflict"])
+
+    def test_resync_keeps_v3_conclusion_with_high_display(self) -> None:
+        result = {
+            "wangxing_au": {
+                "status": "available",
+                "forensics": {
+                    "scores": {"calibrated_real_probability_0_1": 0.1},
+                    "fusion": {},
+                    "authenticity": {},
+                },
+                "wangxing_v5": {
+                    "status": "available",
+                    "decision": "generated",
+                    "score_display": 0.921,
+                    "p_v3_real": 0.12,
+                    "role_anchor_applied": True,
+                },
+            }
+        }
+        resync_result_forensics_from_v5(result)
+        forensics = result["wangxing_au"]["forensics"]
+        self.assertAlmostEqual(
+            forensics["scores"]["calibrated_real_probability_0_1"],
+            0.921,
+        )
+        self.assertEqual(
+            forensics["authenticity"]["binary_decision"],
+            "seedance_like",
+        )
 
 
 if __name__ == "__main__":

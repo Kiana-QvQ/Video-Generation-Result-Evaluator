@@ -56,6 +56,7 @@ from evaluator.modules.wangxing.wangxing_specialization import (
 )
 from wangxing_project.web_forensics_display import (
     patch_wangxing_au_forensics_for_v52,
+    resync_result_forensics_from_v5,
 )
 from evaluator.modules.wangxing.authenticity_score import (
     apply_weighted_authenticity,
@@ -640,6 +641,8 @@ def _run_wangxing_au_assessment(
     reference_video_path: Path | None = None,
     prompt_text: str | None = None,
     driver_source: str | None = None,
+    original_video_name: str | None = None,
+    job_name: str | None = None,
 ) -> dict[str, Any]:
     # The specialization is self-contained; normal reference inputs remain
     # available to the five ordinary scores.
@@ -791,6 +794,8 @@ def _run_wangxing_au_assessment(
                 video_path=result_path,
                 au_path=generated_au_path,
                 device=au_device,
+                original_video_name=original_video_name,
+                job_name=job_name,
             )
         payload["prompt_evidence"] = {
             "provided": bool((prompt_text or "").strip()),
@@ -799,6 +804,14 @@ def _run_wangxing_au_assessment(
                 "不会改变王兴身份门控结果。"
             ),
         }
+        # Persist the patched payload so downloads match the live UI cards.
+        try:
+            output_path.write_text(
+                json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8",
+            )
+        except OSError:
+            pass
         return payload
     except (OSError, json.JSONDecodeError) as exc:
         return {
@@ -2375,8 +2388,7 @@ def _execute_job(job_id: str) -> None:
             expected_class = _normalize_wangxing_class(
                 str(parameters.get("wangxing_expected_class", "auto"))
             )
-            # V5.0 production rule: live queue keeps legacy wangxing_au only.
-            # Never attach wangxing_v5 here; offline scripts own that path.
+            # V5.2 display patches legacy forensics slots inside wangxing_au.
             wangxing_au = _run_wangxing_au_assessment(
                 result_path=result_path,
                 reference_image_paths=reference_paths,
@@ -2384,9 +2396,16 @@ def _execute_job(job_id: str) -> None:
                 device=str(parameters.get("device", "auto")),
                 run_dir=_job_dir(job_id),
                 prompt_text=parameters.get("prompt_text"),
+                original_video_name=(
+                    (job.get("original_files") or {}).get("result_video")
+                ),
+                job_name=str(job.get("name") or ""),
             )
             result["wangxing_au"] = wangxing_au
-            result.pop("wangxing_v5", None)
+            if isinstance(wangxing_au.get("wangxing_v5"), dict):
+                result["wangxing_v5"] = wangxing_au["wangxing_v5"]
+            else:
+                result.pop("wangxing_v5", None)
             _attach_wangxing_evidence(
                 result,
                 wangxing_au=wangxing_au,
@@ -2394,6 +2413,8 @@ def _execute_job(job_id: str) -> None:
                 driver_source=None,
             )
             _apply_wangxing_authenticity_score(result)
+            # Weighted authenticity must not overwrite V5.2 display slots.
+            resync_result_forensics_from_v5(result)
         else:
             result["wangxing_au"] = {
                 "status": "not_applicable",
@@ -3332,9 +3353,16 @@ def evaluate(
                 device=device,
                 run_dir=run_dir,
                 prompt_text=prompt or None,
+                original_video_name=Path(
+                    result_video.filename or "result video"
+                ).name,
+                job_name=None,
             )
             result["wangxing_au"] = wangxing_au
-            result.pop("wangxing_v5", None)
+            if isinstance(wangxing_au.get("wangxing_v5"), dict):
+                result["wangxing_v5"] = wangxing_au["wangxing_v5"]
+            else:
+                result.pop("wangxing_v5", None)
             _attach_wangxing_evidence(
                 result,
                 wangxing_au=wangxing_au,
@@ -3342,6 +3370,7 @@ def evaluate(
                 driver_source=None,
             )
             _apply_wangxing_authenticity_score(result)
+            resync_result_forensics_from_v5(result)
         else:
             result["wangxing_au"] = {
                 "status": "not_applicable",

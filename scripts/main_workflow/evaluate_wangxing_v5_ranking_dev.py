@@ -192,7 +192,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     parser.add_argument(
         "--drive-cache",
-        default="outputs/vedio_pred/cache_wangxing_v5_drive_ranking_dev",
+        default="outputs/forensics/cache_wangxing_v5_2_ranking_dev",
     )
     parser.add_argument(
         "--au-output-root",
