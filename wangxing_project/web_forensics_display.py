@@ -216,7 +216,7 @@ def infer_v52_for_web(
 
 
 def should_apply_v52_web_forensics_display() -> bool:
-    """Gate live patching behind an explicit production feature flag."""
+    """Apply V5.2 by default when assets exist; legacy requires opt-out."""
     return bool(
         v5_display_cascade_enabled()
         and v52_web_assets_available()

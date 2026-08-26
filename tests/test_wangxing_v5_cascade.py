@@ -54,22 +54,31 @@ class WangxingV5CascadeTests(unittest.TestCase):
         self.assertFalse(result["rank_enabled"])
         self.assertEqual(result["score_band"], "ai_unspecified")
 
-    def test_runtime_flags_default_off(self) -> None:
+    def test_runtime_flags_display_default_off(self) -> None:
         with patch.dict(
             os.environ,
             {
                 "V5_DRIVE_ENABLED": "",
                 "V5_RANK_ENABLED": "",
                 "V5_DISPLAY_CASCADE": "",
+                "V5_REALNESS_ENABLED": "",
             },
             clear=False,
         ):
-            # Empty string should fall back to defaults (false).
+            # Empty / unset: public web remains on legacy V3; V5 stays off.
             flags = v5_runtime_flags()
         self.assertFalse(flags["V5_DRIVE_ENABLED"])
         self.assertFalse(flags["V5_RANK_ENABLED"])
         self.assertFalse(flags["V5_DISPLAY_CASCADE"])
         self.assertFalse(flags["V5_REALNESS_ENABLED"])
+
+    def test_runtime_flags_display_explicit_off(self) -> None:
+        with patch.dict(
+            os.environ,
+            {"V5_DISPLAY_CASCADE": "0"},
+            clear=False,
+        ):
+            self.assertFalse(v5_runtime_flags()["V5_DISPLAY_CASCADE"])
 
     def test_quality_gate_low_coverage(self) -> None:
         effective, meta = apply_drive_quality_gate(0.90, coverage_q=0.10)

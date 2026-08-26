@@ -1217,10 +1217,10 @@ def _apply_wangxing_authenticity_score(result: dict[str, Any]) -> None:
 
 
 def _sanitize_public_result_for_v5_flags(result: Any) -> Any:
-    """Keep the live UI on legacy Wang Xing unless V5 display is opted in.
+    """Strip V5 payload only when the operator opted into legacy display.
 
-    Production jobs must not surface ``wangxing_v5`` to browsers by default.
-    Offline V5 scripts write their own output trees and are unaffected.
+    Default production path keeps V5.2 display fields so the unchanged UI can
+    read score_display through the legacy forensics slots.
     """
     if not isinstance(result, dict):
         return result
@@ -1230,7 +1230,6 @@ def _sanitize_public_result_for_v5_flags(result: Any) -> Any:
     )
 
     sanitized = dict(result)
-    # Live queue never computes V5 today; still strip any imported payload.
     if not v5_display_cascade_enabled() and not v5_drive_enabled():
         sanitized.pop("wangxing_v5", None)
         wangxing_au = sanitized.get("wangxing_au")

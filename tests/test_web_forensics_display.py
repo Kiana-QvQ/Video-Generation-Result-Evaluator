@@ -115,7 +115,7 @@ class WebForensicsDisplayTests(unittest.TestCase):
         ):
             self.assertTrue(should_apply_v52_web_forensics_display())
 
-    def test_assets_alone_do_not_enable_live_v52(self) -> None:
+    def test_legacy_opt_out_skips_v52(self) -> None:
         with patch(
             "wangxing_project.web_forensics_display.v5_display_cascade_enabled",
             return_value=False,
@@ -124,6 +124,16 @@ class WebForensicsDisplayTests(unittest.TestCase):
             return_value=True,
         ):
             self.assertFalse(should_apply_v52_web_forensics_display())
+
+    def test_default_applies_when_assets_ready(self) -> None:
+        with patch(
+            "wangxing_project.web_forensics_display.v5_display_cascade_enabled",
+            return_value=True,
+        ), patch(
+            "wangxing_project.web_forensics_display.v52_web_assets_available",
+            return_value=True,
+        ):
+            self.assertTrue(should_apply_v52_web_forensics_display())
 
     def test_infer_label_from_filename(self) -> None:
         self.assertEqual(_infer_web_label("ppt_test2/真人视频.mp4"), "real")

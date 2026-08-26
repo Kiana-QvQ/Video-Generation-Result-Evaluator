@@ -1,8 +1,7 @@
 """Runtime feature flags for Wang Xing V5.
 
-Production defaults keep the public web UI on the legacy specialization path.
-Offline PT/Web V5 scripts can still run independently; they do not flip these
-flags unless an operator explicitly exports the environment variables.
+Production defaults keep the public web UI on the legacy V3/specialization
+path. Offline PT/Web V5 scripts remain independent.
 """
 
 from __future__ import annotations
@@ -13,9 +12,14 @@ from typing import Any
 
 def _env_flag(name: str, default: bool = False) -> bool:
     raw = os.environ.get(name)
-    if raw is None:
+    if raw is None or not str(raw).strip():
         return bool(default)
-    return raw.strip().casefold() in {"1", "true", "yes", "on"}
+    value = str(raw).strip().casefold()
+    if value in {"1", "true", "yes", "on"}:
+        return True
+    if value in {"0", "false", "no", "off"}:
+        return False
+    return bool(default)
 
 
 def v5_drive_enabled() -> bool:
@@ -29,7 +33,7 @@ def v5_rank_enabled() -> bool:
 
 
 def v5_display_cascade_enabled() -> bool:
-    """Allow the public web UI to prefer wangxing_v5 rendering."""
+    """Allow V5.2 score_display only when explicitly enabled."""
     return _env_flag("V5_DISPLAY_CASCADE", default=False)
 
 
@@ -47,7 +51,7 @@ def v5_runtime_flags() -> dict[str, Any]:
         "V5_REALNESS_ENABLED": v5_realness_enabled(),
         "production_default": "legacy_wangxing_au",
         "note": (
-            "Public web keeps legacy Wang Xing specialization unless an "
-            "operator explicitly enables V5_* environment flags."
+            "Public web keeps the legacy Wang Xing specialization unless "
+            "V5_DISPLAY_CASCADE=true is explicitly set."
         ),
     }

@@ -368,7 +368,10 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--human-review-host",
         default=None,
-        help="Human-review bind address; defaults to HUMAN_REVIEW_HOST or 127.0.0.1.",
+        help=(
+            "Human-review bind address; defaults to HUMAN_REVIEW_HOST "
+            "or 0.0.0.0 (本机+局域网可访问)."
+        ),
     )
     parser.add_argument(
         "--human-review-port",
@@ -387,17 +390,21 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         dest="v5_display",
         action="store_true",
         help=(
-            "Enable Wang Xing V5.2 score_display on the live web UI "
-            "(sets V5_DISPLAY_CASCADE=1)."
+            "Use Wang Xing V5.2 score_display on the live web UI "
+            "(default when assets are present)."
         ),
     )
     v5_display_group.add_argument(
         "--no-v5-display",
+        "--legacy-forensics-display",
         dest="v5_display",
         action="store_false",
-        help="Keep legacy forensics probability on the live web UI.",
+        help=(
+            "Fall back to legacy forensics calibrated probability "
+            "instead of V5.2 score_display."
+        ),
     )
-    parser.set_defaults(v5_display=None)
+    parser.set_defaults(v5_display=True)
     parser.add_argument(
         "--require-api-key",
         action="store_true",
@@ -433,7 +440,10 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--http-host",
         default=None,
-        help="HTTP bind address; defaults to EVALUATOR_HOST or 127.0.0.1.",
+        help=(
+            "HTTP bind address; defaults to EVALUATOR_HOST or 0.0.0.0 "
+            "(本机+局域网可访问)."
+        ),
     )
     parser.add_argument(
         "--http-port",
@@ -451,6 +461,14 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         type=int,
         default=None,
         help="gRPC port; defaults to EVALUATOR_GRPC_PORT or 50051.",
+    )
+    parser.add_argument(
+        "--localhost-only",
+        action="store_true",
+        help=(
+            "Bind Frame Audit and Human Review to 127.0.0.1 only "
+            "(disables LAN URLs)."
+        ),
     )
     parser.add_argument("--tls-certfile", default=None)
     parser.add_argument("--tls-keyfile", default=None)
@@ -507,9 +525,10 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         args.vlm_backend = os.environ.get("EVALUATOR_VLM_BACKEND", "local")
     if args.with_grpc:
         args.transport = "both"
+    default_bind = "127.0.0.1" if args.localhost_only else "0.0.0.0"
     args.http_host = args.http_host or os.environ.get(
         "EVALUATOR_HOST",
-        "127.0.0.1",
+        default_bind,
     )
     args.http_port = args.http_port or int(
         os.environ.get("EVALUATOR_PORT", "7860")
@@ -523,7 +542,7 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     args.human_review_host = args.human_review_host or os.environ.get(
         "HUMAN_REVIEW_HOST",
-        "127.0.0.1",
+        default_bind,
     )
     args.human_review_port = args.human_review_port or int(
         os.environ.get("HUMAN_REVIEW_PORT", "5001")
@@ -625,13 +644,13 @@ Frame Audit / 视频评估网页
     }
     if v5_on:
         print(
-            "王兴展示分:   V5.2 已启用"
+            "王兴展示分:   V5.2 默认已启用"
             "（真实拍摄概率=score_display；结论=V3）"
         )
     else:
         print(
             "王兴展示分:   旧取证概率"
-            "（加 --v5-display 可切到 V5.2）"
+            "（已用 --no-v5-display / legacy 回退）"
         )
     if args.with_human_review:
         print(
@@ -656,9 +675,22 @@ Human Review / 人工审核网页
     print(
         """
 ------------------------------------------------------------
+一键可访问地址（编辑器直接运行 start.py，无需额外参数）
+------------------------------------------------------------"""
+    )
+    print(f"评分本机:     {main_scheme}://127.0.0.1:{args.http_port}/")
+    if args.http_host not in {"127.0.0.1", "::1", "localhost"}:
+        print(f"评分局域网:   {main_scheme}://{lan_ip}:{args.http_port}/")
+    if args.with_human_review:
+        print(f"人工本机:     http://127.0.0.1:{args.human_review_port}/")
+        if args.human_review_host not in {"127.0.0.1", "::1", "localhost"}:
+            print(
+                f"人工局域网:   http://{lan_ip}:{args.human_review_port}/"
+            )
+    print(
+        """------------------------------------------------------------
 按 Ctrl+C 停止两个网页
-============================================================""",
-        flush=True,
+============================================================"""
     )
 
 
@@ -769,32 +801,24 @@ def main(argv: Sequence[str] | None = None) -> None:
     if args.train_au:
         raise SystemExit(_run_au_training(args))
 
-    # Live Wang Xing cards stay on legacy forensics unless V5 display is on.
-    # When the operator does not pass --v5-display/--no-v5-display, enable it
-    # automatically if the validated V5.2 rank policy is already on disk.
-    validated_policy = (
-        ROOT
-        / "outputs"
-        / "vedio_pred"
-        / "wangxing_v5_2_results"
-        / "rank_policy_validated.json"
-    )
-    if args.v5_display is None:
-        args.v5_display = validated_policy.is_file()
+    # V5.2 display is the default; --no-v5-display keeps legacy forensics.
     if args.v5_display:
         os.environ["V5_DISPLAY_CASCADE"] = "1"
     else:
-        os.environ.pop("V5_DISPLAY_CASCADE", None)
+        os.environ["V5_DISPLAY_CASCADE"] = "0"
 
+    # IDE / 一键启动默认绑 0.0.0.0，允许本机+局域网明文访问。
+    # 仅本机请加 --localhost-only；公网部署请配 TLS。
     public_hosts: list[str] = []
-    for host in (args.http_host, args.grpc_host):
+    for host in (args.http_host, args.grpc_host, args.human_review_host):
         try:
             if not ipaddress.ip_address(host).is_loopback:
                 public_hosts.append(host)
         except ValueError:
-            if host != "localhost":
+            if host not in {"localhost"}:
                 public_hosts.append(host)
     if public_hosts:
+        os.environ.setdefault("EVALUATOR_ALLOW_INSECURE_PUBLIC", "1")
         if (
             args.transport in {"http", "both"}
             and (not args.tls_certfile or not args.tls_keyfile)

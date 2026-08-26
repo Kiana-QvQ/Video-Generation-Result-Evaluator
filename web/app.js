@@ -458,9 +458,9 @@ async function loadModels() {
     if (!response.ok) throw new Error("model endpoint unavailable");
     const payload = await response.json();
     // 模型状态区已隐藏，仅刷新王兴专项就绪状态。
-    // V5 展示默认关闭；仅当服务端显式打开 V5_DISPLAY_CASCADE 时才允许。
+    // V5.2 展示默认为开；仅当服务端显式关闭 V5_DISPLAY_CASCADE 时回退旧取证分。
     window.__WANGXING_V5_DISPLAY__ =
-      payload?.wangxing_v5_flags?.V5_DISPLAY_CASCADE === true;
+      payload?.wangxing_v5_flags?.V5_DISPLAY_CASCADE !== false;
     renderWangxingReadiness(payload.wangxing_au);
   } catch (error) {
     window.__WANGXING_V5_DISPLAY__ = false;
