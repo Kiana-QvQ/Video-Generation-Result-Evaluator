@@ -10,10 +10,13 @@ param(
     [string]$Device = "cuda",
     [string]$WangxingDevice = "cuda",
     [switch]$SkipUnitTests,
-    [switch]$RebuildV52Ranking
+    [switch]$RebuildV52Ranking,
+    [switch]$FailOnOrdering,
+    [double]$MinPairwise = 0.8333333333
 )
 
 $ErrorActionPreference = "Stop"
+. (Join-Path $PSScriptRoot "_invoke_native.ps1")
 
 # V5.3 one-click (does NOT retrain V3 / route A):
 #   0) check V5.2 assets
@@ -21,10 +24,10 @@ $ErrorActionPreference = "Stop"
 #   2) build V5.3 runtime + same-prompt manifests
 #   3) calibrate content gate from ranking train only
 #   4) validate manifests
-#   5) evaluate internal manifest D (leadership)
+#   5) evaluate internal manifest D (leadership + group/pairwise gates)
 #   6) unit tests
 #
-# Public web still needs V5_DISPLAY_CASCADE / V5_3_CONTENT_GATE flags.
+# Overnight rank + V5.3: run_wangxing_v5_3_overnight.ps1
 
 $ProjectRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 $Python = Join-Path $ProjectRoot ".venv\Scripts\python.exe"
@@ -32,10 +35,8 @@ if (-not (Test-Path -LiteralPath $Python)) {
     throw "Project Python was not found: $Python"
 }
 
-function Assert-ExitCode([string]$Stage) {
-    if ($LASTEXITCODE -ne 0) {
-        throw "[V5.3] $Stage failed with exit code $LASTEXITCODE"
-    }
+function Invoke-V53Python([string]$Stage, [string[]]$ArgumentList) {
+    Invoke-PythonChecked -Python $Python -Stage "[V5.3] $Stage" -ArgumentList $ArgumentList
 }
 
 function Resolve-RankPolicy {
@@ -71,8 +72,9 @@ try {
 
     if ($RebuildV52Ranking -or -not (Test-Path -LiteralPath (Join-Path $ProjectRoot $RankingManifestV52))) {
         Write-Host "[V5.3 stage 1a/6] Rebuilding V5.2 ranking manifest + RankHead..." -ForegroundColor Cyan
-        & (Join-Path $ProjectRoot "scripts\main_workflow\run_wangxing_v5_2_all.ps1")
-        Assert-ExitCode "V5.2 rebuild"
+        Invoke-ScriptChecked `
+            -ScriptPath (Join-Path $ProjectRoot "scripts\main_workflow\run_wangxing_v5_2_all.ps1") `
+            -Stage "[V5.3] V5.2 rebuild"
     }
     else {
         Write-Host "[V5.3 stage 1a/6] Reusing existing V5.2 ranking assets." -ForegroundColor Cyan
@@ -81,76 +83,100 @@ try {
     $RankPolicy = Resolve-RankPolicy -Validated $RankPolicyValidated -Fallback $RankPolicyFallback
 
     Write-Host "[V5.3 stage 1b/6] Building V5.3 runtime manifests..." -ForegroundColor Cyan
-    & $Python "scripts\web_forensics\build_wangxing_v5_3_runtime_manifest.py" `
-        --input $RankingManifestV52 `
-        --output $RuntimeManifest `
-        --runtime-mode web_regression `
-        --full-only
-    Assert-ExitCode "build full runtime manifest"
+    Invoke-V53Python "build full runtime manifest" @(
+        "scripts\web_forensics\build_wangxing_v5_3_runtime_manifest.py",
+        "--input", $RankingManifestV52,
+        "--output", $RuntimeManifest,
+        "--runtime-mode", "web_regression",
+        "--full-only"
+    )
 
-    & $Python "scripts\web_forensics\build_wangxing_v5_3_runtime_manifest.py" `
-        --input $RankingManifestV52 `
-        --output $SamePromptManifest `
-        --runtime-mode web_regression `
-        --full-only `
-        --same-prompt-only
-    Assert-ExitCode "build same-prompt manifest"
+    Invoke-V53Python "build same-prompt manifest" @(
+        "scripts\web_forensics\build_wangxing_v5_3_runtime_manifest.py",
+        "--input", $RankingManifestV52,
+        "--output", $SamePromptManifest,
+        "--runtime-mode", "web_regression",
+        "--full-only",
+        "--same-prompt-only"
+    )
 
     Write-Host "[V5.3 stage 2/6] Calibrating content gate from ranking train..." -ForegroundColor Cyan
-    & $Python "scripts\web_forensics\calibrate_wangxing_v5_3_gate.py" `
-        --ranking-manifest $RankingManifestV52 `
-        --output $GatePolicy `
-        --rows-output "outputs\forensics\wangxing_v5_3_gate_train_rows.json" `
-        --margin 0.03 `
-        --device $Device `
-        --wangxing-device $WangxingDevice
-    Assert-ExitCode "gate calibration"
+    Invoke-V53Python "gate calibration" @(
+        "scripts\web_forensics\calibrate_wangxing_v5_3_gate.py",
+        "--ranking-manifest", $RankingManifestV52,
+        "--output", $GatePolicy,
+        "--rows-output", "outputs\forensics\wangxing_v5_3_gate_train_rows.json",
+        "--margin", "0.03",
+        "--device", $Device,
+        "--wangxing-device", $WangxingDevice
+    )
 
     Write-Host "[V5.3 stage 3/6] Validating manifests..." -ForegroundColor Cyan
-    & $Python "scripts\web_forensics\validate_wangxing_v5_3_manifest.py" `
-        $RuntimeManifest `
-        --output "outputs\forensics\wangxing_v5_3_runtime_results\manifest_validation.json"
-    Assert-ExitCode "validate full manifest"
+    Invoke-V53Python "validate full manifest" @(
+        "scripts\web_forensics\validate_wangxing_v5_3_manifest.py",
+        $RuntimeManifest,
+        "--output", "outputs\forensics\wangxing_v5_3_runtime_results\manifest_validation.json"
+    )
 
-    # same-prompt formal set: require unique hashes across groups
-    & $Python "scripts\web_forensics\validate_wangxing_v5_3_manifest.py" `
-        $SamePromptManifest `
-        --strict-unique-sha256 `
-        --output "outputs\forensics\wangxing_v5_3_runtime_results\same_prompt_manifest_validation.json"
-    Assert-ExitCode "validate same-prompt manifest"
+    Invoke-V53Python "validate same-prompt manifest" @(
+        "scripts\web_forensics\validate_wangxing_v5_3_manifest.py",
+        $SamePromptManifest,
+        "--strict-unique-sha256",
+        "--output", "outputs\forensics\wangxing_v5_3_runtime_results\same_prompt_manifest_validation.json"
+    )
 
     Write-Host "[V5.3 stage 4/6] Evaluating internal manifest D (all full groups)..." -ForegroundColor Cyan
-    & $Python "scripts\pt_training\evaluate_wangxing_v5_3_runtime.py" `
-        --manifest $RuntimeManifest `
-        --rank-policy $RankPolicy `
-        --calibrator "outputs\forensics\wangxing_v5_realness_calibrator.json" `
-        --forensics-profile "outputs\forensics\forensics_profiles_web_v3_test_excluded.json" `
-        --source-profile "outputs\forensics\wangxing_source_profile_web_v3_test_excluded.json" `
-        --output-root $OutputRoot `
-        --device $Device `
-        --wangxing-device $WangxingDevice
-    Assert-ExitCode "runtime evaluate (full)"
+    $evaluateArgs = @(
+        "--manifest", $RuntimeManifest,
+        "--rank-policy", $RankPolicy,
+        "--calibrator", "outputs\forensics\wangxing_v5_realness_calibrator.json",
+        "--forensics-profile", "outputs\forensics\forensics_profiles_web_v3_test_excluded.json",
+        "--source-profile", "outputs\forensics\wangxing_source_profile_web_v3_test_excluded.json",
+        "--output-root", $OutputRoot,
+        "--device", $Device,
+        "--wangxing-device", $WangxingDevice,
+        "--min-pairwise", "$MinPairwise"
+    )
+    if ($FailOnOrdering) {
+        $evaluateArgs += "--fail-on-ordering"
+    }
+    Invoke-V53Python "runtime evaluate (full)" @(
+        "scripts\pt_training\evaluate_wangxing_v5_3_runtime.py"
+    ) + $evaluateArgs
 
     Write-Host "[V5.3 stage 5/6] Evaluating same-prompt leadership subset..." -ForegroundColor Cyan
-    & $Python "scripts\pt_training\evaluate_wangxing_v5_3_runtime.py" `
-        --manifest $SamePromptManifest `
-        --rank-policy $RankPolicy `
-        --calibrator "outputs\forensics\wangxing_v5_realness_calibrator.json" `
-        --forensics-profile "outputs\forensics\forensics_profiles_web_v3_test_excluded.json" `
-        --source-profile "outputs\forensics\wangxing_source_profile_web_v3_test_excluded.json" `
-        --output-root "outputs\forensics\wangxing_v5_3_same_prompt_results" `
-        --device $Device `
-        --wangxing-device $WangxingDevice
-    Assert-ExitCode "runtime evaluate (same-prompt)"
+    $samePromptOutput = if ($OutputRoot -like "*_overnight") {
+        "outputs\forensics\wangxing_v5_3_same_prompt_results_overnight"
+    } else {
+        "outputs\forensics\wangxing_v5_3_same_prompt_results"
+    }
+    $samePromptArgs = @(
+        "--manifest", $SamePromptManifest,
+        "--rank-policy", $RankPolicy,
+        "--calibrator", "outputs\forensics\wangxing_v5_realness_calibrator.json",
+        "--forensics-profile", "outputs\forensics\forensics_profiles_web_v3_test_excluded.json",
+        "--source-profile", "outputs\forensics\wangxing_source_profile_web_v3_test_excluded.json",
+        "--output-root", $samePromptOutput,
+        "--device", $Device,
+        "--wangxing-device", $WangxingDevice,
+        "--min-pairwise", "$MinPairwise"
+    )
+    if ($FailOnOrdering) {
+        $samePromptArgs += "--fail-on-ordering"
+    }
+    Invoke-V53Python "runtime evaluate (same-prompt)" @(
+        "scripts\pt_training\evaluate_wangxing_v5_3_runtime.py"
+    ) + $samePromptArgs
 
     if (-not $SkipUnitTests) {
         Write-Host "[V5.3 stage 6/6] Unit tests..." -ForegroundColor Cyan
-        & $Python -m pytest `
-            tests\test_wangxing_v5_3_runtime.py `
-            tests\test_web_forensics_display.py `
-            tests\test_wangxing_v5_cascade.py `
-            -q
-        Assert-ExitCode "unit tests"
+        Invoke-V53Python "unit tests" @(
+            "-m", "pytest",
+            "tests\test_wangxing_v5_3_runtime.py",
+            "tests\test_web_forensics_display.py",
+            "tests\test_wangxing_v5_cascade.py",
+            "-q"
+        )
     }
     else {
         Write-Host "[V5.3 stage 6/6] Skipped unit tests." -ForegroundColor Yellow
@@ -162,12 +188,13 @@ try {
     Write-Host "Same-prompt man. : $SamePromptManifest" -ForegroundColor Yellow
     Write-Host "Gate policy      : $GatePolicy" -ForegroundColor Yellow
     Write-Host "Full results     : $OutputRoot\leadership_brief.json" -ForegroundColor Yellow
-    Write-Host "Same-prompt brief: outputs\forensics\wangxing_v5_3_same_prompt_results\leadership_brief.json" -ForegroundColor Yellow
+    Write-Host "Same-prompt brief: $samePromptOutput\leadership_brief.json" -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "Check holdout.group_ordering and holdout.pairwise_ordering in leadership_brief." -ForegroundColor Cyan
     Write-Host ""
     Write-Host "Public web (optional):" -ForegroundColor Cyan
-    Write-Host "  set V5_DISPLAY_CASCADE=1" -ForegroundColor Cyan
-    Write-Host "  set V5_3_CONTENT_GATE=1   # after reviewing gate FP on holdout" -ForegroundColor Cyan
-    Write-Host "  python start.py" -ForegroundColor Cyan
+    Write-Host "  python start.py --v5-display" -ForegroundColor Cyan
+    Write-Host "  python start.py --v5-display --v5-3-content-gate   # after holdout FP review" -ForegroundColor Cyan
 }
 finally {
     Pop-Location

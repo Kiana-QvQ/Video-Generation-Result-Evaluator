@@ -2,11 +2,24 @@ from __future__ import annotations
 
 import unittest
 
+from scripts.pt_training.evaluate_wangxing_v5_3_runtime import (
+    _group_order_satisfied,
+    _group_ordering_metrics,
+    _pairwise_ordering_metrics,
+)
 from wangxing_project.runtime_display_v53 import (
     apply_content_gate,
     apply_manifest_display,
     validate_runtime_manifest,
 )
+
+
+def _row(group_id: str, role: str, score: float) -> dict:
+    return {
+        "group_id": group_id,
+        "manifest_role": role,
+        "v5": {"score_display_final": score},
+    }
 
 
 class WangxingV53RuntimeTests(unittest.TestCase):
@@ -81,6 +94,33 @@ class WangxingV53RuntimeTests(unittest.TestCase):
         )
         self.assertIn("g1:missing_roles=['lora', 'multiref', 'seedance']", errors)
         self.assertIn("g1:not_full", errors)
+
+    def test_group_order_satisfied_when_scores_monotonic(self) -> None:
+        rows = [
+            _row("g1", "real", 0.95),
+            _row("g1", "lora", 0.64),
+            _row("g1", "seedance", 0.35),
+            _row("g1", "multiref", 0.01),
+        ]
+        self.assertTrue(_group_order_satisfied(rows))
+        metrics = _group_ordering_metrics(rows)
+        self.assertEqual(metrics["complete_group_count"], 1)
+        self.assertEqual(metrics["group_order_satisfied_count"], 1)
+        pairwise = _pairwise_ordering_metrics(rows)
+        self.assertEqual(pairwise["pairwise_total"], 6)
+        self.assertEqual(pairwise["pairwise_correct"], 6)
+        self.assertAlmostEqual(pairwise["pairwise_ordering_rate"], 1.0)
+
+    def test_group_order_fails_when_seedance_above_lora(self) -> None:
+        rows = [
+            _row("g1", "real", 0.95),
+            _row("g1", "lora", 0.30),
+            _row("g1", "seedance", 0.35),
+            _row("g1", "multiref", 0.01),
+        ]
+        self.assertFalse(_group_order_satisfied(rows))
+        metrics = _group_ordering_metrics(rows)
+        self.assertEqual(metrics["failed_groups"], ["g1"])
 
 
 if __name__ == "__main__":
