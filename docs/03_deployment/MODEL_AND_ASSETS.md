@@ -106,7 +106,7 @@ VBench 结果写入 `outputs/vbench/`，不参与主流程的五类加权总分�
 ## 评估准则
 
 原始需求截图已整理到
-`docs/evaluation-criteria.png`。主流程的五类权重为：
+`docs/99_assets/evaluation-criteria.png`。主流程的五类权重为：
 
 | 类别 | 权重 | 主要输入 |
 | --- | ---: | --- |

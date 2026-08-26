@@ -43,7 +43,7 @@ cd evaluator
 ## 仓库里有什么 / 没有什么
 
 GitHub **不包含**数据集、原始视频、全量 AU、本地 `.pt`、完整 `outputs/`、大模型缓存，以及内部领导汇报口径文稿。  
-详见 [`docs/仓库内容与数据策略.md`](docs/仓库内容与数据策略.md)。
+详见 [`docs/02_data_evaluation/仓库内容与数据策略.md`](docs/02_data_evaluation/仓库内容与数据策略.md)。
 
 ## 多用户队列
 
@@ -90,7 +90,7 @@ $env:FRAME_AUDIT_TRUST_PROXY_HEADERS = "true"
 ```
 
 显存和模型选择、VLM Judge、ViCLIP 与 VBench 的完整说明见
-[`docs/MODEL_AND_ASSETS.md`](docs/MODEL_AND_ASSETS.md)。
+[`docs/03_deployment/MODEL_AND_ASSETS.md`](docs/03_deployment/MODEL_AND_ASSETS.md)。
 
 常用的独立后端命令：
 
@@ -121,8 +121,8 @@ CSV；所有本地缓存和生成结果都已加入 `.gitignore`。
 ```
 
 原始评估准则截图整理在
-[`docs/evaluation-criteria.png`](docs/evaluation-criteria.png)。
+[`docs/99_assets/evaluation-criteria.png`](docs/99_assets/evaluation-criteria.png)。
 
-公网或非回环地址部署前请阅读 [`docs/SECURITY.md`](docs/SECURITY.md)；
+公网或非回环地址部署前请阅读 [`docs/03_deployment/SECURITY.md`](docs/03_deployment/SECURITY.md)；
 必须配置 API key、TLS、资源限制和任务保留策略。VBench、Local VLM 与
 LibreFace 使用隔离依赖环境，不要把它们安装到同一个 `.venv`。

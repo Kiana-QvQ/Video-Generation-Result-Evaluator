@@ -391,7 +391,7 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help=(
             "Use Wang Xing V5.2 score_display on the live web UI "
-            "(default when assets are present)."
+            "(default for the public display path)."
         ),
     )
     v5_display_group.add_argument(
@@ -405,6 +405,25 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         ),
     )
     parser.set_defaults(v5_display=True)
+    v5_3_gate_group = parser.add_mutually_exclusive_group()
+    v5_3_gate_group.add_argument(
+        "--v5-3-content-gate",
+        dest="v5_3_content_gate",
+        action="store_true",
+        help="Enable the validated V5.3 public content gate.",
+    )
+    v5_3_gate_group.add_argument(
+        "--no-v5-3-content-gate",
+        dest="v5_3_content_gate",
+        action="store_false",
+        help="Disable the V5.3 public content gate.",
+    )
+    parser.set_defaults(v5_3_content_gate=None)
+    parser.add_argument(
+        "--v5-3-runtime-manifest",
+        default=None,
+        help="Optional internal V5.3 explicit-role runtime manifest.",
+    )
     parser.add_argument(
         "--require-api-key",
         action="store_true",
@@ -806,6 +825,12 @@ def main(argv: Sequence[str] | None = None) -> None:
         os.environ["V5_DISPLAY_CASCADE"] = "1"
     else:
         os.environ["V5_DISPLAY_CASCADE"] = "0"
+    if args.v5_3_content_gate is not None:
+        os.environ["V5_3_CONTENT_GATE"] = (
+            "1" if args.v5_3_content_gate else "0"
+        )
+    if args.v5_3_runtime_manifest is not None:
+        os.environ["V5_3_RUNTIME_MANIFEST"] = args.v5_3_runtime_manifest
 
     # IDE / 一键启动默认绑 0.0.0.0，允许本机+局域网明文访问。
     # 仅本机请加 --localhost-only；公网部署请配 TLS。

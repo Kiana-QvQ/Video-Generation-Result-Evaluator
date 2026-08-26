@@ -20,7 +20,14 @@ from pathlib import Path
 from typing import Any
 
 from evaluator.modules.core.paths import project_path
-from wangxing_project.v5_flags import v5_display_cascade_enabled
+from wangxing_project.runtime_display_v53 import (
+    apply_runtime_display,
+    load_runtime_policy,
+)
+from wangxing_project.v5_flags import (
+    v5_3_content_gate_enabled,
+    v5_display_cascade_enabled,
+)
 
 WEB_V52_RANK_POLICY_CANDIDATES = (
     "outputs/vedio_pred/wangxing_v5_2_results/rank_policy_validated.json",
@@ -36,8 +43,8 @@ WEB_V52_SOURCE_PROFILE = (
     "outputs/forensics/wangxing_source_profile_web_v3_test_excluded.json"
 )
 WEB_V52_CACHE_DIR = "outputs/forensics/cache_wangxing_v5_2_web"
-# Neutral AI label for single-upload web inference; never inferred from names.
-WEB_V52_NEUTRAL_LABEL = "seedance"
+WEB_V52_NEUTRAL_LABEL = "web_neutral"
+WEB_V53_GATE_POLICY = "outputs/forensics/wangxing_v5_3_display_gate.json"
 
 
 def _first_existing_path(candidates: tuple[str, ...]) -> Path | None:
@@ -97,7 +104,14 @@ def apply_v52_forensics_display(
 ) -> dict[str, Any]:
     """Patch legacy forensics payload consumed by ``web/app.js``."""
     decision = str(v5.get("decision") or "generated")
-    score_display = float(v5.get("score_display", 0.0))
+    score_display_value = v5.get(
+        "score_display_final",
+        v5.get("score_display"),
+    )
+    try:
+        score_display = float(score_display_value)
+    except (TypeError, ValueError):
+        return forensics
     binary = _binary_decision_from_v3(decision)
     conclusion = (
         "偏向真实拍摄" if binary == "real_capture" else "偏向 AI 生成"
@@ -129,15 +143,27 @@ def apply_v52_forensics_display(
     )
 
     forensics["wangxing_v5_display"] = {
-        "schema_version": "wangxing_v5_2_web_forensics_display_v1",
+        "schema_version": "wangxing_v5_3_runtime_display_v1",
         "score_display": score_display,
+        "score_display_base": v5.get("score_display_base", score_display),
+        "score_display_final": v5.get("score_display_final", score_display),
         "decision": decision,
+        "decision_source": "v3_frozen",
+        "decision_matches_v3": True,
         "p_v3_real": v5.get("p_v3_real"),
+        "s_realness": v5.get("s_realness"),
         "score_band": v5.get("score_band"),
         "band_hint": v5.get("band_hint"),
         "rank_reason": v5.get("rank_reason"),
         "display_blend_mode": v5.get("display_blend_mode"),
         "prior_conflict": v5.get("prior_conflict"),
+        "prior_conflict_display": v5.get("prior_conflict_display", False),
+        "runtime_display_mode": v5.get(
+            "runtime_display_mode", "public_neutral"
+        ),
+        "content_gate_enabled": v5.get("content_gate_enabled", False),
+        "content_gate_applied": v5.get("content_gate_applied", False),
+        "fallback_reason": v5.get("fallback_reason"),
         "filename_label_inference": False,
         "role_anchor_applied": False,
     }
@@ -194,11 +220,21 @@ def infer_v52_for_web(
         prior_conflict=False,
         group_id="web_single",
     )
-    return v5
+    gate_policy = load_runtime_policy(project_path(WEB_V53_GATE_POLICY))
+    return apply_runtime_display(
+        v5,
+        mode=(
+            "content_gate"
+            if v5_3_content_gate_enabled()
+            else "public_neutral"
+        ),
+        content_gate_policy=gate_policy,
+        content_gate_enabled=v5_3_content_gate_enabled(),
+    )
 
 
 def should_apply_v52_web_forensics_display() -> bool:
-    """Apply V5.2 by default when assets exist; legacy requires opt-out."""
+    """Apply the V5 display layer only when explicitly enabled."""
     return bool(
         v5_display_cascade_enabled()
         and v52_web_assets_available()
@@ -239,7 +275,7 @@ def patch_wangxing_au_forensics_for_v52(
     apply_v52_forensics_display(forensics, v5)
     payload["forensics"] = forensics
     payload["wangxing_v5"] = {
-        "schema_version": "wangxing_v5_result_v1",
+        "schema_version": "wangxing_v5_3_result_v1",
         "status": "available",
         **v5,
     }

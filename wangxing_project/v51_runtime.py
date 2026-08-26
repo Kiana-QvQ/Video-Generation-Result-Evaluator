@@ -106,7 +106,7 @@ def extract_au_for_video(
 def build_feature_row(
     *,
     video: Path,
-    label: str,
+    label: str | None,
     group: str,
     au_path: Path,
     v3_model: Path,
@@ -183,8 +183,12 @@ def build_feature_row(
         calibrator=calibrator,
         enabled=realness_enabled,
     )
-    expected_real = label == "real"
-    prior_conflict = (v3["prediction"] == "real") != expected_real
+    expected_real = label == "real" if label in RANK else None
+    prior_conflict = (
+        False
+        if expected_real is None
+        else (v3["prediction"] == "real") != expected_real
+    )
     cascade = cascade_score_v51(
         p_v3_real=p_v3_real,
         p_drive=p_drive,
@@ -200,7 +204,7 @@ def build_feature_row(
         "au": str(au_path),
         "group": group,
         "label": label,
-        "rank": RANK[label],
+        "rank": RANK.get(label) if label in RANK else None,
         "v3": {
             "prediction": v3["prediction"],
             "p_real": p_v3_real,

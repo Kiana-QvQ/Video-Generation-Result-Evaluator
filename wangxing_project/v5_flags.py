@@ -42,6 +42,16 @@ def v5_realness_enabled() -> bool:
     return _env_flag("V5_REALNESS_ENABLED", default=False)
 
 
+def v5_3_content_gate_enabled() -> bool:
+    """Enable the V5.3 public content gate after independent validation."""
+    return _env_flag("V5_3_CONTENT_GATE", default=False)
+
+
+def v5_3_runtime_manifest() -> str | None:
+    value = os.environ.get("V5_3_RUNTIME_MANIFEST")
+    return value.strip() if value and value.strip() else None
+
+
 def v5_runtime_flags() -> dict[str, Any]:
     return {
         "schema_version": "wangxing_v5_runtime_flags_v1",
@@ -49,9 +59,14 @@ def v5_runtime_flags() -> dict[str, Any]:
         "V5_RANK_ENABLED": v5_rank_enabled(),
         "V5_DISPLAY_CASCADE": v5_display_cascade_enabled(),
         "V5_REALNESS_ENABLED": v5_realness_enabled(),
+        "V5_3_CONTENT_GATE": v5_3_content_gate_enabled(),
+        "V5_3_RUNTIME_MANIFEST": v5_3_runtime_manifest(),
+        "V5_3_FILENAME_INFERENCE": False,
+        "V5_3_ROLE_ANCHOR": False,
         "production_default": "legacy_wangxing_au",
         "note": (
             "Public web keeps the legacy Wang Xing specialization unless "
-            "V5_DISPLAY_CASCADE=true is explicitly set."
+            "V5_DISPLAY_CASCADE=true is explicitly set; V5.3 content gate "
+            "requires V5_3_CONTENT_GATE=true."
         ),
     }

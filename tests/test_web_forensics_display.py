@@ -190,7 +190,15 @@ class WebForensicsDisplayTests(unittest.TestCase):
                 au_path="au.csv",
                 device="cpu",
             )
-        self.assertEqual(result, fake_v5)
+        self.assertEqual(result["decision"], fake_v5["decision"])
+        self.assertAlmostEqual(
+            result["score_display_final"],
+            fake_v5["score_display"],
+        )
+        self.assertEqual(
+            result["runtime_display_mode"],
+            "public_neutral",
+        )
         mock_build.assert_called_once()
         build_kwargs = mock_build.call_args.kwargs
         self.assertEqual(build_kwargs["label"], WEB_V52_NEUTRAL_LABEL)

@@ -423,7 +423,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         manifest,
     )
 
-    commands = project_path("docs/RES1K_AU_PT_RETRAIN.md")
+    commands = project_path("docs/01_algorithm/RES1K_AU_PT_RETRAIN.md")
     write_commands_file(commands)
     summary = {
         "protocol": "data/forensics/res1k_au_pt_protocol.json",

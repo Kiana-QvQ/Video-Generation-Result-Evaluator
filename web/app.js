@@ -989,7 +989,12 @@ function renderWangxingResult(result) {
   if (
     window.__WANGXING_V5_DISPLAY__ === true &&
     v5 &&
-    v5.schema_version === "wangxing_v5_result_v1" &&
+    [
+      "wangxing_v5_result_v1",
+      "wangxing_v5_1_result_v1",
+      "wangxing_v5_2_result_v1",
+      "wangxing_v5_3_result_v1",
+    ].includes(v5.schema_version) &&
     v5.status !== "unavailable"
   ) {
     if (typeof renderWangxingV5Result === "function") {
