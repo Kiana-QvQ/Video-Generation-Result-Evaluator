@@ -136,6 +136,22 @@ def apply_v52_forensics_display(
     return forensics
 
 
+def _infer_web_label(video_path: str | Path) -> str:
+    """Best-effort ranking label from filename; never invents ground truth."""
+    path = Path(video_path)
+    name = path.name.casefold()
+    raw = path.name
+    if "真人" in raw or "real" in name:
+        return "real"
+    if "iclora" in name or "lora" in name:
+        return "lora"
+    if "seedance" in name:
+        return "seedance"
+    if "多图" in raw or "multiref" in name:
+        return "multiref"
+    return "seedance"
+
+
 def infer_v52_for_web(
     *,
     video_path: str | Path,
@@ -143,7 +159,10 @@ def infer_v52_for_web(
     device: str,
     wangxing_device: str | None = None,
 ) -> dict[str, Any] | None:
-    from wangxing_project.cascade_v5 import cascade_score_v52
+    from wangxing_project.cascade_v5 import (
+        anchor_ranking_real_display,
+        cascade_score_v52,
+    )
     from wangxing_project.rank_head_v52 import predict_rank_score
     from wangxing_project.v51_runtime import build_feature_row
 
@@ -151,9 +170,10 @@ def infer_v52_for_web(
     if context is None:
         return None
     wangxing_device = wangxing_device or device
+    label = _infer_web_label(video_path)
     row = build_feature_row(
         video=Path(video_path),
-        label="seedance",
+        label=label,
         group="web_single",
         au_path=Path(au_path),
         v3_model=context["v3_model"],
@@ -167,6 +187,7 @@ def infer_v52_for_web(
         realness_enabled=True,
         rank_policy=context["rank_policy"],
     )
+    row["label"] = label
     rank_policy = context["rank_policy"]
     rank_score = None
     if rank_policy is not None:
@@ -183,6 +204,14 @@ def infer_v52_for_web(
         prior_conflict=bool(row.get("prior_conflict")),
         group_id="web_single",
     )
+    row["v5"] = v5
+    row["realness"] = row.get("realness") or {}
+    # Match offline ranking readout: known-real clips use real-band display,
+    # while y_decision stays frozen V3 (prior_conflict may become true).
+    if label == "real":
+        anchor_ranking_real_display(row)
+        v5 = row["v5"]
+    v5["web_label_inferred"] = label
     return v5
 
 

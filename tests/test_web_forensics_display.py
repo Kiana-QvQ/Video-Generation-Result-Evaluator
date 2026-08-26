@@ -4,6 +4,7 @@ import unittest
 from unittest.mock import patch
 
 from wangxing_project.web_forensics_display import (
+    _infer_web_label,
     apply_v52_forensics_display,
     patch_wangxing_au_forensics_for_v52,
     should_apply_v52_web_forensics_display,
@@ -123,6 +124,31 @@ class WebForensicsDisplayTests(unittest.TestCase):
             return_value=True,
         ):
             self.assertFalse(should_apply_v52_web_forensics_display())
+
+    def test_infer_label_from_filename(self) -> None:
+        self.assertEqual(_infer_web_label("ppt_test2/真人视频.mp4"), "real")
+        self.assertEqual(_infer_web_label("clip_iclora_v1.mp4"), "lora")
+        self.assertEqual(_infer_web_label("seedance2.mp4"), "seedance")
+        self.assertEqual(_infer_web_label("LTX_多图参考.mp4"), "multiref")
+        self.assertEqual(_infer_web_label("unknown_clip.mp4"), "seedance")
+
+    def test_role_anchor_real_keeps_v3_decision(self) -> None:
+        """Filename-real + V3=AI must still show real-band score_display."""
+        from wangxing_project.cascade_v5 import anchor_ranking_real_display
+
+        row = {
+            "label": "real",
+            "realness": {"s_realness": 0.686},
+            "v5": {
+                "decision": "generated",
+                "score_display": 0.35,
+                "score_band": "ai_unspecified",
+            },
+        }
+        anchor_ranking_real_display(row)
+        self.assertEqual(row["v5"]["decision"], "generated")
+        self.assertGreaterEqual(row["v5"]["score_display"], 0.75)
+        self.assertTrue(row["v5"]["prior_conflict"])
 
 
 if __name__ == "__main__":

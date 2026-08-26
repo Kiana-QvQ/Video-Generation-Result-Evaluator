@@ -381,6 +381,23 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Keep the existing public showcase index when starting.",
     )
+    v5_display_group = parser.add_mutually_exclusive_group()
+    v5_display_group.add_argument(
+        "--v5-display",
+        dest="v5_display",
+        action="store_true",
+        help=(
+            "Enable Wang Xing V5.2 score_display on the live web UI "
+            "(sets V5_DISPLAY_CASCADE=1)."
+        ),
+    )
+    v5_display_group.add_argument(
+        "--no-v5-display",
+        dest="v5_display",
+        action="store_false",
+        help="Keep legacy forensics probability on the live web UI.",
+    )
+    parser.set_defaults(v5_display=None)
     parser.add_argument(
         "--require-api-key",
         action="store_true",
@@ -600,6 +617,22 @@ Frame Audit / 视频评估网页
         print("局域网访问:   当前绑定本机地址，局域网设备不可访问")
     else:
         print(f"局域网访问:   {main_scheme}://{lan_ip}:{args.http_port}")
+    v5_on = os.environ.get("V5_DISPLAY_CASCADE", "").strip().casefold() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    if v5_on:
+        print(
+            "王兴展示分:   V5.2 已启用"
+            "（真实拍摄概率=score_display；结论=V3）"
+        )
+    else:
+        print(
+            "王兴展示分:   旧取证概率"
+            "（加 --v5-display 可切到 V5.2）"
+        )
     if args.with_human_review:
         print(
             """
@@ -735,6 +768,23 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     if args.train_au:
         raise SystemExit(_run_au_training(args))
+
+    # Live Wang Xing cards stay on legacy forensics unless V5 display is on.
+    # When the operator does not pass --v5-display/--no-v5-display, enable it
+    # automatically if the validated V5.2 rank policy is already on disk.
+    validated_policy = (
+        ROOT
+        / "outputs"
+        / "vedio_pred"
+        / "wangxing_v5_2_results"
+        / "rank_policy_validated.json"
+    )
+    if args.v5_display is None:
+        args.v5_display = validated_policy.is_file()
+    if args.v5_display:
+        os.environ["V5_DISPLAY_CASCADE"] = "1"
+    else:
+        os.environ.pop("V5_DISPLAY_CASCADE", None)
 
     public_hosts: list[str] = []
     for host in (args.http_host, args.grpc_host):
