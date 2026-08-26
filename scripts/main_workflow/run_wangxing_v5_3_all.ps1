@@ -112,8 +112,10 @@ try {
         --output "outputs\forensics\wangxing_v5_3_runtime_results\manifest_validation.json"
     Assert-ExitCode "validate full manifest"
 
+    # same-prompt formal set: require unique hashes across groups
     & $Python "scripts\web_forensics\validate_wangxing_v5_3_manifest.py" `
         $SamePromptManifest `
+        --strict-unique-sha256 `
         --output "outputs\forensics\wangxing_v5_3_runtime_results\same_prompt_manifest_validation.json"
     Assert-ExitCode "validate same-prompt manifest"
 
