@@ -140,9 +140,10 @@ try {
     if ($FailOnOrdering) {
         $evaluateArgs += "--fail-on-ordering"
     }
-    Invoke-V53Python "runtime evaluate (full)" @(
+    $fullEvaluateArgs = @(
         "scripts\pt_training\evaluate_wangxing_v5_3_runtime.py"
     ) + $evaluateArgs
+    Invoke-V53Python "runtime evaluate (full)" $fullEvaluateArgs
 
     Write-Host "[V5.3 stage 5/6] Evaluating same-prompt leadership subset..." -ForegroundColor Cyan
     $samePromptOutput = if ($OutputRoot -like "*_overnight") {
@@ -164,9 +165,10 @@ try {
     if ($FailOnOrdering) {
         $samePromptArgs += "--fail-on-ordering"
     }
-    Invoke-V53Python "runtime evaluate (same-prompt)" @(
+    $fullSamePromptArgs = @(
         "scripts\pt_training\evaluate_wangxing_v5_3_runtime.py"
     ) + $samePromptArgs
+    Invoke-V53Python "runtime evaluate (same-prompt)" $fullSamePromptArgs
 
     if (-not $SkipUnitTests) {
         Write-Host "[V5.3 stage 6/6] Unit tests..." -ForegroundColor Cyan

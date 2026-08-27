@@ -1,13 +1,17 @@
 from __future__ import annotations
 
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from wangxing_project.web_forensics_display import (
+    WEB_V53_RANK_POLICY,
     WEB_V52_NEUTRAL_LABEL,
     apply_v52_forensics_display,
     infer_v52_for_web,
     patch_wangxing_au_forensics_for_v52,
+    publish_web_rank_policy,
+    resolve_web_rank_policy_path,
     resync_result_forensics_from_v5,
     should_apply_v52_web_forensics_display,
 )
@@ -117,10 +121,42 @@ class WebForensicsDisplayTests(unittest.TestCase):
         apply_v52_forensics_display(
             forensics,
             {"decision": "generated", "score_display": 0.35},
+            rank_policy_path="outputs/forensics/wangxing_v5_3_web_rank_policy.json",
         )
         meta = forensics["wangxing_v5_display"]
         self.assertFalse(meta["filename_label_inference"])
         self.assertFalse(meta["role_anchor_applied"])
+        self.assertIn("wangxing_v5_3_web_rank_policy.json", meta["rank_policy_path"])
+
+    def test_resolve_web_rank_policy_prefers_web_runtime_path(self) -> None:
+        with patch(
+            "wangxing_project.web_forensics_display.project_path",
+            side_effect=lambda value: Path(value),
+        ), patch(
+            "wangxing_project.web_forensics_display._first_existing_path",
+            return_value=Path(WEB_V53_RANK_POLICY),
+        ):
+            resolved = resolve_web_rank_policy_path()
+        self.assertEqual(resolved, Path(WEB_V53_RANK_POLICY))
+
+    def test_publish_web_rank_policy_copies_source(self) -> None:
+        with patch(
+            "wangxing_project.web_forensics_display.project_path",
+            side_effect=lambda value: Path(value),
+        ), patch(
+            "wangxing_project.web_forensics_display.clear_web_v52_context_cache",
+        ) as mock_clear:
+            source = Path("outputs/forensics/wangxing_v5_2_rank_policy_overnight.json")
+            target = Path(WEB_V53_RANK_POLICY)
+            source.write_bytes(b'{"schema_version":"wangxing_v5_2_rank_policy_v1"}')
+            if target.exists():
+                target.unlink()
+            published = publish_web_rank_policy(source)
+            self.assertEqual(published, target)
+            self.assertTrue(target.is_file())
+            mock_clear.assert_called_once()
+            target.unlink(missing_ok=True)
+            source.unlink(missing_ok=True)
 
     def test_patch_skips_when_assets_unavailable(self) -> None:
         payload = {

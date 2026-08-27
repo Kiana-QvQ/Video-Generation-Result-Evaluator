@@ -16,6 +16,7 @@ Contract:
 
 from __future__ import annotations
 
+import os
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -30,7 +31,10 @@ from wangxing_project.v5_flags import (
     v5_display_cascade_enabled,
 )
 
+WEB_V53_RANK_POLICY = "outputs/forensics/wangxing_v5_3_web_rank_policy.json"
 WEB_V52_RANK_POLICY_CANDIDATES = (
+    WEB_V53_RANK_POLICY,
+    "outputs/forensics/wangxing_v5_2_rank_policy_overnight.json",
     "outputs/vedio_pred/wangxing_v5_2_results/rank_policy_validated.json",
     "outputs/forensics/wangxing_v5_2_rank_policy.json",
 )
@@ -58,6 +62,47 @@ def _first_existing_path(candidates: tuple[str, ...]) -> Path | None:
     return None
 
 
+def resolve_web_rank_policy_path() -> Path | None:
+    """Pick the best available RankHead policy for the public web UI."""
+    override = os.environ.get("V5_WEB_RANK_POLICY")
+    if override and str(override).strip():
+        path = project_path(str(override).strip())
+        if path.is_file():
+            return path
+    return _first_existing_path(WEB_V52_RANK_POLICY_CANDIDATES)
+
+
+def publish_web_rank_policy(source: str | Path) -> Path:
+    """Copy a validated rank policy to the stable web runtime path."""
+    source_path = Path(source)
+    if not source_path.is_file():
+        source_path = project_path(str(source))
+    if not source_path.is_file():
+        raise FileNotFoundError(f"Rank policy source not found: {source}")
+    target_path = project_path(WEB_V53_RANK_POLICY)
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    target_path.write_bytes(source_path.read_bytes())
+    clear_web_v52_context_cache()
+    return target_path
+
+
+def v53_web_display_status() -> dict[str, Any]:
+    rank_policy_path = resolve_web_rank_policy_path()
+    return {
+        "schema_version": "wangxing_v5_3_web_display_status_v1",
+        "display_cascade_enabled": v5_display_cascade_enabled(),
+        "content_gate_enabled": v5_3_content_gate_enabled(),
+        "assets_ready": v52_web_assets_available(),
+        "rank_policy_path": (
+            str(rank_policy_path) if rank_policy_path is not None else None
+        ),
+        "gate_policy_path": str(project_path(WEB_V53_GATE_POLICY)),
+        "display_conclusion_threshold": WEB_DISPLAY_REAL_CONCLUSION_THRESHOLD,
+        "filename_label_inference": False,
+        "role_anchor_applied": False,
+    }
+
+
 def v52_web_assets_available() -> bool:
     return (
         project_path(WEB_V52_V3_MODEL).is_file()
@@ -79,7 +124,7 @@ def _load_web_v52_context() -> dict[str, Any] | None:
     calibrator = load_calibrator(project_path(WEB_V52_CALIBRATOR))
     if calibrator is None:
         return None
-    rank_policy_path = _first_existing_path(WEB_V52_RANK_POLICY_CANDIDATES)
+    rank_policy_path = resolve_web_rank_policy_path()
     rank_policy = (
         load_rank_policy_v52(rank_policy_path)
         if rank_policy_path is not None
@@ -94,6 +139,7 @@ def _load_web_v52_context() -> dict[str, Any] | None:
         "drive_model": drive_model,
         "cache_dir": project_path(WEB_V52_CACHE_DIR),
         "rank_policy": rank_policy,
+        "rank_policy_path": rank_policy_path,
     }
 
 
@@ -111,6 +157,8 @@ def _binary_decision_from_display_score(score_display: float) -> str:
 def apply_v52_forensics_display(
     forensics: dict[str, Any],
     v5: dict[str, Any],
+    *,
+    rank_policy_path: Path | str | None = None,
 ) -> dict[str, Any]:
     """Patch legacy forensics payload consumed by ``web/app.js``."""
     decision = str(v5.get("decision") or "generated")
@@ -175,6 +223,9 @@ def apply_v52_forensics_display(
         "content_gate_enabled": v5.get("content_gate_enabled", False),
         "content_gate_applied": v5.get("content_gate_applied", False),
         "fallback_reason": v5.get("fallback_reason"),
+        "rank_policy_path": (
+            str(rank_policy_path) if rank_policy_path is not None else None
+        ),
         "filename_label_inference": False,
         "role_anchor_applied": False,
     }
@@ -283,7 +334,15 @@ def patch_wangxing_au_forensics_for_v52(
         return payload
     if not isinstance(v5, dict):
         return payload
-    apply_v52_forensics_display(forensics, v5)
+    context = _load_web_v52_context()
+    rank_policy_path = (
+        context.get("rank_policy_path") if isinstance(context, dict) else None
+    )
+    apply_v52_forensics_display(
+        forensics,
+        v5,
+        rank_policy_path=rank_policy_path,
+    )
     payload["forensics"] = forensics
     payload["wangxing_v5"] = {
         "schema_version": "wangxing_v5_3_result_v1",
@@ -304,7 +363,15 @@ def resync_result_forensics_from_v5(result: dict[str, Any]) -> None:
         return
     if str(v5.get("status") or "") == "unavailable":
         return
-    apply_v52_forensics_display(forensics, v5)
+    context = _load_web_v52_context()
+    rank_policy_path = (
+        context.get("rank_policy_path") if isinstance(context, dict) else None
+    )
+    apply_v52_forensics_display(
+        forensics,
+        v5,
+        rank_policy_path=rank_policy_path,
+    )
     wangxing["forensics"] = forensics
     result["wangxing_au"] = wangxing
     result["wangxing_v5"] = v5

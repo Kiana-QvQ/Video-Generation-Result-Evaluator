@@ -61,9 +61,21 @@ try {
         } `
         -LogPath $LogPath
 
+    Write-Log "[V5.3 overnight 2b/2] Publishing web rank policy..." Cyan
+    $Python = Join-Path $ProjectRoot ".venv\Scripts\python.exe"
+    Invoke-PythonChecked -Python $Python -Stage "publish web rank policy" -ArgumentList @(
+        "scripts\web_forensics\publish_wangxing_v53_web_rank_policy.py",
+        "--source", $RankPolicyOvernight
+    ) -OnLine {
+        param($Line)
+        Add-Content -LiteralPath $LogPath -Value $Line -Encoding UTF8
+        Write-Host $Line
+    }
+
     Write-Log "[V5.3 overnight] Done." Green
     Write-Log "Brief: $OutputRoot\leadership_brief.json" Yellow
     Write-Log "Same-prompt: outputs\forensics\wangxing_v5_3_same_prompt_results_overnight\leadership_brief.json" Yellow
+    Write-Log "Web rank policy: outputs\forensics\wangxing_v5_3_web_rank_policy.json" Yellow
     Write-Log "Log: $LogFile" Yellow
 }
 catch {

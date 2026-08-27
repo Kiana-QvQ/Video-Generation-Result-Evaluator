@@ -663,8 +663,8 @@ Frame Audit / 视频评估网页
     }
     if v5_on:
         print(
-            "王兴展示分:   V5.2 默认已启用"
-            "（真实拍摄概率=score_display；结论=V3）"
+            "王兴展示分:   V5.3 已启用"
+            "（真实拍摄概率=score_display；取证结论跟展示分≥0.75）"
         )
     else:
         print(

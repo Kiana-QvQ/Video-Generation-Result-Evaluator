@@ -2803,6 +2803,7 @@ def download_public_showcase_file(
 @app.get("/api/models")
 def models() -> dict[str, Any]:
     from wangxing_project.v5_flags import v5_runtime_flags
+    from wangxing_project.web_forensics_display import v53_web_display_status
 
     policy = resolve_policy("auto")
     return {
@@ -2812,6 +2813,7 @@ def models() -> dict[str, Any]:
         "hardware_policy": policy.to_dict(),
         "wangxing_au": _wangxing_au_status(),
         "wangxing_v5_flags": v5_runtime_flags(),
+        "wangxing_v53_web_display": v53_web_display_status(),
     }
 
 
