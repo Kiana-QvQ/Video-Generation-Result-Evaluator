@@ -10,3 +10,7 @@ The documentation is grouped by purpose:
 - `99_assets`: Evaluation images and example manifests.
 
 The online web service remains on the legacy V3/Wang Xing path by default.
+
+The Wang Xing V5.3 workstream is temporarily archived as of 2026-08-27:
+existing code, models, data, reports and runnable evaluation entry points are
+retained; no further V5.3 iteration is planned in the short term.
