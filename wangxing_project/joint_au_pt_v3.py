@@ -973,7 +973,7 @@ def evaluate_holdout_v3(
     samples: list[tuple[int, str, dict[str, Any]]] = []
     for item in holdout.get("real", []):
         samples.append((0, "real", item))
-    for item in holdout.get("seedance", []):
+    for item in holdout.get("seedance", holdout.get("fake", [])):
         samples.append((1, "generated", item))
     rows: list[dict[str, Any]] = []
     labels: list[int] = []

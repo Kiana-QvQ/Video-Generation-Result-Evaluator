@@ -799,11 +799,36 @@ def score_source_profile(
             "uncertainty_reasons": ["source_profile_unavailable"],
         }
 
-    real_score = scores.get("real_wangxing", {}).get("score_0_1", 0.0)
-    generated_score = scores.get(
-        "generated_wangxing",
-        {},
-    ).get("score_0_1", 0.0)
+    real_key = next(
+        (
+            key
+            for key in ("real_wangxing", "real_xiaoyue", "real")
+            if key in scores
+        ),
+        None,
+    )
+    generated_key = next(
+        (
+            key
+            for key in (
+                "generated_wangxing",
+                "generated_xiaoyue",
+                "generated",
+            )
+            if key in scores
+        ),
+        None,
+    )
+    real_score = (
+        scores.get(real_key, {}).get("score_0_1", 0.0)
+        if real_key
+        else 0.0
+    )
+    generated_score = (
+        scores.get(generated_key, {}).get("score_0_1", 0.0)
+        if generated_key
+        else 0.0
+    )
     total = real_score + generated_score
     generated_probability = generated_score / total if total > 1e-8 else 0.5
     margin = abs(real_score - generated_score)
@@ -816,11 +841,11 @@ def score_source_profile(
         decision = "uncertain"
         source_type = "uncertain"
     elif generated_score > real_score:
-        decision = "generated_wangxing"
-        source_type = "generated_wangxing"
+        decision = f"generated_{str(profile.get('subject') or 'wangxing')}"
+        source_type = generated_key or "generated"
     else:
-        decision = "real_wangxing"
-        source_type = "real_wangxing"
+        decision = f"real_{str(profile.get('subject') or 'wangxing')}"
+        source_type = real_key or "real"
     return {
         "status": "available",
         "decision": decision,
@@ -1188,6 +1213,7 @@ def build_identity_profile(
     device: str = "cpu",
     max_frames: int = 8,
     limit: int | None = None,
+    subject: str = "wangxing",
 ) -> dict[str, Any]:
     """Build an open-set identity profile from videos without manual labels."""
     from ..core.holistic_evaluator import _FaceDetector, _IdentityBackend
@@ -1206,9 +1232,11 @@ def build_identity_profile(
     backend = _IdentityBackend(_FaceDetector(), device=device)
     records: list[dict[str, Any]] = []
     failures: list[dict[str, str]] = []
+    real_label = f"{subject}_real"
+    generated_label = f"{subject}_generated"
     for label, paths in (
-        ("wangxing_real", real_paths),
-        ("wangxing_generated", generated_paths),
+        (real_label, real_paths),
+        (generated_label, generated_paths),
         ("negative", negative_paths),
     ):
         for path in paths:
@@ -1222,15 +1250,17 @@ def build_identity_profile(
                 continue
             records.append(record)
 
-    real_records = [record for record in records if record["label"] == "wangxing_real"]
+    real_records = [
+        record for record in records if record["label"] == real_label
+    ]
     generated_records = [
-        record for record in records if record["label"] == "wangxing_generated"
+        record for record in records if record["label"] == generated_label
     ]
     negative_records = [record for record in records if record["label"] == "negative"]
     if not real_records or not generated_records or not negative_records:
         raise ValueError(
-            "Identity profile needs real Wang Xing, generated Wang Xing and "
-            "negative video embeddings."
+            f"Identity profile needs real {subject}, generated {subject} "
+            "and negative video embeddings."
         )
 
     real_prototype = _profile_prototype(real_records)
@@ -1308,9 +1338,14 @@ def build_identity_profile(
         ),
     )
     profile = {
-        "schema_version": IDENTITY_PROFILE_SCHEMA,
+        "schema_version": (
+            IDENTITY_PROFILE_SCHEMA
+            if subject == "wangxing"
+            else f"{subject}_identity_profile_v2"
+        ),
         "specialization_schema": SPECIALIZATION_SCHEMA,
         "evaluator_version": SPECIALIZATION_EVALUATOR_VERSION,
+        "subject": subject,
         "backend": backend.backend,
         "identity_feature_names": list(IDENTITY_FEATURE_NAMES),
         "real_prototype": real_prototype.tolist(),
@@ -1492,18 +1527,19 @@ def evaluate_identity_profile(
             0.5,
         )
     )
+    subject = str(profile.get("subject") or "wangxing")
     if reasons:
         decision = "uncertain"
     elif (
         scores["probability_0_1"] >= positive_probability_floor
         and scores["gap"] >= positive_floor
     ):
-        decision = "wangxing"
+        decision = subject
     elif (
         scores["probability_0_1"] <= negative_probability_ceiling
         and scores["gap"] <= negative_ceiling
     ):
-        decision = "not_wangxing"
+        decision = f"not_{subject}"
     else:
         decision = "uncertain"
         reasons.append("identity_margin_small")
@@ -1659,7 +1695,7 @@ def score_expression_profile(
         "expression_class_uncertain": bool(margin < 0.05),
         "expected_profile": expected_class,
         "compatibility_basis": (
-            "max_similarity_to_real_wangxing_expression_support_domain"
+            "max_similarity_to_real_expression_support_domain"
         ),
         "event_statistics": quality["event_statistics"],
         "quality": quality,
@@ -1695,7 +1731,8 @@ def evaluate_specialization(
         max_frames=max_identity_frames,
     )
     expression: dict[str, Any]
-    if identity["decision"] == "wangxing":
+    subject = str(identity_profile.get("subject") or "wangxing")
+    if identity["decision"] == subject:
         expression = score_expression_profile(
             au_path,
             expression_profile,
@@ -1734,14 +1771,14 @@ def evaluate_specialization(
                 "reason": "source_profile_missing",
                 "path": str(source_path),
             }
-    if identity["decision"] == "not_wangxing":
-        final_decision = "not_wangxing"
+    if identity["decision"] == f"not_{subject}":
+        final_decision = f"not_{subject}"
     elif identity["decision"] == "uncertain":
         final_decision = "uncertain_identity"
     elif expression["decision"] == "compatible":
-        final_decision = "wangxing_expression_compatible"
+        final_decision = f"{subject}_expression_compatible"
     elif expression["decision"] == "incompatible":
-        final_decision = "wangxing_expression_incompatible"
+        final_decision = f"{subject}_expression_incompatible"
     else:
         final_decision = "uncertain_expression"
 
@@ -1754,10 +1791,10 @@ def evaluate_specialization(
         "source": source,
         "decision": final_decision,
         "decision_policy": (
-            "Identity is gated before expression compatibility. Non-Wang Xing "
+            f"Identity is gated before expression compatibility. Non-{subject} "
             "or uncertain identity does not receive an expression conclusion."
         ),
-        "scope": "wangxing_specialization_only",
+        "scope": f"{subject}_specialization_only",
         "normal_evaluation_unchanged": True,
         "sources": {
             "identity_profile": str(identity_profile_path),

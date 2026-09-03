@@ -62,6 +62,7 @@ from evaluator.modules.wangxing.authenticity_score import (
     apply_weighted_authenticity,
     load_policy,
 )
+from wangxing_project.xiaoyue_face_manifold import score_face_manifold
 
 
 WEB_DIR = PROJECT_ROOT / "web"
@@ -143,6 +144,10 @@ WANGXING_AUTHENTICITY_POLICY_PATH = PROJECT_ROOT / (
     )
 )
 WANGXING_AU_CACHE_ROOT = OUTPUT_DIR / "au_cache"
+XIAOYUE_FACE_PROFILE_PATH = PROJECT_ROOT / (
+    "outputs/xiaoyue/experiment_7x7_face_v2/"
+    "xiaoyue_face_manifold_profile.json"
+)
 
 
 def _resolve_web_forensics_profile() -> Path:
@@ -172,6 +177,7 @@ GENERATED_REPORT_FILES = {
     "frame_metrics.csv",
     "result.json",
     "wangxing_au_result.json",
+    "xiaoyue_face_result.json",
 }
 
 WEB_RUNS_DIR.mkdir(parents=True, exist_ok=True)
@@ -218,6 +224,10 @@ class JobUpdate(BaseModel):
     manual_aesthetic_score: float | None = Field(default=None, ge=1, le=5)
     wangxing_au_enabled: bool | None = None
     wangxing_expected_class: str | None = None
+    specialization_mode: Literal[
+        "wangxing_v3",
+        "xiaoyue_face_v2",
+    ] | None = None
 
 
 @asynccontextmanager
@@ -519,6 +529,7 @@ def _result_downloads(job: dict[str, Any]) -> dict[str, str]:
         "frame_csv": "frame_metrics.csv",
         "result_json": "result.json",
         "wangxing_au_json": "wangxing_au_result.json",
+        "xiaoyue_face_json": "xiaoyue_face_result.json",
     }
     return {
         key: _file_url(run_id, run_dir / filename)
@@ -593,6 +604,37 @@ def _wangxing_au_status() -> dict[str, Any]:
     }
 
 
+def _normalize_specialization_mode(value: str | None) -> str:
+    normalized = str(value or "wangxing_v3").strip().lower()
+    if normalized not in {"wangxing_v3", "xiaoyue_face_v2"}:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "specialization_mode must be wangxing_v3 or "
+                "xiaoyue_face_v2."
+            ),
+        )
+    return normalized
+
+
+def _xiaoyue_face_status() -> dict[str, Any]:
+    ready = XIAOYUE_FACE_PROFILE_PATH.is_file()
+    return {
+        "ready": ready,
+        "mode": "xiaoyue_face_v2",
+        "profile": str(XIAOYUE_FACE_PROFILE_PATH),
+        "profile_exists": ready,
+        "note": (
+            "晓月面部/口型主导 profile 已就绪。"
+            if ready
+            else (
+                "请先运行晓月面部流形 V2 流水线，生成 "
+                "xiaoyue_face_manifold_profile.json。"
+            )
+        ),
+    }
+
+
 def _run_forensics_assessment(
     *,
     result_path: Path,
@@ -628,6 +670,177 @@ def _run_forensics_assessment(
             "status": "unavailable",
             "reason": f"真实性取证评分失败：{exc}",
         }
+
+
+@serialized_evaluation
+def _run_xiaoyue_face_assessment(
+    *,
+    result_path: Path,
+    device: str,
+    run_dir: Path,
+) -> dict[str, Any]:
+    """Evaluate one uploaded video with the isolated XiaoYue face profile."""
+    status = _xiaoyue_face_status()
+    if not status["ready"]:
+        return {
+            "status": "unavailable",
+            "mode": "xiaoyue_face_v2",
+            "reason": status["note"],
+        }
+
+    au_root = run_dir / "xiaoyue_face_au"
+    cache_path = run_dir / "xiaoyue_face_features.npz"
+    failure_log = run_dir / "xiaoyue_face_au_failures.json"
+    try:
+        au_device = resolve_policy(device).resolved_device
+    except Exception as exc:
+        return {
+            "status": "unavailable",
+            "mode": "xiaoyue_face_v2",
+            "reason": f"晓月推理设备不可用：{exc}",
+            "error_type": type(exc).__name__,
+        }
+    command = [
+        sys.executable,
+        str(PROJECT_ROOT / "scripts/au/extract_libreface_au.py"),
+        "--input",
+        str(result_path),
+        "--output-root",
+        str(au_root),
+        "--device",
+        str(au_device),
+        "--batch-size",
+        "32",
+        "--num-workers",
+        "0",
+        "--face-fallback",
+        "insightface",
+        "--normalize-input-first",
+        "--force",
+        "--continue-on-error",
+        "--failure-log",
+        str(failure_log),
+    ]
+    environment = os.environ.copy()
+    environment["PYTHONIOENCODING"] = "utf-8"
+    environment["PYTHONUTF8"] = "1"
+    try:
+        subprocess.run(
+            command,
+            cwd=PROJECT_ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            env=environment,
+        )
+    except (subprocess.CalledProcessError, OSError) as exc:
+        diagnostics = ""
+        if isinstance(exc, subprocess.CalledProcessError):
+            diagnostics = "\n".join(
+                value for value in (exc.stdout, exc.stderr) if value
+            ).strip()
+        return {
+            "status": "unavailable",
+            "mode": "xiaoyue_face_v2",
+            "reason": (
+                "晓月 AU 提取失败，请检查 LibreFace、ffmpeg 和输入视频格式。"
+            ),
+            "error_type": type(exc).__name__,
+            "diagnostics": diagnostics[-2000:],
+        }
+
+    au_candidates = sorted(au_root.rglob("*.csv"))
+    if not au_candidates:
+        return {
+            "status": "unavailable",
+            "mode": "xiaoyue_face_v2",
+            "reason": (
+                "晓月 AU 提取未生成 CSV，请确认视频包含清晰、可追踪的人脸。"
+            ),
+        }
+    au_path = au_candidates[0].resolve()
+    sample = {
+        "video": str(result_path.resolve()),
+        "au": str(au_path),
+        "label_generated": 0,
+        "sample_id": result_path.stem,
+        "group_id": "web_runtime",
+    }
+    manifest = {
+        "pairs": {
+            "test": {
+                "real": [sample],
+                "fake": [],
+            }
+        }
+    }
+    try:
+        profile = json.loads(
+            XIAOYUE_FACE_PROFILE_PATH.read_text(encoding="utf-8-sig")
+        )
+        scored = score_face_manifold(
+            manifest=manifest,
+            profile=profile,
+            cache_path=cache_path,
+        )
+        row = scored.get("rows", [{}])[0]
+    except Exception as exc:
+        return {
+            "status": "unavailable",
+            "mode": "xiaoyue_face_v2",
+            "reason": f"晓月面部评分失败：{exc}",
+            "error_type": type(exc).__name__,
+        }
+    return {
+        "schema_version": "xiaoyue_face_real_manifold_v2_web_result",
+        "status": "available",
+        "mode": "xiaoyue_face_v2",
+        "decision": row.get("prediction"),
+        "prediction": row.get("prediction"),
+        "generated_probability": row.get("generated_probability"),
+        "real_probability": row.get("real_probability"),
+        "classification_generated_probability": row.get(
+            "classification_generated_probability"
+        ),
+        "classification_real_probability": row.get(
+            "classification_real_probability"
+        ),
+        "ranking_real_probability": row.get("ranking_real_probability"),
+        "ranking_generated_probability": row.get(
+            "ranking_generated_probability"
+        ),
+        "display_real_probability": row.get("display_real_probability"),
+        "realness_score_0_100": row.get("realness_score_0_100"),
+        "display_score_0_100": row.get("display_score_0_100"),
+        "real_manifold_anomaly": row.get("real_manifold_anomaly"),
+        "ranking_anomaly": row.get("ranking_anomaly"),
+        "face_anomaly": row.get("face_anomaly"),
+        "mouth_anomaly": row.get("mouth_anomaly"),
+        "face_naturalness_score_0_100": row.get(
+            "face_naturalness_score_0_100"
+        ),
+        "mouth_naturalness_score_0_100": row.get(
+            "mouth_naturalness_score_0_100"
+        ),
+        "mouth_residual_naturalness_0_1": row.get(
+            "mouth_residual_naturalness_0_1"
+        ),
+        "mouth_flicker_naturalness_0_1": row.get(
+            "mouth_flicker_naturalness_0_1"
+        ),
+        "mouth_continuity_0_1": row.get("mouth_continuity_0_1"),
+        "threshold": row.get("threshold"),
+        "ranking_threshold": row.get("ranking_threshold"),
+        "geometry_valid_ratio": row.get("geometry_valid_ratio"),
+        "mouth_quality_ratio": row.get("mouth_quality_ratio"),
+        "mouth_priority": True,
+        "feature_policy": profile.get("feature_policy", {}),
+        "profile_path": str(XIAOYUE_FACE_PROFILE_PATH),
+        "au_path": str(au_path),
+        "cache_path": str(cache_path),
+    }
 
 
 @serialized_evaluation
@@ -815,6 +1028,33 @@ def _run_wangxing_au_assessment(
             "reason": "未生成王兴专项报告。",
             "error_type": type(exc).__name__,
         }
+
+
+def _run_selected_specialization(
+    *,
+    mode: str,
+    result_path: Path,
+    reference_image_paths: list[Path],
+    expected_class: str | None,
+    device: str,
+    run_dir: Path,
+    prompt_text: str | None,
+) -> dict[str, Any]:
+    normalized_mode = _normalize_specialization_mode(mode)
+    if normalized_mode == "xiaoyue_face_v2":
+        return _run_xiaoyue_face_assessment(
+            result_path=result_path,
+            device=device,
+            run_dir=run_dir,
+        )
+    return _run_wangxing_au_assessment(
+        result_path=result_path,
+        reference_image_paths=reference_image_paths,
+        expected_class=expected_class,
+        device=device,
+        run_dir=run_dir,
+        prompt_text=prompt_text,
+    )
 
 
 def _finite_score(value: Any) -> float | None:
@@ -1372,7 +1612,11 @@ def _estimate_job_seconds(job: dict[str, Any]) -> float:
     if files.get("reference_images"):
         estimate += min(8.0, 2.0 * len(files["reference_images"]))
     if bool(parameters.get("wangxing_au_enabled", False)):
-        estimate += 20.0
+        estimate += (
+            24.0
+            if parameters.get("specialization_mode") == "xiaoyue_face_v2"
+            else 20.0
+        )
     if parameters.get("prompt_text"):
         estimate += 4.0
     return round(max(1.0, estimate), 1)
@@ -2146,6 +2390,12 @@ def _result_payload(
             run_id,
             wangxing_au_path,
         )
+    xiaoyue_face_path = _job_dir(run_id) / "xiaoyue_face_result.json"
+    if xiaoyue_face_path.is_file():
+        downloads["xiaoyue_face_json"] = _file_url(
+            run_id,
+            xiaoyue_face_path,
+        )
     payload = {
         "run_id": run_id,
         "result": _sanitize_public_result_for_v5_flags(result),
@@ -2198,6 +2448,7 @@ def _prepare_job(
     manual_aesthetic_score: str,
     wangxing_au_enabled: bool,
     wangxing_expected_class: str,
+    specialization_mode: str,
 ) -> dict[str, Any]:
     _validate_evaluation_request(result_video, max_frames, device)
     _validate_upload_count(
@@ -2221,6 +2472,9 @@ def _prepare_job(
         "manual_aesthetic_score",
     )
     expected_class = _normalize_wangxing_class(wangxing_expected_class)
+    normalized_specialization_mode = _normalize_specialization_mode(
+        specialization_mode
+    )
     requested_name = name.strip() if isinstance(name, str) else ""
     display_name = requested_name or Path(
         result_video.filename or "result video"
@@ -2324,6 +2578,7 @@ def _prepare_job(
         "manual_aesthetic_score": aesthetic_score,
         "wangxing_au_enabled": wangxing_au_enabled,
         "wangxing_expected_class": expected_class or "auto",
+        "specialization_mode": normalized_specialization_mode,
     }
     created_at = _now_iso()
     job = {
@@ -2376,37 +2631,67 @@ def _execute_job(job_id: str) -> None:
             vbench_output_root=_job_dir(job_id),
         )
         if bool(parameters.get("wangxing_au_enabled", False)):
-            _update_job_state(
-                job_id,
-                stage="wangxing_au",
-                progress=0.72,
+            selected_mode = _normalize_specialization_mode(
+                str(parameters.get("specialization_mode", "wangxing_v3"))
             )
-            expected_class = _normalize_wangxing_class(
-                str(parameters.get("wangxing_expected_class", "auto"))
-            )
-            # V5.2 display patches legacy forensics slots inside wangxing_au.
-            wangxing_au = _run_wangxing_au_assessment(
-                result_path=result_path,
-                reference_image_paths=reference_paths,
-                expected_class=expected_class,
-                device=str(parameters.get("device", "auto")),
-                run_dir=_job_dir(job_id),
-                prompt_text=parameters.get("prompt_text"),
-            )
-            result["wangxing_au"] = wangxing_au
-            if isinstance(wangxing_au.get("wangxing_v5"), dict):
-                result["wangxing_v5"] = wangxing_au["wangxing_v5"]
+            if selected_mode == "xiaoyue_face_v2":
+                _update_job_state(
+                    job_id,
+                    stage="xiaoyue_face",
+                    progress=0.72,
+                )
+                xiaoyue_face = _run_xiaoyue_face_assessment(
+                    result_path=result_path,
+                    device=str(parameters.get("device", "auto")),
+                    run_dir=_job_dir(job_id),
+                )
+                result["xiaoyue_face"] = xiaoyue_face
+                result["wangxing_au"] = {
+                    "status": "not_applicable",
+                    "scope": "xiaoyue_face_specialization_only",
+                    "reason": "晓月专项已选择，未运行王兴专项。",
+                }
+                (_job_dir(job_id) / "xiaoyue_face_result.json").write_text(
+                    json.dumps(
+                        _json_safe(xiaoyue_face),
+                        ensure_ascii=False,
+                        indent=2,
+                    ),
+                    encoding="utf-8",
+                )
             else:
-                result.pop("wangxing_v5", None)
-            _attach_wangxing_evidence(
-                result,
-                wangxing_au=wangxing_au,
-                prompt_text=parameters.get("prompt_text"),
-                driver_source=None,
-            )
-            _apply_wangxing_authenticity_score(result)
-            # Weighted authenticity must not overwrite V5.2 display slots.
-            resync_result_forensics_from_v5(result)
+                _update_job_state(
+                    job_id,
+                    stage="wangxing_au",
+                    progress=0.72,
+                )
+                expected_class = _normalize_wangxing_class(
+                    str(parameters.get("wangxing_expected_class", "auto"))
+                )
+                # V5.2 display patches legacy forensics slots inside wangxing_au.
+                wangxing_au = _run_wangxing_au_assessment(
+                    result_path=result_path,
+                    reference_image_paths=reference_paths,
+                    expected_class=expected_class,
+                    device=str(parameters.get("device", "auto")),
+                    run_dir=_job_dir(job_id),
+                    prompt_text=parameters.get("prompt_text"),
+                )
+                result["wangxing_au"] = wangxing_au
+                result.pop("xiaoyue_face", None)
+                if isinstance(wangxing_au.get("wangxing_v5"), dict):
+                    result["wangxing_v5"] = wangxing_au["wangxing_v5"]
+                else:
+                    result.pop("wangxing_v5", None)
+                _attach_wangxing_evidence(
+                    result,
+                    wangxing_au=wangxing_au,
+                    prompt_text=parameters.get("prompt_text"),
+                    driver_source=None,
+                )
+                _apply_wangxing_authenticity_score(result)
+                # Weighted authenticity must not overwrite V5.2 display slots.
+                resync_result_forensics_from_v5(result)
         else:
             result["wangxing_au"] = {
                 "status": "not_applicable",
@@ -2416,6 +2701,7 @@ def _execute_job(job_id: str) -> None:
                     "Generic evaluation is unaffected."
                 ),
             }
+            result.pop("xiaoyue_face", None)
         result["web_run_id"] = job_id
         result["result_video"] = probe_video(result_path).to_dict()
         if gt_path:
@@ -2812,6 +3098,7 @@ def models() -> dict[str, Any]:
         "recommendation": get_model_recommendation(policy.vram_gb),
         "hardware_policy": policy.to_dict(),
         "wangxing_au": _wangxing_au_status(),
+        "xiaoyue_face": _xiaoyue_face_status(),
         "wangxing_v5_flags": v5_runtime_flags(),
         "wangxing_v53_web_display": v53_web_display_status(),
     }
@@ -2839,6 +3126,7 @@ def create_job(
     manual_aesthetic_score: str = Form(""),
     wangxing_au_enabled: bool = Form(False),
     wangxing_expected_class: str = Form("auto"),
+    specialization_mode: str = Form("wangxing_v3"),
 ) -> JSONResponse:
     client_ip = _client_ip(request)
     normalized_reuse_job_id = (
@@ -2882,6 +3170,7 @@ def create_job(
             manual_aesthetic_score=manual_aesthetic_score,
             wangxing_au_enabled=wangxing_au_enabled,
             wangxing_expected_class=wangxing_expected_class,
+            specialization_mode=specialization_mode,
         )
         with JOB_LOCK:
             _write_job(job)
@@ -3068,6 +3357,7 @@ def update_job(
                 "manual_aesthetic_score",
                 "wangxing_au_enabled",
                 "wangxing_expected_class",
+                "specialization_mode",
             }
             for field_name in update.model_fields_set & parameter_fields:
                 value = getattr(update, field_name)
@@ -3083,8 +3373,11 @@ def update_job(
                 "summary.csv",
                 "frame_metrics.csv",
                 "wangxing_au_result.json",
+                "xiaoyue_face_result.json",
             ):
                 (run_dir / output_name).unlink(missing_ok=True)
+            (run_dir / "xiaoyue_face_features.npz").unlink(missing_ok=True)
+            shutil.rmtree(run_dir / "xiaoyue_face_au", ignore_errors=True)
             shutil.rmtree(run_dir / "wangxing_au", ignore_errors=True)
             now = _now_iso()
             job.update(
@@ -3232,6 +3525,7 @@ def evaluate(
     manual_aesthetic_score: str = Form(""),
     wangxing_au_enabled: bool = Form(False),
     wangxing_expected_class: str = Form("auto"),
+    specialization_mode: str = Form("wangxing_v3"),
 ) -> JSONResponse:
     client_ip = _client_ip(request)
     _validate_upload_count(
@@ -3247,6 +3541,7 @@ def evaluate(
         raise HTTPException(status_code=422, detail="max_frames must be between 2 and 256.")
     if device not in {"cpu", "auto", "cuda"}:
         raise HTTPException(status_code=422, detail="Unsupported inference device.")
+    _normalize_specialization_mode(specialization_mode)
 
     run_id = (
         datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -3338,29 +3633,52 @@ def evaluate(
                 detail=f"Input videos cannot be evaluated: {exc}",
             ) from exc
         if wangxing_au_enabled:
-            wangxing_au = _run_wangxing_au_assessment(
-                result_path=result_path,
-                reference_image_paths=uploaded["reference_images"],
-                expected_class=_normalize_wangxing_class(
-                    wangxing_expected_class
-                ),
-                device=device,
-                run_dir=run_dir,
-                prompt_text=prompt or None,
-            )
-            result["wangxing_au"] = wangxing_au
-            if isinstance(wangxing_au.get("wangxing_v5"), dict):
-                result["wangxing_v5"] = wangxing_au["wangxing_v5"]
+            selected_mode = _normalize_specialization_mode(specialization_mode)
+            if selected_mode == "xiaoyue_face_v2":
+                xiaoyue_face = _run_xiaoyue_face_assessment(
+                    result_path=result_path,
+                    device=device,
+                    run_dir=run_dir,
+                )
+                result["xiaoyue_face"] = xiaoyue_face
+                result["wangxing_au"] = {
+                    "status": "not_applicable",
+                    "scope": "xiaoyue_face_specialization_only",
+                    "reason": "晓月专项已选择，未运行王兴专项。",
+                }
+                (run_dir / "xiaoyue_face_result.json").write_text(
+                    json.dumps(
+                        _json_safe(xiaoyue_face),
+                        ensure_ascii=False,
+                        indent=2,
+                    ),
+                    encoding="utf-8",
+                )
             else:
-                result.pop("wangxing_v5", None)
-            _attach_wangxing_evidence(
-                result,
-                wangxing_au=wangxing_au,
-                prompt_text=prompt or None,
-                driver_source=None,
-            )
-            _apply_wangxing_authenticity_score(result)
-            resync_result_forensics_from_v5(result)
+                wangxing_au = _run_wangxing_au_assessment(
+                    result_path=result_path,
+                    reference_image_paths=uploaded["reference_images"],
+                    expected_class=_normalize_wangxing_class(
+                        wangxing_expected_class
+                    ),
+                    device=device,
+                    run_dir=run_dir,
+                    prompt_text=prompt or None,
+                )
+                result["wangxing_au"] = wangxing_au
+                result.pop("xiaoyue_face", None)
+                if isinstance(wangxing_au.get("wangxing_v5"), dict):
+                    result["wangxing_v5"] = wangxing_au["wangxing_v5"]
+                else:
+                    result.pop("wangxing_v5", None)
+                _attach_wangxing_evidence(
+                    result,
+                    wangxing_au=wangxing_au,
+                    prompt_text=prompt or None,
+                    driver_source=None,
+                )
+                _apply_wangxing_authenticity_score(result)
+                resync_result_forensics_from_v5(result)
         else:
             result["wangxing_au"] = {
                 "status": "not_applicable",
@@ -3370,6 +3688,7 @@ def evaluate(
                     "Generic evaluation is unaffected."
                 ),
             }
+            result.pop("xiaoyue_face", None)
         result["web_run_id"] = run_id
         result["result_video"] = probe_video(result_path).to_dict()
         if uploaded["gt_video"]:

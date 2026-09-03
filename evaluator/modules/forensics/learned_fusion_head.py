@@ -80,8 +80,26 @@ def extract_fusion_feature_dict(
     wx_real = _finite(wangxing.get("real_probability_0_1"), 0.5)
     wx_gen = _finite(wangxing.get("generated_probability_0_1"), 0.5)
     wx_margin = _finite(wangxing.get("margin_0_1"), abs(wx_real - wx_gen))
-    wx_real_blob = wx_scores.get("real_wangxing") or {}
-    wx_gen_blob = wx_scores.get("generated_wangxing") or {}
+    wx_real_blob = next(
+        (
+            wx_scores.get(key) or {}
+            for key in ("real_wangxing", "real_xiaoyue", "real")
+            if key in wx_scores
+        ),
+        {},
+    )
+    wx_gen_blob = next(
+        (
+            wx_scores.get(key) or {}
+            for key in (
+                "generated_wangxing",
+                "generated_xiaoyue",
+                "generated",
+            )
+            if key in wx_scores
+        ),
+        {},
+    )
 
     motion_profile = forensics_profiles.get("facial_motion") or {}
     motion = score_facial_motion(au_path, motion_profile)

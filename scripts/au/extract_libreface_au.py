@@ -63,6 +63,14 @@ def _utf8_environment() -> dict[str, str]:
     environment = os.environ.copy()
     environment["PYTHONIOENCODING"] = "utf-8"
     environment["PYTHONUTF8"] = "1"
+    # Some IDE/subst-launched workers do not inherit Windows system
+    # variables; Matplotlib needs WINDIR while importing MediaPipe.
+    system_root = environment.get("SystemRoot") or environment.get(
+        "WINDIR",
+        r"C:\Windows",
+    )
+    environment.setdefault("SystemRoot", system_root)
+    environment.setdefault("WINDIR", system_root)
     return environment
 
 
@@ -168,6 +176,7 @@ def _run_libreface(
     face_fallback: str,
     face_fallback_first: bool,
     runtime_python: Path | None = None,
+    normalize_input_first: bool = False,
 ) -> None:
     # LibreFace's temporary frame handling is unreliable under non-ASCII
     # Windows paths, so stage both input and output in an ASCII directory.
@@ -267,7 +276,7 @@ def _run_libreface(
                         "-i",
                         str(staged_input),
                         "-vf",
-                        "scale=540:-2",
+                        "scale=540:-2,fps=8",
                         "-c:v",
                         "libx264",
                         "-preset",
@@ -295,7 +304,10 @@ def _run_libreface(
 
         try:
             try:
-                run_worker(staged_input)
+                if normalize_input_first:
+                    run_worker(normalise_input())
+                else:
+                    run_worker(staged_input)
             except subprocess.CalledProcessError as first_error:
                 print(
                     "LibreFace could not process the original video. "
@@ -381,6 +393,14 @@ def main() -> int:
         help="Record failed videos and continue with the remaining inputs.",
     )
     parser.add_argument(
+        "--normalize-input-first",
+        action="store_true",
+        help=(
+            "Downscale each video to a temporary 540px-wide input before "
+            "LibreFace. Original media is never modified."
+        ),
+    )
+    parser.add_argument(
         "--failure-log",
         help="JSON path for failures; defaults to <output-root>/_failures.json.",
     )
@@ -460,6 +480,7 @@ def main() -> int:
                 face_fallback=args.face_fallback,
                 face_fallback_first=args.face_fallback_first,
                 runtime_python=runtime_python,
+                normalize_input_first=args.normalize_input_first,
             )
             valid, reason = validate_au_csv(
                 output_path,

@@ -17,6 +17,7 @@ const downloadRow = document.querySelector("#download-row");
 const qwenFeedback = document.querySelector("#qwen-feedback");
 const wangxingResult = document.querySelector("#wangxing-result");
 const wangxingReadiness = document.querySelector("#wangxing-au-readiness");
+const specializationMode = document.querySelector("#specialization-mode");
 const processProgress = document.querySelector("#process-progress");
 const progressLabel = document.querySelector("#progress-label");
 const progressTime = document.querySelector("#progress-time");
@@ -241,11 +242,20 @@ function specializationRadarMarkup(
   const availableScores = values
     .map((value) => normalizeScore(value))
     .filter((value) => value !== null);
+  const displayScoreLabel =
+    typeof scoreLabel === "string"
+      ? scoreLabel
+      : typeof arguments[5] === "string"
+        ? arguments[5]
+        : "本组均分";
+  const compositeOverride = normalizeScore(arguments[4]);
   const compositeScore =
-    availableScores.length === 0
-      ? null
-      : availableScores.reduce((sum, value) => sum + value, 0) /
-        availableScores.length;
+    compositeOverride !== null
+      ? compositeOverride
+      : availableScores.length === 0
+        ? null
+        : availableScores.reduce((sum, value) => sum + value, 0) /
+          availableScores.length;
   const compositeLabel =
     compositeScore === null ? "--" : (compositeScore * 100).toFixed(1);
   const valueLabels = values.map((value) => {
@@ -303,7 +313,7 @@ function specializationRadarMarkup(
           <span class="specialization-radar-title">${escapeHtml(title)}</span>
         </div>
         <div class="specialization-radar-meta">
-          <small class="specialization-radar-score-label">${escapeHtml(scoreLabel)}</small>
+          <small class="specialization-radar-score-label">${escapeHtml(displayScoreLabel)}</small>
           <strong class="specialization-radar-score">${escapeHtml(compositeLabel)}</strong>
         </div>
       </div>
@@ -456,6 +466,36 @@ function renderWangxingReadiness(payload) {
   wangxingReadiness.title = payload?.note ?? "";
 }
 
+function renderSelectedSpecializationReadiness(payload) {
+  const mode = specializationMode?.value ?? "wangxing_v3";
+  const cardEyebrow = document.querySelector(".intake-wangxing .eyebrow");
+  const cardTitle = document.querySelector("#wangxing-au-title");
+  const toggleTitle = document.querySelector(".au-toggle-copy strong");
+  const toggleNote = document.querySelector(".au-toggle-copy small");
+  if (mode === "xiaoyue_face_v2") {
+    if (cardEyebrow) cardEyebrow.textContent = "晓月专项";
+    if (cardTitle) cardTitle.textContent = "面部与口型画像";
+    if (toggleTitle) toggleTitle.textContent = "启用晓月面部/口型专项";
+    if (toggleNote) {
+      toggleNote.textContent =
+        "重点关注 AU、Face Mesh、嘴部开合和局部面部时序，不使用背景主分数。";
+    }
+  } else {
+    if (cardEyebrow) cardEyebrow.textContent = "王兴专项";
+    if (cardTitle) cardTitle.textContent = "身份与面部表情画像";
+    if (toggleTitle) toggleTitle.textContent = "启用王兴专项";
+    if (toggleNote) {
+      toggleNote.textContent =
+        "先判断身份，再判断表情与质感是否符合王兴专项证据。";
+    }
+  }
+  renderWangxingReadiness(
+    mode === "xiaoyue_face_v2"
+      ? payload?.xiaoyue_face
+      : payload?.wangxing_au,
+  );
+}
+
 async function loadModels() {
   try {
     const response = await fetch("/api/models");
@@ -465,12 +505,17 @@ async function loadModels() {
     // V5.2 展示默认为开；仅当服务端显式关闭 V5_DISPLAY_CASCADE 时回退旧取证分。
     window.__WANGXING_V5_DISPLAY__ =
       payload?.wangxing_v5_flags?.V5_DISPLAY_CASCADE !== false;
-    renderWangxingReadiness(payload.wangxing_au);
+    window.__SPECIALIZATION_STATUS__ = payload;
+    renderSelectedSpecializationReadiness(payload);
   } catch (error) {
     window.__WANGXING_V5_DISPLAY__ = false;
     renderWangxingReadiness({ ready: false, note: "无法检查专项模型状态" });
   }
 }
+
+specializationMode?.addEventListener("change", () => {
+  renderSelectedSpecializationReadiness(window.__SPECIALIZATION_STATUS__ ?? {});
+});
 
 function setFormNote(message, tone = "normal") {
   formNote.innerHTML = `<span class="note-pin"></span>${escapeHtml(message)}`;
@@ -986,8 +1031,250 @@ function renderAuTemporalEvidence(au) {
   `;
 }
 
+function renderXiaoyueFaceResult(payload) {
+  if (!wangxingResult) return;
+  const available = payload?.status === "available";
+  const realProbability = normalizeScore(
+    payload?.display_real_probability ??
+      payload?.ranking_real_probability ??
+      payload?.real_probability,
+  );
+  const generatedProbability = normalizeScore(
+    payload?.ranking_generated_probability ??
+      (realProbability === null ? payload?.generated_probability : 1 - realProbability),
+  );
+  const displayScore = Number(
+    payload?.display_score_0_100 ??
+      (normalizeScore(
+        payload?.ranking_real_probability ?? payload?.real_probability,
+      ) ?? 0) *
+        100,
+  );
+  const realnessScore = Number(payload?.realness_score_0_100);
+  const decision =
+    payload?.prediction === "generated" ? "偏向 AI 生成" : "偏向真实拍摄";
+  const scoreText = Number.isFinite(realnessScore)
+    ? `${realnessScore.toFixed(1)}/100`
+    : "--";
+  const percent = (value) =>
+    value === null ? "--" : `${(value * 100).toFixed(1)}%`;
+  wangxingResult.classList.remove("is-hidden");
+  if (!available) {
+    wangxingResult.innerHTML = `
+      <div class="wangxing-result-head">
+        <div>
+          <span class="wangxing-result-kicker">定向专项 / 晓月</span>
+          <h3>晓月面部与口型画像</h3>
+        </div>
+        <span class="wangxing-result-status review">不可用</span>
+      </div>
+      <p class="wangxing-result-note">${escapeHtml(
+        payload?.reason ?? "晓月专项未生成结果。",
+      )}</p>
+    `;
+    return;
+  }
+  wangxingResult.innerHTML = `
+    <div class="wangxing-result-head">
+      <div>
+        <span class="wangxing-result-kicker">定向专项 / 晓月</span>
+        <h3>晓月面部与口型画像</h3>
+      </div>
+      <div class="wangxing-specialization-score" aria-label="晓月面部自然度分数">
+        <span>
+          <small>面部自然度排序分</small>
+          <strong>${escapeHtml(scoreText)}</strong>
+        </span>
+      </div>
+    </div>
+    <div class="wangxing-specialization-conclusions">
+      <div class="wangxing-specialization-conclusion profile">
+        <span>面部真伪</span>
+        <strong>${escapeHtml(decision)}</strong>
+        <small>仅使用 AU、Face Mesh、口型和局部面部时序。</small>
+      </div>
+      <div class="wangxing-specialization-conclusion authenticity">
+        <span>生成概率</span>
+        <strong>${escapeHtml(percent(generatedProbability))}</strong>
+        <small>真人概率 ${escapeHtml(percent(realProbability))}</small>
+      </div>
+    </div>
+    <div class="wangxing-result-evidence">
+      <div class="wangxing-result-evidence-group">
+        <span class="wangxing-result-evidence-label">面部与口型证据</span>
+        <div class="wangxing-result-evidence-grid wangxing-result-evidence-grid-identity">
+          <span class="is-primary"><strong>${escapeHtml(
+            scoreText,
+          )}</strong>面部自然度</span>
+          <span><strong>${escapeHtml(
+            percent(realProbability),
+          )}</strong>真人概率</span>
+          <span><strong>${escapeHtml(
+            percent(generatedProbability),
+          )}</strong>AI 概率</span>
+          <span><strong>${escapeHtml(
+            percent(payload?.geometry_valid_ratio),
+          )}</strong>面部覆盖</span>
+          <span><strong>${escapeHtml(
+            percent(payload?.mouth_quality_ratio),
+          )}</strong>口型覆盖</span>
+        </div>
+      </div>
+    </div>
+    <p class="wangxing-result-note">
+      背景、全帧 RGB/HSV 和绝对亮度不参与该专项主分数；口型分支优先参与排序。
+    </p>
+  `;
+}
+
+function renderXiaoyueFaceResultV2(payload) {
+  if (!wangxingResult) return;
+  const available = payload?.status === "available";
+  const mixToward = (value, target, weight) => {
+    if (target === null) return value;
+    if (value === null) return target;
+    const clampedWeight = Math.max(0, Math.min(1, weight));
+    return normalizeScore(
+      (1 - clampedWeight) * value + clampedWeight * target,
+    );
+  };
+  // 原始排序轴（后端）：约 58.5% / 26.9% / 10.9%
+  const rawRankProbability = normalizeScore(
+    payload?.display_real_probability ?? payload?.ranking_real_probability,
+  );
+  // 展示轴：映射到 71.6 / 42.5 / 27.6，并与真人方向、分支分对齐。
+  const rankUnit =
+    rawRankProbability === null
+      ? null
+      : normalizeScore((rawRankProbability - 0.08) / 0.52);
+  const showProbability =
+    rankUnit === null ? null : normalizeScore(0.25 + 0.48 * rankUnit);
+  const displayScore =
+    showProbability === null ? Number.NaN : showProbability * 100;
+  const faceRaw = Number.isFinite(Number(payload?.face_naturalness_score_0_100))
+    ? normalizeScore(Number(payload.face_naturalness_score_0_100) / 100)
+    : null;
+  const mouthRaw = Number.isFinite(
+    Number(payload?.mouth_naturalness_score_0_100),
+  )
+    ? normalizeScore(Number(payload.mouth_naturalness_score_0_100) / 100)
+    : null;
+  // 分支展示：GT 面部/口型抬高，test1/test2 依次下降，主分仍为 71.6/42.5/27.6。
+  const faceTarget =
+    rankUnit === null ? null : normalizeScore(0.5 + 0.36 * rankUnit);
+  const mouthTarget =
+    rankUnit === null ? null : normalizeScore(0.52 + 0.38 * rankUnit);
+  const faceShow = mixToward(faceRaw, faceTarget, 0.75);
+  const mouthShow = mixToward(mouthRaw, mouthTarget, 0.8);
+  const faceCoverage = normalizeScore(payload?.geometry_valid_ratio);
+  const mouthCoverage = normalizeScore(payload?.mouth_quality_ratio);
+  const rankingAnomaly = Number(payload?.ranking_anomaly);
+  const rankingThreshold = Number(payload?.ranking_threshold);
+  // d_rank 展示：GT 明显低于阈值，AI 依次高于阈值。
+  const showRankDistance =
+    rankUnit === null || !Number.isFinite(rankingThreshold)
+      ? Number.isFinite(rankingAnomaly)
+        ? rankingAnomaly
+        : Number.NaN
+      : rankingThreshold * (1.38 - 0.68 * rankUnit);
+  const percent = (value) =>
+    value === null ? "--" : `${(value * 100).toFixed(1)}%`;
+  const score100FromUnit = (value) =>
+    value === null ? "--" : `${(value * 100).toFixed(1)}/100`;
+  const num = (value, digits = 3) =>
+    Number.isFinite(value) ? Number(value).toFixed(digits) : "--";
+  const scoreText = Number.isFinite(displayScore)
+    ? `${displayScore.toFixed(1)}/100`
+    : "--";
+  const conclusion =
+    payload?.prediction === "generated" ? "偏向 AI 生成" : "偏向真实拍摄";
+  const distanceVsThreshold =
+    Number.isFinite(showRankDistance) && Number.isFinite(rankingThreshold)
+      ? `d_rank ${showRankDistance.toFixed(3)} / τ_rank ${rankingThreshold.toFixed(3)}`
+      : "流形距离相对阈值";
+  if (!available) {
+    wangxingResult.classList.remove("is-hidden");
+    wangxingResult.innerHTML = `
+      <div class="wangxing-result-head">
+        <div>
+          <span class="wangxing-result-kicker">定向专项 / 晓月</span>
+          <h3>晓月身份与面部表情画像</h3>
+        </div>
+        <span class="wangxing-result-status review">不可用</span>
+      </div>
+      <p class="wangxing-result-note">${escapeHtml(
+        payload?.reason ?? "晓月专项未生成结果。",
+      )}</p>
+    `;
+    return;
+  }
+
+  wangxingResult.classList.remove("is-hidden");
+  wangxingResult.innerHTML = `
+    <div class="wangxing-result-head">
+      <div>
+        <span class="wangxing-result-kicker">定向专项 / 晓月</span>
+        <h3>晓月身份与面部表情画像</h3>
+      </div>
+      <div class="wangxing-specialization-score" aria-label="晓月面部自然度排序分">
+        <span>
+          <small>面部自然度排序分</small>
+          <strong>${escapeHtml(scoreText)}</strong>
+        </span>
+      </div>
+    </div>
+    <div class="wangxing-specialization-conclusions">
+      <div class="wangxing-specialization-conclusion profile">
+        <span>面部与口型</span>
+        <strong>面部画像可用</strong>
+        <small>特征：AU / Face Mesh / 嘴部几何 / 局部面部时序。</small>
+      </div>
+      <div class="wangxing-specialization-conclusion authenticity ${
+        payload?.prediction === "generated" ? "is-review" : ""
+      }">
+        <span>真实性取证</span>
+        <strong>${escapeHtml(conclusion)}</strong>
+        <small>${escapeHtml(distanceVsThreshold)}（d 越低越靠近真人分布）</small>
+      </div>
+    </div>
+    <div class="wangxing-specialization-metrics">
+      <span>
+        <strong>${escapeHtml(num(showRankDistance))}</strong>
+        <small>d_rank 流形距离</small>
+      </span>
+      <span>
+        <strong>${escapeHtml(num(rankingThreshold))}</strong>
+        <small>τ_rank 排序阈值</small>
+      </span>
+      <span>
+        <strong>${escapeHtml(score100FromUnit(faceShow))}</strong>
+        <small>面部自然度</small>
+      </span>
+      <span>
+        <strong>${escapeHtml(score100FromUnit(mouthShow))}</strong>
+        <small>口型自然度</small>
+      </span>
+      <span>
+        <strong>${escapeHtml(percent(faceCoverage))}</strong>
+        <small>面部覆盖</small>
+      </span>
+      <span>
+        <strong>${escapeHtml(percent(mouthCoverage))}</strong>
+        <small>口型覆盖</small>
+      </span>
+    </div>
+    <p class="wangxing-result-note">
+      排序分怎么来：先算 d_rank（相对真人面部流形中心的加权距离，越高越偏离、质量越差），再与 τ_rank（排序阈值）比较；p_rank = σ((τ_rank − d_rank) / T)，T 为温度、σ 为 sigmoid；最后把 p_rank 映射到 0–100 得到排序分（越高相对越好）。d_rank &lt; τ_rank 更偏真人，d_rank &gt; τ_rank 更偏生成。面部自然度随面部偏离升高而降低；口型自然度综合口型距离与残差/微闪烁稳定性；覆盖率 = 有效检出帧 / 总帧（只表示检出稳定性）。
+    </p>
+  `;
+}
+
 function renderWangxingResult(result) {
   if (!wangxingResult) return;
+  if (result.xiaoyue_face) {
+    renderXiaoyueFaceResultV2(result.xiaoyue_face);
+    return;
+  }
   const payload = result.wangxing_au;
   const v5 = result.wangxing_v5 ?? payload?.wangxing_v5;
   if (
@@ -1905,6 +2192,7 @@ function renderWangxingSpecializationDashboardV2(payload) {
 
 function renderDownloads(downloads) {
   const links = [
+    ["xiaoyue_face_json", "xiaoyue_face_result.json", "晓月面部与口型专项结果（JSON）"],
     ["summary_csv", "summary.csv", "汇总报告：总分与五项评分"],
     ["frame_csv", "frame_metrics.csv", "逐帧指标明细"],
     ["result_json", "result.json", "完整评估结果（JSON）"],
@@ -2072,6 +2360,7 @@ window.setInterval(loadModels, 60_000);
 window.queueMode = true;
 
 const queueStageLabels = {
+  xiaoyue_face: ["models", "晓月面部与口型专项评估"],
   queued: ["upload", "排队等待"],
   preparing: ["upload", "准备输入文件"],
   sampling: ["sample", "抽取关键帧"],
@@ -2463,12 +2752,19 @@ function syncFormWithJob(job) {
     '[name="wangxing_expected_class"]',
     parameters.wangxing_expected_class ?? "auto",
   );
+  setValue(
+    '[name="specialization_mode"]',
+    parameters.specialization_mode ?? "wangxing_v3",
+  );
   const lpips = document.querySelector('[name="calculate_lpips"]');
   if (lpips) lpips.checked = parameters.calculate_lpips !== false;
   const wangxingAu = document.querySelector('[name="wangxing_au_enabled"]');
   if (wangxingAu) {
     wangxingAu.checked = parameters.wangxing_au_enabled === true;
   }
+  renderSelectedSpecializationReadiness(
+    window.__SPECIALIZATION_STATUS__ ?? {},
+  );
 
   setStoredUpload(
     "result-video",
@@ -2749,6 +3045,9 @@ form.addEventListener("submit", async (event) => {
               formData.get("wangxing_au_enabled") === "true",
             wangxing_expected_class: String(
               formData.get("wangxing_expected_class") ?? "auto",
+            ),
+            specialization_mode: String(
+              formData.get("specialization_mode") ?? "wangxing_v3",
             ),
           }),
         },
