@@ -2031,64 +2031,36 @@ function renderWangxingSpecializationDashboardV2(payload) {
   const forensicsFacial = normalizeScore(
     forensicBranches.facial_motion?.metrics?.raw_real_domain_evidence_0_1,
   );
-  const forensicsTexture = normalizeScore(
-    forensicBranches.texture_detail?.metrics?.raw_real_domain_evidence_0_1,
-  );
-  const hasForensics = [
-    forensicsRaw,
-    forensicsProbability,
-    forensicsFacial,
-    forensicsTexture,
-  ].some((value) => value !== null);
   const identityScore = normalizeScore(identity.probability_0_1);
   const consistency = normalizeScore(identity.frame_consistency);
-  const validRatio = normalizeScore(identity.valid_frame_ratio);
-  const qualityWeight = normalizeScore(identity.quality_weight_mean);
-  const negativeProbability = normalizeScore(
-    identity.negative_class_probability_0_1,
-  );
   const compatibility = normalizeScore(expression.compatibility_0_1);
-  const events = expression.event_statistics ?? {};
-  const activeRatio = normalizeScore(events.active_ratio);
-  const longestEventRatio = normalizeScore(events.longest_event_ratio);
   const facialMotionCoherence = normalizeScore(
     forensicBranches.facial_motion?.metrics?.motion_coherence_0_1,
-  );
-  const facialLandmarkCoverage = normalizeScore(
-    forensicBranches.facial_motion?.metrics?.landmark_valid_frame_ratio,
-  );
-  const facialAuRelation = normalizeScore(
-    forensicBranches.facial_motion?.metrics?.au_relation_consistency_0_1,
-  );
-  const facialDynamicsNaturalness = normalizeScore(
-    forensicBranches.facial_motion?.metrics?.au_dynamics_naturalness_0_1,
   );
   const facialTrainingFree = normalizeScore(
     forensicBranches.facial_motion?.metrics?.training_free_motion_prior_0_1,
   );
+  const facialMotionEvidence =
+    forensicsFacial ?? facialTrainingFree ?? facialMotionCoherence;
   const textureStability = normalizeScore(
     forensicBranches.texture_detail?.metrics?.temporal_stability_proxy_0_1,
   );
-  const textureFlicker = normalizeScore(
-    forensicBranches.texture_detail?.metrics?.texture_flicker_0_1,
-  );
-  const textureRealDomainFit = normalizeScore(
-    forensicBranches.texture_detail?.metrics?.real_domain_fit_0_1,
-  );
-  const textureAiDomainFit = normalizeScore(
-    forensicBranches.texture_detail?.metrics?.seedance_domain_fit_0_1,
-  );
-  const textureResidual =
-    textureStability === null ? null : 1 - textureStability;
-  const frequencyNaturalness = normalizeScore(
-    forensicBranches.texture_detail?.metrics?.freq_forensics_score_0_1,
-  );
-  const frequencyAnomaly =
-    frequencyNaturalness === null ? null : 1 - frequencyNaturalness;
   const score100 = (value) => {
     const normalized = normalizeScore(value);
     return normalized === null ? "--" : `${(normalized * 100).toFixed(1)}/100`;
   };
+  const forensicsMetricCards =
+    forensicsRaw !== null || textureStability !== null
+      ? `
+      <span>
+        <strong>${escapeHtml(score100(forensicsRaw))}</strong>
+        <small>原始域证据</small>
+      </span>
+      <span>
+        <strong>${escapeHtml(score100(textureStability))}</strong>
+        <small>纹理时序稳定</small>
+      </span>`
+      : "";
 
   wangxingResult.classList.remove("is-hidden");
   wangxingResult.innerHTML = `
@@ -2118,75 +2090,28 @@ function renderWangxingSpecializationDashboardV2(payload) {
         <small>${escapeHtml(forensicsSummary.detail)}</small>
       </div>
     </div>
-    <div class="wangxing-specialization-radar-grid">
-      ${specializationRadarMarkup(
-        [
-          identityScore,
-          consistency,
-          validRatio,
-          qualityWeight,
-          negativeProbability === null ? null : 1 - negativeProbability,
-        ],
-        [
-          "身份",
-          "一致性",
-          "有效帧",
-          "质量",
-          "正向信号",
-        ],
-        "身份证据",
-        "identity",
-      )}
-      ${specializationRadarMarkup(
-        [
-          compatibility,
-          forensicsFacial ?? facialTrainingFree ?? facialMotionCoherence,
-          facialAuRelation ?? facialMotionCoherence,
-          facialDynamicsNaturalness ?? activeRatio,
-          facialLandmarkCoverage ?? longestEventRatio,
-        ],
-        [
-          "画像贴合",
-          "面部运动",
-          "AU 关系",
-          "动态性",
-          "关键点",
-        ],
-        "表情证据",
-        "expression",
-      )}
-      ${
-        hasForensics
-          ? specializationRadarMarkup(
-              [
-                textureRealDomainFit,
-                textureAiDomainFit,
-                textureFlicker,
-                textureResidual,
-                frequencyAnomaly,
-              ],
-              [
-                "真实域贴合",
-                "AI 域贴合",
-                "时序异常",
-                "纹理残差",
-                "频域异常",
-              ],
-              "真假方向性证据",
-              "forensics",
-              "方向性证据均值",
-            )
-          : ""
-      }
+    <div class="wangxing-specialization-metrics">
+      <span>
+        <strong>${escapeHtml(score100(identityScore))}</strong>
+        <small>身份概率</small>
+      </span>
+      <span>
+        <strong>${escapeHtml(score100(consistency))}</strong>
+        <small>帧一致性</small>
+      </span>
+      <span>
+        <strong>${escapeHtml(score100(compatibility))}</strong>
+        <small>画像贴合</small>
+      </span>
+      <span>
+        <strong>${escapeHtml(score100(facialMotionEvidence))}</strong>
+        <small>面部运动</small>
+      </span>
+      ${forensicsMetricCards}
     </div>
-    <div class="wangxing-specialization-expression-meta">
-      <span><strong>${escapeHtml(expression.selected_profile_display_name ?? "--")}</strong>最接近画像</span>
-      <span><strong>${expression.severe_deviation ? "是" : "否"}</strong>明显漂移</span>
-      <span><strong>${escapeHtml(String(events.event_count ?? "--"))}</strong>个表情事件</span>
-      <span><strong>${escapeHtml(forensicsSummary.scoreLabel)}</strong>${escapeHtml(
-        forensicsSummary.scoreCaption,
-      )}</span>
-    </div>
+    <p class="wangxing-result-note">
+      真实拍摄概率怎么来：由取证分支（面部运动、纹理细节等）融合后做校准，得到 0–1 真实域概率再映射到 0–100（越高越偏真实拍摄）。身份概率衡量是否像王兴；帧一致性衡量跨帧身份稳定。画像贴合衡量表情是否贴近内置王兴参考域；面部运动衡量肌肉/关键点时序是否自然。原始域证据为校准前的真实域强度；纹理时序稳定越高越不易出现闪烁/残差抖动。身份、表情、取证三者独立计分，不加权成一个王兴总分。
+    </p>
   `;
 }
 
