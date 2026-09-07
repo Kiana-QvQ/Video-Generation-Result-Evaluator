@@ -40,7 +40,14 @@ from wangxing_project.joint_au_pt_v3 import (
     _normalize_features,
 )
 
-MODES = ("original", "face_only", "background_only", "low_texture")
+MODES = (
+    "original",
+    "face_only",
+    "background_only",
+    "low_texture",
+    "face_blur",
+    "background_blur",
+)
 
 
 def _finite(value: str | None) -> float | None:
@@ -117,6 +124,18 @@ def _transform(
     if mode == "background_only":
         transformed = frame.copy()
         transformed[y0:y1, x0:x1] = _neutral_canvas(frame)[y0:y1, x0:x1]
+        return transformed, True
+    if mode == "face_blur":
+        transformed = frame.copy()
+        transformed[y0:y1, x0:x1] = cv2.GaussianBlur(
+            frame[y0:y1, x0:x1],
+            (0, 0),
+            sigmaX=5.0,
+        )
+        return transformed, True
+    if mode == "background_blur":
+        transformed = cv2.GaussianBlur(frame, (0, 0), sigmaX=5.0)
+        transformed[y0:y1, x0:x1] = frame[y0:y1, x0:x1]
         return transformed, True
     raise ValueError(f"Unsupported mode: {mode}")
 
@@ -310,11 +329,20 @@ def main() -> int:
         ),
     )
     parser.add_argument("--limit", type=int, default=0)
+    parser.add_argument(
+        "--sample-id",
+        action="append",
+        default=[],
+        help="Repeat to run only named manifest samples.",
+    )
     args = parser.parse_args()
 
     manifest_path = project_path(args.manifest)
     manifest = json.loads(manifest_path.read_text(encoding="utf-8-sig"))
     items = _samples(manifest, manifest_path.parent)
+    if args.sample_id:
+        selected = set(args.sample_id)
+        items = [item for item in items if item["sample_id"] in selected]
     if args.limit > 0:
         items = items[: args.limit]
     checkpoint = torch.load(

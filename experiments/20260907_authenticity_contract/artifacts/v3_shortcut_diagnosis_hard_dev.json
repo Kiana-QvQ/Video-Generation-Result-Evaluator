@@ -1,0 +1,373 @@
+{
+  "schema_version": "v3_shortcut_diagnosis_v1",
+  "manifest": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\dev\\wangxing_hard_cases\\single_video\\manifest.json",
+  "model": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\outputs\\vedio_pred\\models\\wangxing_v3_res1k.pt",
+  "modes": [
+    "original",
+    "face_only",
+    "background_only",
+    "low_texture"
+  ],
+  "sample_count": 12,
+  "rows": [
+    {
+      "sample_id": "ai_01",
+      "label": "ai",
+      "label_generated": 1,
+      "modes": {
+        "original": {
+          "generated_probability": 0.9765440157901878,
+          "prediction": "generated",
+          "face_transform_coverage": 1.0
+        },
+        "face_only": {
+          "generated_probability": 0.976895249669185,
+          "prediction": "generated",
+          "face_transform_coverage": 1.0
+        },
+        "background_only": {
+          "generated_probability": 0.9759370902129139,
+          "prediction": "generated",
+          "face_transform_coverage": 1.0
+        },
+        "low_texture": {
+          "generated_probability": 0.9693193048394613,
+          "prediction": "generated",
+          "face_transform_coverage": 1.0
+        }
+      }
+    },
+    {
+      "sample_id": "ai_02",
+      "label": "ai",
+      "label_generated": 1,
+      "modes": {
+        "original": {
+          "generated_probability": 0.9787240495276843,
+          "prediction": "generated",
+          "face_transform_coverage": 1.0
+        },
+        "face_only": {
+          "generated_probability": 0.977964775783669,
+          "prediction": "generated",
+          "face_transform_coverage": 1.0
+        },
+        "background_only": {
+          "generated_probability": 0.978543940255131,
+          "prediction": "generated",
+          "face_transform_coverage": 1.0
+        },
+        "low_texture": {
+          "generated_probability": 0.9781101783575188,
+          "prediction": "generated",
+          "face_transform_coverage": 1.0
+        }
+      }
+    },
+    {
+      "sample_id": "ai_03",
+      "label": "ai",
+      "label_generated": 1,
+      "modes": {
+        "original": {
+          "generated_probability": 0.9757593573950138,
+          "prediction": "generated",
+          "face_transform_coverage": 1.0
+        },
+        "face_only": {
+          "generated_probability": 0.9757876359340283,
+          "prediction": "generated",
+          "face_transform_coverage": 1.0
+        },
+        "background_only": {
+          "generated_probability": 0.9786477872197201,
+          "prediction": "generated",
+          "face_transform_coverage": 1.0
+        },
+        "low_texture": {
+          "generated_probability": 0.9775967867719315,
+          "prediction": "generated",
+          "face_transform_coverage": 1.0
+        }
+      }
+    },
+    {
+      "sample_id": "ai_04",
+      "label": "ai",
+      "label_generated": 1,
+      "modes": {
+        "original": {
+          "generated_probability": 0.9787168408221816,
+          "prediction": "generated",
+          "face_transform_coverage": 1.0
+        },
+        "face_only": {
+          "generated_probability": 0.9783055532660316,
+          "prediction": "generated",
+          "face_transform_coverage": 1.0
+        },
+        "background_only": {
+          "generated_probability": 0.978649078510842,
+          "prediction": "generated",
+          "face_transform_coverage": 1.0
+        },
+        "low_texture": {
+          "generated_probability": 0.9786223673660575,
+          "prediction": "generated",
+          "face_transform_coverage": 1.0
+        }
+      }
+    },
+    {
+      "sample_id": "ai_05",
+      "label": "ai",
+      "label_generated": 1,
+      "modes": {
+        "original": {
+          "generated_probability": 0.9767702472650431,
+          "prediction": "generated",
+          "face_transform_coverage": 1.0
+        },
+        "face_only": {
+          "generated_probability": 0.9767702472650431,
+          "prediction": "generated",
+          "face_transform_coverage": 0.0
+        },
+        "background_only": {
+          "generated_probability": 0.9767702472650431,
+          "prediction": "generated",
+          "face_transform_coverage": 0.0
+        },
+        "low_texture": {
+          "generated_probability": 0.9782208399960386,
+          "prediction": "generated",
+          "face_transform_coverage": 1.0
+        }
+      }
+    },
+    {
+      "sample_id": "ai_06",
+      "label": "ai",
+      "label_generated": 1,
+      "modes": {
+        "original": {
+          "generated_probability": 0.8777571987784625,
+          "prediction": "generated",
+          "face_transform_coverage": 1.0
+        },
+        "face_only": {
+          "generated_probability": 0.9750869739710962,
+          "prediction": "generated",
+          "face_transform_coverage": 1.0
+        },
+        "background_only": {
+          "generated_probability": 0.9778869266235928,
+          "prediction": "generated",
+          "face_transform_coverage": 1.0
+        },
+        "low_texture": {
+          "generated_probability": 0.9782525448318176,
+          "prediction": "generated",
+          "face_transform_coverage": 1.0
+        }
+      }
+    },
+    {
+      "sample_id": "real_01",
+      "label": "real",
+      "label_generated": 0,
+      "modes": {
+        "original": {
+          "generated_probability": 0.03199440273758717,
+          "prediction": "real",
+          "face_transform_coverage": 1.0
+        },
+        "face_only": {
+          "generated_probability": 0.32037467184226587,
+          "prediction": "real",
+          "face_transform_coverage": 1.0
+        },
+        "background_only": {
+          "generated_probability": 0.03265228519699408,
+          "prediction": "real",
+          "face_transform_coverage": 1.0
+        },
+        "low_texture": {
+          "generated_probability": 0.03198885982921572,
+          "prediction": "real",
+          "face_transform_coverage": 1.0
+        }
+      }
+    },
+    {
+      "sample_id": "real_02",
+      "label": "real",
+      "label_generated": 0,
+      "modes": {
+        "original": {
+          "generated_probability": 0.03226074744600797,
+          "prediction": "real",
+          "face_transform_coverage": 1.0
+        },
+        "face_only": {
+          "generated_probability": 0.03226074744600797,
+          "prediction": "real",
+          "face_transform_coverage": 0.0
+        },
+        "background_only": {
+          "generated_probability": 0.03226074744600797,
+          "prediction": "real",
+          "face_transform_coverage": 0.0
+        },
+        "low_texture": {
+          "generated_probability": 0.032357733111390785,
+          "prediction": "real",
+          "face_transform_coverage": 1.0
+        }
+      }
+    },
+    {
+      "sample_id": "real_03",
+      "label": "real",
+      "label_generated": 0,
+      "modes": {
+        "original": {
+          "generated_probability": 0.034251899037084976,
+          "prediction": "real",
+          "face_transform_coverage": 1.0
+        },
+        "face_only": {
+          "generated_probability": 0.9781352555068124,
+          "prediction": "generated",
+          "face_transform_coverage": 1.0
+        },
+        "background_only": {
+          "generated_probability": 0.032044628669829975,
+          "prediction": "real",
+          "face_transform_coverage": 1.0
+        },
+        "low_texture": {
+          "generated_probability": 0.0321725959587022,
+          "prediction": "real",
+          "face_transform_coverage": 1.0
+        }
+      }
+    },
+    {
+      "sample_id": "real_04",
+      "label": "real",
+      "label_generated": 0,
+      "modes": {
+        "original": {
+          "generated_probability": 0.03318684599188825,
+          "prediction": "real",
+          "face_transform_coverage": 1.0
+        },
+        "face_only": {
+          "generated_probability": 0.03229597330752917,
+          "prediction": "real",
+          "face_transform_coverage": 1.0
+        },
+        "background_only": {
+          "generated_probability": 0.03287507086291789,
+          "prediction": "real",
+          "face_transform_coverage": 1.0
+        },
+        "low_texture": {
+          "generated_probability": 0.03251689309113472,
+          "prediction": "real",
+          "face_transform_coverage": 1.0
+        }
+      }
+    },
+    {
+      "sample_id": "real_05",
+      "label": "real",
+      "label_generated": 0,
+      "modes": {
+        "original": {
+          "generated_probability": 0.032804960342820565,
+          "prediction": "real",
+          "face_transform_coverage": 1.0
+        },
+        "face_only": {
+          "generated_probability": 0.0323846823017443,
+          "prediction": "real",
+          "face_transform_coverage": 1.0
+        },
+        "background_only": {
+          "generated_probability": 0.032802583148807886,
+          "prediction": "real",
+          "face_transform_coverage": 1.0
+        },
+        "low_texture": {
+          "generated_probability": 0.03243642487462141,
+          "prediction": "real",
+          "face_transform_coverage": 1.0
+        }
+      }
+    },
+    {
+      "sample_id": "real_06",
+      "label": "real",
+      "label_generated": 0,
+      "modes": {
+        "original": {
+          "generated_probability": 0.8564577051001043,
+          "prediction": "generated",
+          "face_transform_coverage": 1.0
+        },
+        "face_only": {
+          "generated_probability": 0.9785529736403599,
+          "prediction": "generated",
+          "face_transform_coverage": 1.0
+        },
+        "background_only": {
+          "generated_probability": 0.03144064799808887,
+          "prediction": "real",
+          "face_transform_coverage": 1.0
+        },
+        "low_texture": {
+          "generated_probability": 0.03145168747023201,
+          "prediction": "real",
+          "face_transform_coverage": 1.0
+        }
+      }
+    }
+  ],
+  "summary": {
+    "original": {
+      "mean_delta_p_gen_vs_original": 0.0,
+      "mean_abs_delta_p_gen_vs_original": 0.0,
+      "decision_flip_count_vs_original": 0,
+      "generated_recall": 1.0,
+      "real_recall": 0.8333333333333334,
+      "overall_accuracy": 0.9166666666666666
+    },
+    "face_only": {
+      "mean_delta_p_gen_vs_original": 0.12079887247497552,
+      "mean_abs_delta_p_gen_vs_original": 0.12121249114590897,
+      "decision_flip_count_vs_original": 1,
+      "generated_recall": 1.0,
+      "real_recall": 0.6666666666666666,
+      "overall_accuracy": 0.8333333333333334
+    },
+    "background_only": {
+      "mean_delta_p_gen_vs_original": -0.0603931030686814,
+      "mean_abs_delta_p_gen_vs_original": 0.07767244309022198,
+      "decision_flip_count_vs_original": 1,
+      "generated_recall": 1.0,
+      "real_recall": 1.0,
+      "overall_accuracy": 1.0
+    },
+    "low_texture": {
+      "mean_delta_p_gen_vs_original": -0.06101517114466204,
+      "mean_abs_delta_p_gen_vs_original": 0.07832856344910387,
+      "decision_flip_count_vs_original": 1,
+      "generated_recall": 1.0,
+      "real_recall": 1.0,
+      "overall_accuracy": 1.0
+    }
+  },
+  "interpretation": "Large decision flips or probability shifts after background_only or low_texture indicate dependence on non-face or low-frequency full-frame evidence. This is diagnostic only."
+}
