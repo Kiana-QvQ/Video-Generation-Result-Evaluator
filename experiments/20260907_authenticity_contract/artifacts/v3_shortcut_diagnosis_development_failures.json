@@ -1,0 +1,178 @@
+{
+  "schema_version": "v3_shortcut_diagnosis_v1",
+  "manifest": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\experiments\\20260907_authenticity_contract\\manifests\\v3_development_failures.json",
+  "model": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\outputs\\vedio_pred\\models\\wangxing_v3_res1k.pt",
+  "modes": [
+    "original",
+    "face_only",
+    "background_only",
+    "low_texture",
+    "face_blur",
+    "background_blur"
+  ],
+  "sample_count": 3,
+  "rows": [
+    {
+      "sample_id": "fp_real_beishang01_049090310172",
+      "label": "real",
+      "label_generated": 0,
+      "modes": {
+        "original": {
+          "generated_probability": 0.9764249951840097,
+          "prediction": "generated",
+          "face_transform_coverage": 1.0
+        },
+        "face_only": {
+          "generated_probability": 0.9785378150632612,
+          "prediction": "generated",
+          "face_transform_coverage": 1.0
+        },
+        "background_only": {
+          "generated_probability": 0.0317954419975941,
+          "prediction": "real",
+          "face_transform_coverage": 1.0
+        },
+        "low_texture": {
+          "generated_probability": 0.03180844588075162,
+          "prediction": "real",
+          "face_transform_coverage": 1.0
+        },
+        "face_blur": {
+          "generated_probability": 0.03186444393198227,
+          "prediction": "real",
+          "face_transform_coverage": 1.0
+        },
+        "background_blur": {
+          "generated_probability": 0.9750973324613278,
+          "prediction": "generated",
+          "face_transform_coverage": 1.0
+        }
+      }
+    },
+    {
+      "sample_id": "fp_real_kaixin01_049032710126",
+      "label": "real",
+      "label_generated": 0,
+      "modes": {
+        "original": {
+          "generated_probability": 0.7540527702450353,
+          "prediction": "generated",
+          "face_transform_coverage": 1.0
+        },
+        "face_only": {
+          "generated_probability": 0.7540527702450353,
+          "prediction": "generated",
+          "face_transform_coverage": 0.0
+        },
+        "background_only": {
+          "generated_probability": 0.7540527702450353,
+          "prediction": "generated",
+          "face_transform_coverage": 0.0
+        },
+        "low_texture": {
+          "generated_probability": 0.03237323602551174,
+          "prediction": "real",
+          "face_transform_coverage": 1.0
+        },
+        "face_blur": {
+          "generated_probability": 0.7540527702450353,
+          "prediction": "generated",
+          "face_transform_coverage": 0.0
+        },
+        "background_blur": {
+          "generated_probability": 0.7540527702450353,
+          "prediction": "generated",
+          "face_transform_coverage": 0.0
+        }
+      }
+    },
+    {
+      "sample_id": "fn_ai_seedance_UIFtwobcEB7RosAMxNsLHrFUqurplU9L",
+      "label": "ai",
+      "label_generated": 1,
+      "modes": {
+        "original": {
+          "generated_probability": 0.032551118708252676,
+          "prediction": "real",
+          "face_transform_coverage": 1.0
+        },
+        "face_only": {
+          "generated_probability": 0.12483344670030995,
+          "prediction": "real",
+          "face_transform_coverage": 1.0
+        },
+        "background_only": {
+          "generated_probability": 0.9773720319369732,
+          "prediction": "generated",
+          "face_transform_coverage": 1.0
+        },
+        "low_texture": {
+          "generated_probability": 0.03496113566551665,
+          "prediction": "real",
+          "face_transform_coverage": 1.0
+        },
+        "face_blur": {
+          "generated_probability": 0.9333088248970387,
+          "prediction": "generated",
+          "face_transform_coverage": 1.0
+        },
+        "background_blur": {
+          "generated_probability": 0.04385484707798009,
+          "prediction": "real",
+          "face_transform_coverage": 1.0
+        }
+      }
+    }
+  ],
+  "summary": {
+    "original": {
+      "mean_delta_p_gen_vs_original": 0.0,
+      "mean_abs_delta_p_gen_vs_original": 0.0,
+      "decision_flip_count_vs_original": 0,
+      "generated_recall": 0.0,
+      "real_recall": 0.0,
+      "overall_accuracy": 0.0
+    },
+    "face_only": {
+      "mean_delta_p_gen_vs_original": 0.03146504929043625,
+      "mean_abs_delta_p_gen_vs_original": 0.03146504929043625,
+      "decision_flip_count_vs_original": 0,
+      "generated_recall": 0.0,
+      "real_recall": 0.0,
+      "overall_accuracy": 0.0
+    },
+    "background_only": {
+      "mean_delta_p_gen_vs_original": 6.37866807683037e-05,
+      "mean_abs_delta_p_gen_vs_original": 0.6298168221383788,
+      "decision_flip_count_vs_original": 2,
+      "generated_recall": 1.0,
+      "real_recall": 0.5,
+      "overall_accuracy": 0.6666666666666666
+    },
+    "low_texture": {
+      "mean_delta_p_gen_vs_original": -0.5546286888551725,
+      "mean_abs_delta_p_gen_vs_original": 0.5562353668266818,
+      "decision_flip_count_vs_original": 2,
+      "generated_recall": 0.0,
+      "real_recall": 1.0,
+      "overall_accuracy": 0.6666666666666666
+    },
+    "face_blur": {
+      "mean_delta_p_gen_vs_original": -0.014600948354413798,
+      "mean_abs_delta_p_gen_vs_original": 0.6151060858136045,
+      "decision_flip_count_vs_original": 2,
+      "generated_recall": 1.0,
+      "real_recall": 0.5,
+      "overall_accuracy": 0.6666666666666666
+    },
+    "background_blur": {
+      "mean_delta_p_gen_vs_original": 0.003325355215681831,
+      "mean_abs_delta_p_gen_vs_original": 0.004210463697469778,
+      "decision_flip_count_vs_original": 0,
+      "generated_recall": 0.0,
+      "real_recall": 0.0,
+      "overall_accuracy": 0.0
+    }
+  },
+  "interpretation": "Large decision flips or probability shifts after background_only or low_texture indicate dependence on non-face or low-frequency full-frame evidence. This is diagnostic only."
+}

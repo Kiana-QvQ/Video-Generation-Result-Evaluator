@@ -24,7 +24,6 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from evaluator.modules.core.paths import project_path
-from evaluator.modules.forensics.holdout import resolve_au_csv_for_video
 from wangxing_project.joint_au_pt_v3 import (
     SCALE_A,
     SCALE_B,
@@ -33,7 +32,10 @@ from wangxing_project.joint_au_pt_v3 import (
     _model_from_checkpoint,
     _normalize_features,
 )
-from wangxing_project.joint_au_pt import extract_fusion_features
+from wangxing_project.joint_au_pt import (
+    extract_fusion_features,
+    resolve_au_csv_for_video,
+)
 
 
 def _load_json(path: Path) -> dict[str, Any]:

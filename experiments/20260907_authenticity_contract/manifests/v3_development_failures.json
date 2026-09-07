@@ -1,0 +1,27 @@
+{
+  "schema_version": "v3_development_failure_probe_manifest_v1",
+  "purpose": "Frozen V3 development-holdout error diagnosis only; not a final acceptance set.",
+  "samples": [
+    {
+      "sample_id": "fp_real_beishang01_049090310172",
+      "label": "real",
+      "label_generated": 0,
+      "video": "data/MD_CL/CL_beishang01/049090310172.mp4",
+      "au": "data/au/MD_CL/CL_beishang01/049090310172.csv"
+    },
+    {
+      "sample_id": "fp_real_kaixin01_049032710126",
+      "label": "real",
+      "label_generated": 0,
+      "video": "data/MD_CL/CL_kaixin01/049032710126.mp4",
+      "au": "data/au/MD_CL/CL_kaixin01/049032710126.csv"
+    },
+    {
+      "sample_id": "fn_ai_seedance_UIFtwobcEB7RosAMxNsLHrFUqurplU9L",
+      "label": "ai",
+      "label_generated": 1,
+      "video": "data/WangXing_Seedance/video_UIFtwobcEB7RosAMxNsLHrFUqurplU9L.mp4",
+      "au": "data/au/WangXing_Seedance/video_UIFtwobcEB7RosAMxNsLHrFUqurplU9L.csv"
+    }
+  ]
+}

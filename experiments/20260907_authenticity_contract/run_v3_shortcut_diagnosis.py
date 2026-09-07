@@ -252,6 +252,13 @@ def _load_json(path: str) -> dict[str, Any]:
 
 
 def _samples(manifest: dict[str, Any], root: Path) -> list[dict[str, Any]]:
+    def _input_path(value: str) -> Path:
+        candidate = Path(value)
+        if candidate.is_absolute():
+            return candidate.resolve()
+        local = (root / candidate).resolve()
+        return local if local.is_file() else project_path(candidate).resolve()
+
     rows: list[dict[str, Any]] = []
     for item in manifest.get("samples") or []:
         rows.append(
@@ -259,8 +266,8 @@ def _samples(manifest: dict[str, Any], root: Path) -> list[dict[str, Any]]:
                 "sample_id": str(item.get("sample_id")),
                 "label": str(item.get("label")),
                 "label_generated": int(item.get("label_generated", 0)),
-                "video": (root / str(item["video"])).resolve(),
-                "au": (root / str(item["au"])).resolve(),
+                "video": _input_path(str(item["video"])),
+                "au": _input_path(str(item["au"])),
             }
         )
     return rows
