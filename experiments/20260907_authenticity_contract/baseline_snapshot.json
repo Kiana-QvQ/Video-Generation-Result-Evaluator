@@ -1,0 +1,105 @@
+﻿{
+    "schema_version":  "authenticity_contract_baseline_snapshot_v1",
+    "created_at_utc":  "2026-09-07T07:41:37.8924815Z",
+    "git_head":  "e8da6cdbf7149290ffe0446f25eca7bafef7f671",
+    "git_status_short":  [
+                             "?? experiments/"
+                         ],
+    "baseline_runtime":  {
+                             "binary_decision":  "existing production path; do not modify during experiments",
+                             "candidate_rule":  "candidate artifacts remain isolated until frozen acceptance passes"
+                         },
+    "files":  [
+                  {
+                      "path":  "outputs/vedio_pred/models/wangxing_v3_res1k.pt",
+                      "exists":  true,
+                      "bytes":  991442,
+                      "last_write_time_utc":  "2026-08-19T14:57:01.7036187Z",
+                      "sha256":  "8ad93c4b5c6ebeec1cf39e4b8f142e7e262f8449319aa14178d03a3aca5b9067"
+                  },
+                  {
+                      "path":  "outputs/vedio_pred/models/wangxing_v5_drive.json",
+                      "exists":  true,
+                      "bytes":  273607,
+                      "last_write_time_utc":  "2026-08-24T03:54:05.1792476Z",
+                      "sha256":  "5b3cbae875f06b18d273cfbd31718dda4b55e35410d80b34e61f8d2c8e9ff041"
+                  },
+                  {
+                      "path":  "outputs/forensics/wangxing_v5_realness_calibrator.json",
+                      "exists":  true,
+                      "bytes":  5545,
+                      "last_write_time_utc":  "2026-08-24T10:59:19.3716870Z",
+                      "sha256":  "7d4a379a8b5870138059319acfb7d914e1108fab58be7e9c3f5cd75ddc48789c"
+                  },
+                  {
+                      "path":  "outputs/forensics/wangxing_v5_3_display_gate.json",
+                      "exists":  true,
+                      "bytes":  634,
+                      "last_write_time_utc":  "2026-08-26T11:20:57.7082991Z",
+                      "sha256":  "ff4f4e18d16896bc50af0fa625e7c70cd4bb5b9666f8b5b736ed07c73733180f"
+                  },
+                  {
+                      "path":  "outputs/forensics/wangxing_v5_web_results/25x25/summary.json",
+                      "exists":  true,
+                      "bytes":  469,
+                      "last_write_time_utc":  "2026-08-24T06:08:32.7738747Z",
+                      "sha256":  "1e6891adde6e089081a525429c863ae728e07b436f0d8a67aced89c5d58b221e"
+                  },
+                  {
+                      "path":  "outputs/forensics/wangxing_v5_web_results/32x32/summary.json",
+                      "exists":  true,
+                      "bytes":  452,
+                      "last_write_time_utc":  "2026-08-24T07:31:53.2660887Z",
+                      "sha256":  "9cb3d4db2ba6bba4f680ab47ee70dbaa4ce916927ec181c520db66e5550cc30b"
+                  },
+                  {
+                      "path":  "outputs/vedio_pred/wangxing_v5_hard_dev/hard-dev_metrics.json",
+                      "exists":  true,
+                      "bytes":  28300,
+                      "last_write_time_utc":  "2026-08-24T07:54:46.7734025Z",
+                      "sha256":  "3da443178a70f726f0375d8254509ef94eb239a6d5c5d6db0be3b0753b161e19"
+                  },
+                  {
+                      "path":  "outputs/forensics/wangxing_v5_3_runtime_results_overnight/summary.json",
+                      "exists":  true,
+                      "bytes":  2270,
+                      "last_write_time_utc":  "2026-08-26T11:37:33.9225340Z",
+                      "sha256":  "2675714b7f97e2723afccc23a0fae1dfc1b1603a2571a61e70d0440c91bd9e6a"
+                  },
+                  {
+                      "path":  "outputs/xiaoyue/experiment_7x7_face_v2/xiaoyue_face_manifold_profile.json",
+                      "exists":  true,
+                      "bytes":  83985,
+                      "last_write_time_utc":  "2026-09-02T07:34:02.7070948Z",
+                      "sha256":  "99e3ee673f1fd73bfda5fc9e84a91dfb508c9a32cd551adfab8f20d657551eb1"
+                  },
+                  {
+                      "path":  "outputs/xiaoyue/experiment_7x7_face_v2/xiaoyue_face_manifold_v2_metrics.json",
+                      "exists":  true,
+                      "bytes":  4251,
+                      "last_write_time_utc":  "2026-09-02T07:34:02.7210956Z",
+                      "sha256":  "b25231ee7438ec063e333a2f9fb0c7333d6550c3484e3c9d54c9986a591a0a0c"
+                  },
+                  {
+                      "path":  "data/test/single_video/manifest.json",
+                      "exists":  true,
+                      "bytes":  22874,
+                      "last_write_time_utc":  "2026-08-18T10:16:56.6279152Z",
+                      "sha256":  "f059a538f869baca090d67c4d60d74c1bc029c6277bee5c4f8188306d363450c"
+                  },
+                  {
+                      "path":  "data/test/wangxing_32x32/single_video/manifest.json",
+                      "exists":  true,
+                      "bytes":  35896,
+                      "last_write_time_utc":  "2026-08-20T08:05:59.3243062Z",
+                      "sha256":  "980d49d910831efa293da8e459b0284ec66193a3b8632c04e2cb258186317cec"
+                  },
+                  {
+                      "path":  "data/dev/wangxing_hard_cases/single_video/manifest.json",
+                      "exists":  true,
+                      "bytes":  8422,
+                      "last_write_time_utc":  "2026-08-20T08:06:01.9507503Z",
+                      "sha256":  "e696fc6e5fd5c1ac2866e14f7e3a0f3c4d612990451d0388d0b3d188fbbd20c3"
+                  }
+              ]
+}

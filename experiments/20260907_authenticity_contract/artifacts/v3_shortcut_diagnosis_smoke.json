@@ -1,0 +1,76 @@
+{
+  "schema_version": "v3_shortcut_diagnosis_v1",
+  "manifest": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\data\\dev\\wangxing_hard_cases\\single_video\\manifest.json",
+  "model": "D:\\Pycharm2023.21\\project\\视频生成模型结果的评估器\\outputs\\vedio_pred\\models\\wangxing_v3_res1k.pt",
+  "modes": [
+    "original",
+    "face_only",
+    "background_only",
+    "low_texture"
+  ],
+  "sample_count": 1,
+  "rows": [
+    {
+      "sample_id": "ai_01",
+      "label": "ai",
+      "label_generated": 1,
+      "modes": {
+        "original": {
+          "generated_probability": 0.9765440157901878,
+          "prediction": "generated",
+          "face_transform_coverage": 1.0
+        },
+        "face_only": {
+          "generated_probability": 0.976895249669185,
+          "prediction": "generated",
+          "face_transform_coverage": 1.0
+        },
+        "background_only": {
+          "generated_probability": 0.9759370902129139,
+          "prediction": "generated",
+          "face_transform_coverage": 1.0
+        },
+        "low_texture": {
+          "generated_probability": 0.9693193048394613,
+          "prediction": "generated",
+          "face_transform_coverage": 1.0
+        }
+      }
+    }
+  ],
+  "summary": {
+    "original": {
+      "mean_delta_p_gen_vs_original": 0.0,
+      "mean_abs_delta_p_gen_vs_original": 0.0,
+      "decision_flip_count_vs_original": 0,
+      "generated_recall": 1.0,
+      "real_recall": null,
+      "overall_accuracy": 1.0
+    },
+    "face_only": {
+      "mean_delta_p_gen_vs_original": 0.0003512338789971592,
+      "mean_abs_delta_p_gen_vs_original": 0.0003512338789971592,
+      "decision_flip_count_vs_original": 0,
+      "generated_recall": 1.0,
+      "real_recall": null,
+      "overall_accuracy": 1.0
+    },
+    "background_only": {
+      "mean_delta_p_gen_vs_original": -0.0006069255772739313,
+      "mean_abs_delta_p_gen_vs_original": 0.0006069255772739313,
+      "decision_flip_count_vs_original": 0,
+      "generated_recall": 1.0,
+      "real_recall": null,
+      "overall_accuracy": 1.0
+    },
+    "low_texture": {
+      "mean_delta_p_gen_vs_original": -0.007224710950726521,
+      "mean_abs_delta_p_gen_vs_original": 0.007224710950726521,
+      "decision_flip_count_vs_original": 0,
+      "generated_recall": 1.0,
+      "real_recall": null,
+      "overall_accuracy": 1.0
+    }
+  },
+  "interpretation": "Large decision flips or probability shifts after background_only or low_texture indicate dependence on non-face or low-frequency full-frame evidence. This is diagnostic only."
+}
