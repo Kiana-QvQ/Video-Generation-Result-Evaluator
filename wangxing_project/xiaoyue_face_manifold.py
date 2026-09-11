@@ -190,6 +190,10 @@ def fit_face_manifold(
     manifest: dict[str, Any],
     cache_path: Path,
     output_path: Path,
+    subject: str = "xiaoyue",
+    model_type: str = MODEL_TYPE,
+    minimum_real_bank: int = 20,
+    expected_ai_train: int | None = 6,
 ) -> dict[str, Any]:
     bank = _bank_items(manifest)
     ai_train = [
@@ -197,10 +201,14 @@ def fit_face_manifold(
         for item in _train_items(manifest)
         if int(item.get("label_generated", 0)) == 1
     ]
-    if len(bank) < 20 or len(ai_train) != 6:
+    if len(bank) < int(minimum_real_bank):
         raise ValueError(
-            f"Expected at least 20 real bank items and 6 AI items, got "
-            f"{len(bank)} and {len(ai_train)}."
+            f"Expected at least {minimum_real_bank} real bank items, got "
+            f"{len(bank)}."
+        )
+    if expected_ai_train is not None and len(ai_train) != int(expected_ai_train):
+        raise ValueError(
+            f"Expected {expected_ai_train} AI items, got {len(ai_train)}."
         )
     fit_manifest = {
         "pairs": {
@@ -252,9 +260,13 @@ def fit_face_manifold(
         ranking_ai_scores,
     )
     payload = {
-        "schema_version": "xiaoyue_face_real_manifold_v2_profile",
-        "subject": "xiaoyue",
-        "model_type": MODEL_TYPE,
+        "schema_version": (
+            "xiaoyue_face_real_manifold_v2_profile"
+            if subject == "xiaoyue" and model_type == MODEL_TYPE
+            else f"{subject}_face_real_manifold_v1_profile"
+        ),
+        "subject": subject,
+        "model_type": model_type,
         "center": center.tolist(),
         "scale": scale.tolist(),
         "weights": weights.tolist(),
@@ -320,6 +332,8 @@ def score_face_manifold(
     manifest: dict[str, Any],
     profile: dict[str, Any],
     cache_path: Path,
+    subject: str | None = None,
+    model_type: str | None = None,
 ) -> dict[str, Any]:
     items = _test_items(manifest)
     table = build_feature_table(
@@ -464,9 +478,20 @@ def score_face_manifold(
     fp = int(((y == 0) & (p == 1)).sum())
     fn = int(((y == 1) & (p == 0)).sum())
     return {
-        "schema_version": "xiaoyue_face_real_manifold_v2_evaluation",
-        "subject": "xiaoyue",
-        "model_type": MODEL_TYPE,
+        "schema_version": (
+            "xiaoyue_face_real_manifold_v2_evaluation"
+            if (
+                (subject or profile.get("subject", "xiaoyue")) == "xiaoyue"
+                and (model_type or profile.get("model_type", MODEL_TYPE))
+                == MODEL_TYPE
+            )
+            else (
+                f"{subject or profile.get('subject', 'xiaoyue')}"
+                "_face_real_manifold_v1_evaluation"
+            )
+        ),
+        "subject": subject or str(profile.get("subject", "xiaoyue")),
+        "model_type": model_type or str(profile.get("model_type", MODEL_TYPE)),
         "headline": {
             "generated_recall": tp / (tp + fn) if tp + fn else None,
             "overall_accuracy": (tp + tn) / len(y) if len(y) else None,
@@ -490,7 +515,7 @@ def save_pt_checkpoint(profile: dict[str, Any], output_path: Path) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     torch.save(
         {
-            "model_type": MODEL_TYPE,
+            "model_type": profile.get("model_type", MODEL_TYPE),
             "profile": profile,
             "feature_policy": profile.get("feature_policy", {}),
         },

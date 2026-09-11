@@ -63,6 +63,13 @@ from evaluator.modules.wangxing.authenticity_score import (
     load_policy,
 )
 from wangxing_project.xiaoyue_face_manifold import score_face_manifold
+from wangxing_project.zijie_face_temporal_v4 import _window_vectors_for_items
+from wangxing_project.zijie_face_temporal_v5 import (
+    au_landmark_coverage,
+    naturalness_evidence_scores,
+    predict_quality_score,
+    score_zijie_face_temporal_v5,
+)
 
 
 WEB_DIR = PROJECT_ROOT / "web"
@@ -148,6 +155,21 @@ XIAOYUE_FACE_PROFILE_PATH = PROJECT_ROOT / (
     "outputs/xiaoyue/experiment_7x7_face_v2/"
     "xiaoyue_face_manifold_profile.json"
 )
+ZIJIE_FACE_PROFILE_PATH = PROJECT_ROOT / (
+    "outputs/zijie/face_temporal_v5/zijie_face_temporal_v5_profile.json"
+)
+ZIJIE_FACE_MODEL_PATH = PROJECT_ROOT / (
+    "outputs/zijie/face_temporal_v5/models/zijie_face_temporal_v5.pt"
+)
+ZIJIE_RANK_POLICY_PATH = PROJECT_ROOT / (
+    "outputs/zijie/face_temporal_v5/zijie_ai_quality_rank_policy.json"
+)
+ZIJIE_ACCEPTANCE_GATE_PATH = PROJECT_ROOT / (
+    "outputs/zijie/face_temporal_v5/acceptance_gate.json"
+)
+ZIJIE_EVIDENCE_PROFILE_PATH = PROJECT_ROOT / (
+    "outputs/zijie/face_temporal_v5/zijie_naturalness_evidence_profile.json"
+)
 
 
 def _resolve_web_forensics_profile() -> Path:
@@ -178,6 +200,7 @@ GENERATED_REPORT_FILES = {
     "result.json",
     "wangxing_au_result.json",
     "xiaoyue_face_result.json",
+    "zijie_face_result.json",
 }
 
 WEB_RUNS_DIR.mkdir(parents=True, exist_ok=True)
@@ -227,6 +250,7 @@ class JobUpdate(BaseModel):
     specialization_mode: Literal[
         "wangxing_v3",
         "xiaoyue_face_v2",
+        "zijie_face_v5",
     ] | None = None
 
 
@@ -530,6 +554,7 @@ def _result_downloads(job: dict[str, Any]) -> dict[str, str]:
         "result_json": "result.json",
         "wangxing_au_json": "wangxing_au_result.json",
         "xiaoyue_face_json": "xiaoyue_face_result.json",
+        "zijie_face_json": "zijie_face_result.json",
     }
     return {
         key: _file_url(run_id, run_dir / filename)
@@ -606,12 +631,16 @@ def _wangxing_au_status() -> dict[str, Any]:
 
 def _normalize_specialization_mode(value: str | None) -> str:
     normalized = str(value or "wangxing_v3").strip().lower()
-    if normalized not in {"wangxing_v3", "xiaoyue_face_v2"}:
+    if normalized not in {
+        "wangxing_v3",
+        "xiaoyue_face_v2",
+        "zijie_face_v5",
+    }:
         raise HTTPException(
             status_code=422,
             detail=(
-                "specialization_mode must be wangxing_v3 or "
-                "xiaoyue_face_v2."
+                "specialization_mode must be wangxing_v3, "
+                "xiaoyue_face_v2 or zijie_face_v5."
             ),
         )
     return normalized
@@ -631,6 +660,42 @@ def _xiaoyue_face_status() -> dict[str, Any]:
                 "请先运行晓月面部流形 V2 流水线，生成 "
                 "xiaoyue_face_manifold_profile.json。"
             )
+        ),
+    }
+
+
+def _zijie_face_status() -> dict[str, Any]:
+    required = {
+        "profile": ZIJIE_FACE_PROFILE_PATH,
+        "model": ZIJIE_FACE_MODEL_PATH,
+        "rank_policy": ZIJIE_RANK_POLICY_PATH,
+        "acceptance_gate": ZIJIE_ACCEPTANCE_GATE_PATH,
+        "evidence_profile": ZIJIE_EVIDENCE_PROFILE_PATH,
+    }
+    gate_passed = False
+    if ZIJIE_ACCEPTANCE_GATE_PATH.is_file():
+        try:
+            gate = json.loads(
+                ZIJIE_ACCEPTANCE_GATE_PATH.read_text(encoding="utf-8-sig")
+            )
+            gate_passed = bool(gate.get("all_passed"))
+        except (OSError, json.JSONDecodeError):
+            gate_passed = False
+    missing = [name for name, path in required.items() if not path.is_file()]
+    ready = not missing and gate_passed
+    return {
+        "ready": ready,
+        "mode": "zijie_face_v5",
+        "profile": str(ZIJIE_FACE_PROFILE_PATH),
+        "model": str(ZIJIE_FACE_MODEL_PATH),
+        "rank_policy": str(ZIJIE_RANK_POLICY_PATH),
+        "evidence_profile": str(ZIJIE_EVIDENCE_PROFILE_PATH),
+        "gate_passed": gate_passed,
+        "missing": missing,
+        "note": (
+            "字节演员 V5 面部动态、LTX 专家和质量排序模型已就绪。"
+            if ready
+            else "请先运行字节演员 V5 流水线并确保 acceptance gate 全部通过。"
         ),
     }
 
@@ -844,6 +909,192 @@ def _run_xiaoyue_face_assessment(
 
 
 @serialized_evaluation
+def _run_zijie_face_assessment(
+    *,
+    result_path: Path,
+    device: str,
+    run_dir: Path,
+) -> dict[str, Any]:
+    """Run the accepted ZiJie V5 cascade for one uploaded video."""
+    status = _zijie_face_status()
+    if not status["ready"]:
+        return {
+            "status": "unavailable",
+            "mode": "zijie_face_v5",
+            "reason": status["note"],
+        }
+
+    au_root = run_dir / "zijie_face_au"
+    cache_path = run_dir / "zijie_face_windows.npz"
+    failure_log = run_dir / "zijie_face_au_failures.json"
+    try:
+        au_device = resolve_policy(device).resolved_device
+    except Exception as exc:
+        return {
+            "status": "unavailable",
+            "mode": "zijie_face_v5",
+            "reason": f"字节演员推理设备不可用：{exc}",
+            "error_type": type(exc).__name__,
+        }
+    command = [
+        sys.executable,
+        str(PROJECT_ROOT / "scripts/au/extract_libreface_au.py"),
+        "--input",
+        str(result_path),
+        "--output-root",
+        str(au_root),
+        "--device",
+        str(au_device),
+        "--batch-size",
+        "32",
+        "--num-workers",
+        "0",
+        "--face-fallback",
+        "insightface",
+        "--force",
+        "--continue-on-error",
+        "--failure-log",
+        str(failure_log),
+    ]
+    environment = os.environ.copy()
+    environment["PYTHONIOENCODING"] = "utf-8"
+    environment["PYTHONUTF8"] = "1"
+    try:
+        subprocess.run(
+            command,
+            cwd=PROJECT_ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            env=environment,
+        )
+    except (subprocess.CalledProcessError, OSError) as exc:
+        diagnostics = ""
+        if isinstance(exc, subprocess.CalledProcessError):
+            diagnostics = "\n".join(
+                value for value in (exc.stdout, exc.stderr) if value
+            ).strip()
+        return {
+            "status": "unavailable",
+            "mode": "zijie_face_v5",
+            "reason": "字节演员 AU 提取失败，请检查人脸清晰度和视频格式。",
+            "error_type": type(exc).__name__,
+            "diagnostics": diagnostics[-2000:],
+        }
+
+    au_candidates = sorted(au_root.rglob("*.csv"))
+    if not au_candidates:
+        return {
+            "status": "unavailable",
+            "mode": "zijie_face_v5",
+            "reason": "字节演员 AU 提取未生成 CSV，请确认视频包含清晰正脸。",
+        }
+    au_path = au_candidates[0].resolve()
+    sample = {
+        "video": str(result_path.resolve()),
+        "au": str(au_path),
+        "label_generated": 0,
+        "sample_id": result_path.stem,
+        "group_id": "web_runtime",
+    }
+    manifest = {"pairs": {"test": {"real": [sample], "fake": []}}}
+    try:
+        profile = json.loads(
+            ZIJIE_FACE_PROFILE_PATH.read_text(encoding="utf-8-sig")
+        )
+        rank_policy = json.loads(
+            ZIJIE_RANK_POLICY_PATH.read_text(encoding="utf-8-sig")
+        )
+        evidence_profile = json.loads(
+            ZIJIE_EVIDENCE_PROFILE_PATH.read_text(encoding="utf-8-sig")
+        )
+        scored = score_zijie_face_temporal_v5(
+            manifest=manifest,
+            profile=profile,
+            cache_path=cache_path,
+        )
+        row = scored.get("rows", [{}])[0]
+        _, vectors = _window_vectors_for_items([sample], cache_path=cache_path)
+        quality_score = predict_quality_score(
+            vectors[0],
+            profile["base_profile"],
+            rank_policy,
+        )
+        evidence = naturalness_evidence_scores(vectors[0], evidence_profile)
+        coverage = au_landmark_coverage(au_path)
+    except Exception as exc:
+        return {
+            "status": "unavailable",
+            "mode": "zijie_face_v5",
+            "reason": f"字节演员面部动态评分失败：{exc}",
+            "error_type": type(exc).__name__,
+        }
+
+    prediction = str(row.get("prediction") or "generated")
+    real_probability = float(np.clip(row.get("real_probability", 0.0), 0.0, 1.0))
+    generated_probability = float(
+        np.clip(row.get("generated_probability", 1.0), 0.0, 1.0)
+    )
+    if prediction == "real":
+        display_score = 80.0 + 20.0 * real_probability
+        quality_display = None
+    else:
+        display_score = 5.0 + 74.0 * float(
+            np.clip((quality_score - 5.0) / 75.0, 0.0, 1.0)
+        )
+        quality_display = quality_score
+
+    base = row.get("base_v4") or {}
+    ltx = row.get("ltx_expert") or {}
+    chroma = row.get("face_chroma_gate") or {}
+    sources = {
+        "base_v4": float(base.get("raw_generated_probability") or 0.0)
+        - float(base.get("threshold_generated") or 0.0),
+        "ltx_expert": float(ltx.get("raw_generated_probability") or 0.0)
+        - float(ltx.get("threshold_generated") or 0.0),
+        "face_chroma_gate": (
+            float(chroma.get("saturation_floor") or 0.0)
+            - float(chroma.get("mean_saturation") or 0.0)
+        ),
+    }
+    decision_source = (
+        max(sources, key=sources.get)
+        if prediction == "generated"
+        else "all_experts_below_threshold"
+    )
+    return {
+        "schema_version": "zijie_face_temporal_v5_web_result",
+        "status": "available",
+        "mode": "zijie_face_v5",
+        "prediction": prediction,
+        "decision": prediction,
+        "display_score_0_100": float(np.clip(display_score, 0.0, 100.0)),
+        "real_probability": real_probability,
+        "generated_probability": generated_probability,
+        "ai_quality_score_0_100": quality_display,
+        "ai_quality_raw_score_0_100": quality_score,
+        **evidence,
+        **coverage,
+        "score_band": "real_80_100" if prediction == "real" else "ai_5_79",
+        "decision_source": decision_source,
+        "decision_margin": row.get("decision_margin"),
+        "base_v4": base,
+        "ltx_expert": ltx,
+        "face_chroma_gate": chroma,
+        "feature_policy": profile.get("feature_policy", {}),
+        "profile_path": str(ZIJIE_FACE_PROFILE_PATH),
+        "model_path": str(ZIJIE_FACE_MODEL_PATH),
+        "rank_policy_path": str(ZIJIE_RANK_POLICY_PATH),
+        "evidence_profile_path": str(ZIJIE_EVIDENCE_PROFILE_PATH),
+        "au_path": str(au_path),
+        "cache_path": str(cache_path),
+        "identity_gate_available": False,
+    }
+
+
+@serialized_evaluation
 def _run_wangxing_au_assessment(
     *,
     result_path: Path,
@@ -1043,6 +1294,12 @@ def _run_selected_specialization(
     normalized_mode = _normalize_specialization_mode(mode)
     if normalized_mode == "xiaoyue_face_v2":
         return _run_xiaoyue_face_assessment(
+            result_path=result_path,
+            device=device,
+            run_dir=run_dir,
+        )
+    if normalized_mode == "zijie_face_v5":
+        return _run_zijie_face_assessment(
             result_path=result_path,
             device=device,
             run_dir=run_dir,
@@ -1612,11 +1869,13 @@ def _estimate_job_seconds(job: dict[str, Any]) -> float:
     if files.get("reference_images"):
         estimate += min(8.0, 2.0 * len(files["reference_images"]))
     if bool(parameters.get("wangxing_au_enabled", False)):
-        estimate += (
-            24.0
-            if parameters.get("specialization_mode") == "xiaoyue_face_v2"
-            else 20.0
-        )
+        specialization_mode = parameters.get("specialization_mode")
+        if specialization_mode == "zijie_face_v5":
+            estimate += 30.0
+        elif specialization_mode == "xiaoyue_face_v2":
+            estimate += 24.0
+        else:
+            estimate += 20.0
     if parameters.get("prompt_text"):
         estimate += 4.0
     return round(max(1.0, estimate), 1)
@@ -2396,6 +2655,12 @@ def _result_payload(
             run_id,
             xiaoyue_face_path,
         )
+    zijie_face_path = _job_dir(run_id) / "zijie_face_result.json"
+    if zijie_face_path.is_file():
+        downloads["zijie_face_json"] = _file_url(
+            run_id,
+            zijie_face_path,
+        )
     payload = {
         "run_id": run_id,
         "result": _sanitize_public_result_for_v5_flags(result),
@@ -2659,6 +2924,34 @@ def _execute_job(job_id: str) -> None:
                     ),
                     encoding="utf-8",
                 )
+                result.pop("zijie_face", None)
+            elif selected_mode == "zijie_face_v5":
+                _update_job_state(
+                    job_id,
+                    stage="zijie_face",
+                    progress=0.72,
+                )
+                zijie_face = _run_zijie_face_assessment(
+                    result_path=result_path,
+                    device=str(parameters.get("device", "auto")),
+                    run_dir=_job_dir(job_id),
+                )
+                result["zijie_face"] = zijie_face
+                result.pop("xiaoyue_face", None)
+                result.pop("wangxing_v5", None)
+                result["wangxing_au"] = {
+                    "status": "not_applicable",
+                    "scope": "zijie_face_specialization_only",
+                    "reason": "字节演员专项已选择，未运行王兴专项。",
+                }
+                (_job_dir(job_id) / "zijie_face_result.json").write_text(
+                    json.dumps(
+                        _json_safe(zijie_face),
+                        ensure_ascii=False,
+                        indent=2,
+                    ),
+                    encoding="utf-8",
+                )
             else:
                 _update_job_state(
                     job_id,
@@ -2679,6 +2972,7 @@ def _execute_job(job_id: str) -> None:
                 )
                 result["wangxing_au"] = wangxing_au
                 result.pop("xiaoyue_face", None)
+                result.pop("zijie_face", None)
                 if isinstance(wangxing_au.get("wangxing_v5"), dict):
                     result["wangxing_v5"] = wangxing_au["wangxing_v5"]
                 else:
@@ -2702,6 +2996,7 @@ def _execute_job(job_id: str) -> None:
                 ),
             }
             result.pop("xiaoyue_face", None)
+            result.pop("zijie_face", None)
         result["web_run_id"] = job_id
         result["result_video"] = probe_video(result_path).to_dict()
         if gt_path:
@@ -3099,6 +3394,7 @@ def models() -> dict[str, Any]:
         "hardware_policy": policy.to_dict(),
         "wangxing_au": _wangxing_au_status(),
         "xiaoyue_face": _xiaoyue_face_status(),
+        "zijie_face": _zijie_face_status(),
         "wangxing_v5_flags": v5_runtime_flags(),
         "wangxing_v53_web_display": v53_web_display_status(),
     }
@@ -3374,10 +3670,14 @@ def update_job(
                 "frame_metrics.csv",
                 "wangxing_au_result.json",
                 "xiaoyue_face_result.json",
+                "zijie_face_result.json",
             ):
                 (run_dir / output_name).unlink(missing_ok=True)
             (run_dir / "xiaoyue_face_features.npz").unlink(missing_ok=True)
+            (run_dir / "zijie_face_windows.npz").unlink(missing_ok=True)
+            (run_dir / "zijie_face_windows_chroma.npz").unlink(missing_ok=True)
             shutil.rmtree(run_dir / "xiaoyue_face_au", ignore_errors=True)
+            shutil.rmtree(run_dir / "zijie_face_au", ignore_errors=True)
             shutil.rmtree(run_dir / "wangxing_au", ignore_errors=True)
             now = _now_iso()
             job.update(
@@ -3654,6 +3954,29 @@ def evaluate(
                     ),
                     encoding="utf-8",
                 )
+                result.pop("zijie_face", None)
+            elif selected_mode == "zijie_face_v5":
+                zijie_face = _run_zijie_face_assessment(
+                    result_path=result_path,
+                    device=device,
+                    run_dir=run_dir,
+                )
+                result["zijie_face"] = zijie_face
+                result.pop("xiaoyue_face", None)
+                result.pop("wangxing_v5", None)
+                result["wangxing_au"] = {
+                    "status": "not_applicable",
+                    "scope": "zijie_face_specialization_only",
+                    "reason": "字节演员专项已选择，未运行王兴专项。",
+                }
+                (run_dir / "zijie_face_result.json").write_text(
+                    json.dumps(
+                        _json_safe(zijie_face),
+                        ensure_ascii=False,
+                        indent=2,
+                    ),
+                    encoding="utf-8",
+                )
             else:
                 wangxing_au = _run_wangxing_au_assessment(
                     result_path=result_path,
@@ -3667,6 +3990,7 @@ def evaluate(
                 )
                 result["wangxing_au"] = wangxing_au
                 result.pop("xiaoyue_face", None)
+                result.pop("zijie_face", None)
                 if isinstance(wangxing_au.get("wangxing_v5"), dict):
                     result["wangxing_v5"] = wangxing_au["wangxing_v5"]
                 else:
@@ -3689,6 +4013,7 @@ def evaluate(
                 ),
             }
             result.pop("xiaoyue_face", None)
+            result.pop("zijie_face", None)
         result["web_run_id"] = run_id
         result["result_video"] = probe_video(result_path).to_dict()
         if uploaded["gt_video"]:

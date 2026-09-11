@@ -72,7 +72,26 @@ def _finite(value: Any, default: float = math.nan) -> float:
 def _sample_rows(
     rows: list[dict[str, str]],
     max_frames: int,
+    *,
+    window_start_seconds: float | None = None,
+    window_duration_seconds: float | None = None,
 ) -> list[dict[str, str]]:
+    if not rows:
+        return []
+    if (
+        window_start_seconds is not None
+        and window_duration_seconds is not None
+    ):
+        origin_ms = _finite(rows[0].get("frame_time_in_ms"), 0.0)
+        start_ms = origin_ms + max(0.0, float(window_start_seconds)) * 1000.0
+        end_ms = start_ms + max(0.0, float(window_duration_seconds)) * 1000.0
+        rows = [
+            row
+            for row in rows
+            if start_ms - 1e-3
+            <= _finite(row.get("frame_time_in_ms"), origin_ms)
+            <= end_ms + 1e-3
+        ]
     if not rows:
         return []
     if len(rows) <= max_frames:
@@ -194,10 +213,17 @@ def extract_face_sequences(
     au_path: str | Path,
     *,
     max_frames: int = MAX_FRAMES,
+    window_start_seconds: float | None = None,
+    window_duration_seconds: float | None = None,
 ) -> dict[str, Any]:
     """Extract face and mouth sequences without full-frame appearance input."""
     with Path(au_path).open("r", encoding="utf-8-sig", newline="") as handle:
-        rows = _sample_rows(list(csv.DictReader(handle)), max_frames)
+        rows = _sample_rows(
+            list(csv.DictReader(handle)),
+            max_frames,
+            window_start_seconds=window_start_seconds,
+            window_duration_seconds=window_duration_seconds,
+        )
     if len(rows) < 2:
         raise ValueError(f"AU sequence is too short: {au_path}")
 
@@ -206,6 +232,8 @@ def extract_face_sequences(
         au_path=au_path,
         max_frames=max_frames,
         frame_size=512,
+        window_start_seconds=window_start_seconds,
+        window_duration_seconds=window_duration_seconds,
     )
     crop_sequence = np.asarray(crop_sequence, dtype=np.float32).reshape(
         max_frames,
@@ -299,6 +327,9 @@ def build_feature_table(
     manifest: dict[str, Any],
     *,
     cache_path: str | Path | None = None,
+    max_frames: int = MAX_FRAMES,
+    window_start_seconds: float | None = None,
+    window_duration_seconds: float | None = None,
 ) -> dict[str, Any]:
     """Extract all manifest samples, reusing a signature-checked NPZ cache."""
     items = _all_items(manifest)
@@ -307,6 +338,16 @@ def build_feature_table(
         _file_signature(project_path(str(item["video"])).resolve())
         for item in items
     ]
+    extraction_config = {
+        "max_frames": int(max_frames),
+        "window_start_seconds": window_start_seconds,
+        "window_duration_seconds": window_duration_seconds,
+    }
+    config_json = json.dumps(
+        extraction_config,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
     cache = Path(cache_path).expanduser().resolve() if cache_path else None
     if cache is not None and cache.is_file():
         try:
@@ -315,10 +356,11 @@ def build_feature_table(
                 cached_signatures = [
                     str(value) for value in payload["signatures"].tolist()
                 ]
+                cached_config = str(payload["config_json"].item())
                 cached_indexes = {
                     path: index for index, path in enumerate(cached_paths)
                 }
-                cache_matches = all(
+                cache_matches = cached_config == config_json and all(
                     path in cached_indexes
                     and cached_signatures[cached_indexes[path]]
                     == signature
@@ -363,7 +405,13 @@ def build_feature_table(
     for index, item in enumerate(items, start=1):
         video = project_path(str(item["video"])).resolve()
         au = project_path(str(item["au"])).resolve()
-        features[str(video)] = extract_face_sequences(video, au)
+        features[str(video)] = extract_face_sequences(
+            video,
+            au,
+            max_frames=max_frames,
+            window_start_seconds=window_start_seconds,
+            window_duration_seconds=window_duration_seconds,
+        )
         if index % 5 == 0 or index == len(items):
             print(f"[face feature] {index}/{len(items)}", flush=True)
 
@@ -374,6 +422,7 @@ def build_feature_table(
             str(cache),
             paths=np.asarray(paths),
             signatures=np.asarray(signatures),
+            config_json=np.asarray(config_json),
             face=np.stack([item["face"] for item in ordered]),
             mouth=np.stack([item["mouth"] for item in ordered]),
             mouth_summary=np.stack(

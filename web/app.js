@@ -472,6 +472,7 @@ function renderSelectedSpecializationReadiness(payload) {
   const cardTitle = document.querySelector("#wangxing-au-title");
   const toggleTitle = document.querySelector(".au-toggle-copy strong");
   const toggleNote = document.querySelector(".au-toggle-copy small");
+  const wangxingOptions = document.querySelector(".wangxing-au-options");
   if (mode === "xiaoyue_face_v2") {
     if (cardEyebrow) cardEyebrow.textContent = "晓月专项";
     if (cardTitle) cardTitle.textContent = "面部与口型画像";
@@ -479,6 +480,14 @@ function renderSelectedSpecializationReadiness(payload) {
     if (toggleNote) {
       toggleNote.textContent =
         "重点关注 AU、Face Mesh、嘴部开合和局部面部时序，不使用背景主分数。";
+    }
+  } else if (mode === "zijie_face_v5") {
+    if (cardEyebrow) cardEyebrow.textContent = "字节演员专项";
+    if (cardTitle) cardTitle.textContent = "面部动态与生成质量";
+    if (toggleTitle) toggleTitle.textContent = "启用字节演员面部动态专项";
+    if (toggleNote) {
+      toggleNote.textContent =
+        "面向已确认的字节演员视频，使用 AU、Face Mesh、口型、局部光流和面部细节判断。";
     }
   } else {
     if (cardEyebrow) cardEyebrow.textContent = "王兴专项";
@@ -489,10 +498,13 @@ function renderSelectedSpecializationReadiness(payload) {
         "先判断身份，再判断表情与质感是否符合王兴专项证据。";
     }
   }
+  wangxingOptions?.classList.toggle("is-hidden", mode !== "wangxing_v3");
   renderWangxingReadiness(
     mode === "xiaoyue_face_v2"
       ? payload?.xiaoyue_face
-      : payload?.wangxing_au,
+      : mode === "zijie_face_v5"
+        ? payload?.zijie_face
+        : payload?.wangxing_au,
   );
 }
 
@@ -1269,8 +1281,110 @@ function renderXiaoyueFaceResultV2(payload) {
   `;
 }
 
+function renderZijieFaceResult(payload) {
+  if (!wangxingResult) return;
+  const available = payload?.status === "available";
+  wangxingResult.classList.remove("is-hidden");
+  if (!available) {
+    wangxingResult.innerHTML = `
+      <div class="wangxing-result-head">
+        <div>
+          <span class="wangxing-result-kicker">定向专项 / 字节演员</span>
+          <h3>字节演员面部动态与生成质量</h3>
+        </div>
+        <span class="wangxing-result-status review">不可用</span>
+      </div>
+      <p class="wangxing-result-note">${escapeHtml(
+        payload?.reason ?? "字节演员专项未生成结果。",
+      )}</p>
+    `;
+    return;
+  }
+
+  const realProbability = normalizeScore(payload?.real_probability);
+  const generatedProbability = normalizeScore(payload?.generated_probability);
+  const displayScore = Number(payload?.display_score_0_100);
+  const faceNaturalness = Number(payload?.face_naturalness_score_0_100);
+  const mouthNaturalness = Number(payload?.mouth_naturalness_score_0_100);
+  const faceCoverage = normalizeScore(payload?.face_coverage_0_1);
+  const mouthCoverage = normalizeScore(payload?.mouth_coverage_0_1);
+  const generated = payload?.prediction === "generated";
+  const businessOrdered =
+    payload?.display_policy?.mode === "business_prior_ordering";
+  const scoreText = Number.isFinite(displayScore)
+    ? `${displayScore.toFixed(1)}/100`
+    : "--";
+  const score100 = (value) =>
+    Number.isFinite(value) ? `${value.toFixed(1)}/100` : "--";
+  const percent = (value) =>
+    value === null ? "--" : `${(value * 100).toFixed(1)}%`;
+  const conclusion = generated ? "偏向 AI 生成" : "偏向真实拍摄";
+
+  wangxingResult.innerHTML = `
+    <div class="wangxing-result-head">
+      <div>
+        <span class="wangxing-result-kicker">定向专项 / 字节演员</span>
+        <h3>字节演员面部动态与生成质量</h3>
+      </div>
+      <div class="wangxing-specialization-score" aria-label="字节演员专项综合分">
+        <span>
+          <small>${businessOrdered ? "业务排序展示分" : "专项综合分"}</small>
+          <strong>${escapeHtml(scoreText)}</strong>
+        </span>
+      </div>
+    </div>
+    <div class="wangxing-specialization-conclusions">
+      <div class="wangxing-specialization-conclusion profile">
+        <span>面部与口型</span>
+        <strong>面部画像可用</strong>
+        <small>AU / Face Mesh / 口型 / 局部光流 / 面部细节。</small>
+      </div>
+      <div class="wangxing-specialization-conclusion authenticity ${
+        generated ? "is-review" : ""
+      }">
+        <span>真实性判断</span>
+        <strong>${escapeHtml(conclusion)}</strong>
+        <small>真人方向概率 ${escapeHtml(percent(realProbability))}</small>
+      </div>
+    </div>
+    <div class="wangxing-specialization-metrics">
+      <span>
+        <strong>${escapeHtml(percent(realProbability))}</strong>
+        <small>真人方向概率</small>
+      </span>
+      <span>
+        <strong>${escapeHtml(percent(generatedProbability))}</strong>
+        <small>AI 概率</small>
+      </span>
+      <span>
+        <strong>${escapeHtml(score100(faceNaturalness))}</strong>
+        <small>面部动态自然度</small>
+      </span>
+      <span>
+        <strong>${escapeHtml(score100(mouthNaturalness))}</strong>
+        <small>口型自然度</small>
+      </span>
+      <span>
+        <strong>${escapeHtml(percent(faceCoverage))}</strong>
+        <small>面部覆盖率</small>
+      </span>
+      <span>
+        <strong>${escapeHtml(percent(mouthCoverage))}</strong>
+        <small>口型覆盖率</small>
+      </span>
+    </div>
+    <p class="wangxing-result-note">
+      仅使用 AU、Face Mesh、口型、局部光流和面部细节；背景、全帧 RGB/HSV 与绝对亮度不参与专项分数。${businessOrdered ? "公共示例按实拍、H3、LTX2.5（1500）、LTX2.5（600）、Base 展示，真假结论不变。" : "面部与口型自然度越高越接近真人轨迹；覆盖率只表示关键点检出稳定性。"}
+    </p>
+  `;
+}
+
 function renderWangxingResult(result) {
   if (!wangxingResult) return;
+  if (result.zijie_face) {
+    renderZijieFaceResult(result.zijie_face);
+    return;
+  }
   if (result.xiaoyue_face) {
     renderXiaoyueFaceResultV2(result.xiaoyue_face);
     return;
@@ -2117,6 +2231,7 @@ function renderWangxingSpecializationDashboardV2(payload) {
 
 function renderDownloads(downloads) {
   const links = [
+    ["zijie_face_json", "zijie_face_result.json", "字节演员面部动态专项结果（JSON）"],
     ["xiaoyue_face_json", "xiaoyue_face_result.json", "晓月面部与口型专项结果（JSON）"],
     ["summary_csv", "summary.csv", "汇总报告：总分与五项评分"],
     ["frame_csv", "frame_metrics.csv", "逐帧指标明细"],
@@ -2285,6 +2400,7 @@ window.setInterval(loadModels, 60_000);
 window.queueMode = true;
 
 const queueStageLabels = {
+  zijie_face: ["models", "字节演员面部动态与生成质量评估"],
   xiaoyue_face: ["models", "晓月面部与口型专项评估"],
   queued: ["upload", "排队等待"],
   preparing: ["upload", "准备输入文件"],
